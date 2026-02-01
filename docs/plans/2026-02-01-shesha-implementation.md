@@ -6,7 +6,7 @@
 
 **Architecture:** Documents are loaded into a Docker sandbox as Python variables. An LLM generates code to explore them, sees output, and iterates until calling `FINAL("answer")`. Sub-LLM calls via `llm_query()` enable divide-and-conquer strategies.
 
-**Tech Stack:** Python 3.11+, LiteLLM, Docker, PyMuPDF, python-docx, BeautifulSoup4, pytest
+**Tech Stack:** Python 3.11+, LiteLLM, Docker, pdfplumber, python-docx, BeautifulSoup4, pytest
 
 ---
 
@@ -41,7 +41,7 @@ dependencies = [
     "litellm>=1.0",
     "docker>=7.0",
     "pyyaml>=6.0",
-    "pymupdf>=1.24",
+    "pdfplumber>=0.10",
     "python-docx>=1.0",
     "beautifulsoup4>=4.12",
 ]
@@ -1134,17 +1134,18 @@ class TestPdfParser:
         assert not parser.can_parse(Path("document.txt"))
         assert not parser.can_parse(Path("document.docx"))
 
-    @patch("shesha.parser.pdf.fitz")
-    def test_parse_pdf_extracts_text(self, mock_fitz: MagicMock, parser: PdfParser):
+    @patch("shesha.parser.pdf.pdfplumber")
+    def test_parse_pdf_extracts_text(self, mock_pdfplumber: MagicMock, parser: PdfParser):
         """PdfParser extracts text from PDF pages."""
-        # Mock PDF document
+        # Mock PDF page
         mock_page = MagicMock()
-        mock_page.get_text.return_value = "Page 1 content"
-        mock_doc = MagicMock()
-        mock_doc.__iter__ = lambda self: iter([mock_page])
-        mock_doc.__len__ = lambda self: 1
-        mock_fitz.open.return_value.__enter__ = lambda self: mock_doc
-        mock_fitz.open.return_value.__exit__ = lambda *args: None
+        mock_page.extract_text.return_value = "Page 1 content"
+        # Mock PDF object
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdf.__enter__ = lambda self: mock_pdf
+        mock_pdf.__exit__ = lambda *args: None
+        mock_pdfplumber.open.return_value = mock_pdf
 
         doc = parser.parse(Path("test.pdf"))
         assert doc.name == "test.pdf"
@@ -1163,17 +1164,17 @@ Expected: FAIL with "ModuleNotFoundError"
 Create `src/shesha/parser/pdf.py`:
 
 ```python
-"""PDF parser using PyMuPDF (fitz)."""
+"""PDF parser using pdfplumber."""
 
 from pathlib import Path
 
-import fitz  # PyMuPDF
+import pdfplumber
 
 from shesha.storage.base import ParsedDocument
 
 
 class PdfParser:
-    """Parser for PDF files using PyMuPDF."""
+    """Parser for PDF files using pdfplumber."""
 
     def can_parse(self, path: Path, mime_type: str | None = None) -> bool:
         """Check if this parser can handle the given file."""
@@ -1184,11 +1185,12 @@ class PdfParser:
         warnings: list[str] = []
         pages_text: list[str] = []
 
-        with fitz.open(path) as doc:
-            page_count = len(doc)
-            for page_num, page in enumerate(doc, 1):
-                text = page.get_text()
-                if text.strip():
+        with pdfplumber.open(path) as pdf:
+            page_count = len(pdf.pages)
+
+            for page_num, page in enumerate(pdf.pages, 1):
+                text = page.extract_text()
+                if text and text.strip():
                     pages_text.append(f"--- Page {page_num} ---\n{text}")
                 else:
                     warnings.append(f"Page {page_num} has no extractable text")
@@ -1214,7 +1216,7 @@ Expected: PASS
 
 ```bash
 git add src/shesha/parser/pdf.py tests/unit/parser/test_pdf.py
-git commit -m "feat(parser): implement PdfParser using PyMuPDF"
+git commit -m "feat(parser): implement PdfParser using pdfplumber"
 ```
 
 ---

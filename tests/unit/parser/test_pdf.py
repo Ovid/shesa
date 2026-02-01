@@ -25,17 +25,19 @@ class TestPdfParser:
         assert not parser.can_parse(Path("document.txt"))
         assert not parser.can_parse(Path("document.docx"))
 
-    @patch("shesha.parser.pdf.fitz")
-    def test_parse_pdf_extracts_text(self, mock_fitz: MagicMock, parser: PdfParser):
+    @patch("shesha.parser.pdf.pdfplumber")
+    def test_parse_pdf_extracts_text(self, mock_pdfplumber: MagicMock, parser: PdfParser):
         """PdfParser extracts text from PDF pages."""
-        # Mock PDF document
+        # Mock PDF page
         mock_page = MagicMock()
-        mock_page.get_text.return_value = "Page 1 content"
-        mock_doc = MagicMock()
-        mock_doc.__iter__ = lambda self: iter([mock_page])
-        mock_doc.__len__ = lambda self: 1
-        mock_fitz.open.return_value.__enter__ = lambda self: mock_doc
-        mock_fitz.open.return_value.__exit__ = lambda *args: None
+        mock_page.extract_text.return_value = "Page 1 content"
+
+        # Mock PDF object
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdf.__enter__ = lambda self: mock_pdf
+        mock_pdf.__exit__ = lambda *args: None
+        mock_pdfplumber.open.return_value = mock_pdf
 
         doc = parser.parse(Path("test.pdf"))
         assert doc.name == "test.pdf"

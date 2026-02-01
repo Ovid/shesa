@@ -346,7 +346,7 @@ Host ↔ Container communication via stdin/stdout JSON:
 | .txt, .md | Built-in | Read as UTF-8 |
 | .json | Built-in | Pretty-print for reading |
 | .csv | Built-in csv module | Convert to readable text |
-| .pdf | PyMuPDF (fitz) | Extracts text + layout |
+| .pdf | pdfplumber | Extracts text + tables |
 | .docx | python-docx | Paragraphs + tables |
 | .html | BeautifulSoup | Strip tags, keep text |
 | .py, .js, etc | Built-in | Read as text + language |
@@ -611,7 +611,7 @@ dependencies = [
     "litellm>=1.0",
     "docker>=7.0",
     "pyyaml>=6.0",
-    "pymupdf>=1.24",
+    "pdfplumber>=0.10",
     "python-docx>=1.0",
     "beautifulsoup4>=4.12",
 ]
