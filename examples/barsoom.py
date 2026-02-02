@@ -103,6 +103,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Show execution stats after each answer",
     )
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        help="Run a single query and exit (non-interactive mode)",
+    )
     return parser.parse_args(argv)
 
 
@@ -163,6 +168,36 @@ def main() -> None:
     if project is None:
         print("Error: Failed to load barsoom project.")
         sys.exit(1)
+
+    # Non-interactive mode with --prompt
+    if args.prompt:
+        try:
+            spinner = ThinkingSpinner()
+            spinner.start()
+            query_start_time = time.time()
+
+            def on_progress(step_type: StepType, iteration: int, content: str) -> None:
+                if args.verbose:
+                    spinner.stop()
+                    elapsed = time.time() - query_start_time
+                    print(format_progress(step_type, iteration, content, elapsed_seconds=elapsed))
+                    spinner.start()
+
+            result = project.query(args.prompt, on_progress=on_progress)
+            spinner.stop()
+
+            print(result.answer)
+            print()
+
+            if args.verbose:
+                print(format_stats(result.execution_time, result.token_usage, result.trace))
+                print()
+
+        except Exception as e:
+            spinner.stop()
+            print(f"Error: {e}")
+            sys.exit(1)
+        return
 
     print()
     print('Ask questions about the Barsoom series. Type "quit" or "exit" to leave.')

@@ -88,8 +88,20 @@ def main() -> None:
         def __init__(self, var_name: str):
             self.var_name = var_name
 
-    NAMESPACE["FINAL"] = lambda answer: FinalAnswer(answer)
-    NAMESPACE["FINAL_VAR"] = lambda var_name: FinalVar(var_name)
+    def make_final(answer: str) -> FinalAnswer:
+        """Create FinalAnswer and register it for detection."""
+        fa = FinalAnswer(answer)
+        NAMESPACE["_return_value_"] = fa
+        return fa
+
+    def make_final_var(var_name: str) -> FinalVar:
+        """Create FinalVar and register it for detection."""
+        fv = FinalVar(var_name)
+        NAMESPACE["_return_value_"] = fv
+        return fv
+
+    NAMESPACE["FINAL"] = make_final
+    NAMESPACE["FINAL_VAR"] = make_final_var
     NAMESPACE["FinalAnswer"] = FinalAnswer
     NAMESPACE["FinalVar"] = FinalVar
 

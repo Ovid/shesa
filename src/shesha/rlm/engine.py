@@ -172,12 +172,15 @@ class RLMEngine:
                 # Extract code blocks
                 code_blocks = extract_code_blocks(response.content)
                 if not code_blocks:
-                    # No code - add assistant response and continue
+                    # No code - add assistant response and prompt for code
                     messages.append({"role": "assistant", "content": response.content})
                     messages.append(
                         {
                             "role": "user",
-                            "content": "Please write Python code to explore the documents.",
+                            "content": (
+                                "Your response must contain a ```repl block with Python code. "
+                                "Write code now to explore the documents."
+                            ),
                         }
                     )
                     continue
