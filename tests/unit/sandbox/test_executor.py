@@ -162,7 +162,7 @@ class TestConnectionClose:
 
         # Simulate: first recv gets 5 bytes (< 8), second recv gets connection close
         # This hits the bug path at lines 174-180
-        chunks = [b'hello', b""]  # 5 bytes, then close
+        chunks = [b"hello", b""]  # 5 bytes, then close
         chunk_iter = iter(chunks)
 
         def mock_recv(size):
