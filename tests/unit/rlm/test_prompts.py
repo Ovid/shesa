@@ -45,3 +45,27 @@ def test_subcall_prompt_wraps_content():
     assert "</untrusted_document_content>" in prompt
     assert "Document content here" in prompt
     assert "Summarize this" in prompt
+
+
+def test_system_prompt_contains_sub_llm_capacity_hint():
+    """System prompt tells LLM about sub-LLM's large context capacity."""
+    prompt = build_system_prompt(
+        doc_count=3,
+        total_chars=100000,
+        doc_names=["a.txt", "b.txt", "c.txt"],
+    )
+    # Must mention ~500K capacity to prevent excessive chunking
+    assert "500K" in prompt or "500k" in prompt
+
+
+def test_system_prompt_contains_batching_guidance():
+    """System prompt encourages batching documents to minimize API calls."""
+    prompt = build_system_prompt(
+        doc_count=3,
+        total_chars=100000,
+        doc_names=["a.txt", "b.txt", "c.txt"],
+    )
+    prompt_lower = prompt.lower()
+    # Must encourage batching/efficiency
+    assert "batch" in prompt_lower or "minimize" in prompt_lower
+    assert "api call" in prompt_lower or "llm_query" in prompt_lower
