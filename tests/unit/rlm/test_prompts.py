@@ -83,3 +83,22 @@ def test_subcall_prompt_no_size_limit():
     # Content should be passed through completely
     assert large_content in prompt
     assert "<untrusted_document_content>" in prompt
+
+
+def test_system_prompt_requires_document_grounding():
+    """System prompt instructs LLM to answer only from documents, not own knowledge."""
+    prompt = build_system_prompt(
+        doc_count=3,
+        total_chars=10000,
+        doc_names=["a.txt", "b.txt", "c.txt"],
+    )
+    prompt_lower = prompt.lower()
+
+    # Must instruct to use only documents
+    assert "only" in prompt_lower and "document" in prompt_lower
+
+    # Must instruct to not use own knowledge
+    assert "own knowledge" in prompt_lower or "prior knowledge" in prompt_lower
+
+    # Must instruct what to do if info not found
+    assert "not found" in prompt_lower or "not contain" in prompt_lower
