@@ -112,7 +112,8 @@ def should_warn_history_size(history: list[tuple[str, str]]) -> bool:
     """Check if history is large enough to warrant a warning."""
     if len(history) >= HISTORY_WARN_EXCHANGES:
         return True
-    return False
+    total_chars = sum(len(q) + len(a) for q, a in history)
+    return total_chars >= HISTORY_WARN_CHARS
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

@@ -243,3 +243,22 @@ class TestHistoryWarning:
         # At limit - warn
         history.append(("q", "a"))
         assert should_warn_history_size(history) is True
+
+    def test_should_warn_at_char_limit(self) -> None:
+        """Warn when character count reaches threshold."""
+        from examples.barsoom import HISTORY_WARN_CHARS, should_warn_history_size
+
+        # Create history with large content but few exchanges
+        large_answer = "x" * (HISTORY_WARN_CHARS - 100)
+        history = [("short question", large_answer)]
+        assert should_warn_history_size(history) is False
+
+        # Add more to exceed limit
+        history.append(("another", "x" * 200))
+        assert should_warn_history_size(history) is True
+
+    def test_should_warn_empty_history(self) -> None:
+        """Empty history should not warn."""
+        from examples.barsoom import should_warn_history_size
+
+        assert should_warn_history_size([]) is False
