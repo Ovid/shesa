@@ -252,6 +252,9 @@ def main() -> None:
     print('Ask questions about the Barsoom series. Type "quit" or "exit" to leave.')
     print()
 
+    # Conversation history for follow-up questions
+    history: list[tuple[str, str]] = []
+
     # Interactive loop
     while True:
         try:
@@ -267,6 +270,17 @@ def main() -> None:
             print("Goodbye!")
             break
 
+        # Check if history is getting large
+        if should_warn_history_size(history):
+            print(f"Warning: Conversation history is large ({len(history)} exchanges).")
+            try:
+                clear = input("Clear history? (y/n): ").strip().lower()
+                if clear == "y":
+                    history.clear()
+                    print("History cleared.")
+            except (EOFError, KeyboardInterrupt):
+                pass  # User cancelled, continue with existing history
+
         try:
             spinner = ThinkingSpinner()
             spinner.start()
@@ -280,11 +294,17 @@ def main() -> None:
                     print(format_progress(step_type, iteration, content, elapsed_seconds=elapsed))
                     spinner.start()
 
-            result = project.query(user_input, on_progress=on_progress)
+            # Prepend conversation history for context
+            prefix = format_history_prefix(history)
+            full_question = f"{prefix}{user_input}" if prefix else user_input
+            result = project.query(full_question, on_progress=on_progress)
             spinner.stop()
 
             print(result.answer)
             print()
+
+            # Store exchange in history
+            history.append((user_input, result.answer))
 
             if args.verbose:
                 print(format_stats(result.execution_time, result.token_usage, result.trace))
