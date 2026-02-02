@@ -186,3 +186,14 @@ class TestProgressFormatting:
         output = format_progress(StepType.CODE_GENERATED, iteration=0, content="code")
         assert "[Iteration 1]" in output
         assert "s]" not in output.split("[Iteration")[0]  # No time before Iteration
+
+
+class TestHistoryFormatting:
+    """Test conversation history formatting."""
+
+    def test_format_history_prefix_empty(self) -> None:
+        """Empty history returns empty string."""
+        from examples.barsoom import format_history_prefix
+
+        result = format_history_prefix([])
+        assert result == ""

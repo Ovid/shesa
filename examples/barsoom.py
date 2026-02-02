@@ -90,6 +90,13 @@ def format_stats(execution_time: float, token_usage: TokenUsage, trace: Trace) -
     return "\n".join(lines)
 
 
+def format_history_prefix(history: list[tuple[str, str]]) -> str:
+    """Format conversation history as context for a follow-up question."""
+    if not history:
+        return ""
+    return ""  # Minimal implementation
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Explore the Barsoom novels using Shesha RLM")
