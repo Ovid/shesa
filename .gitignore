@@ -34,3 +34,5 @@ HANDOFF.md
 # Development
 scratch/
 .env
+rlm-minimal
+barsoom_data/
