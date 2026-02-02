@@ -198,6 +198,10 @@ ruff format src tests
 make all
 ```
 
+## Development Setup
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for local tooling and GitHub Copilot setup.
+
 ## Project Structure
 
 ```
