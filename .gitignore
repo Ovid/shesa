@@ -25,6 +25,7 @@ ENV/
 .coverage
 htmlcov/
 .mypy_cache/
+uv.lock
 
 # OS
 .DS_Store
