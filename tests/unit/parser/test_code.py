@@ -93,3 +93,33 @@ class TestCodeParser:
         doc = parser.parse(test_file)
         assert "caf" in doc.content  # Should decode successfully
         assert doc.metadata["encoding"] in ["latin-1", "ISO-8859-1", "Windows-1252"]
+
+    def test_can_parse_extensionless_with_shebang(self, parser: CodeParser, tmp_path: Path):
+        """CodeParser can parse extensionless files with shebangs."""
+        test_file = tmp_path / "myscript"
+        test_file.write_text("#!/bin/bash\necho hello")
+
+        assert parser.can_parse(test_file)
+
+    def test_parse_bash_shebang(self, parser: CodeParser, tmp_path: Path):
+        """CodeParser detects bash from shebang."""
+        test_file = tmp_path / "myscript"
+        test_file.write_text("#!/bin/bash\necho hello")
+
+        doc = parser.parse(test_file)
+        assert doc.metadata["language"] == "bash"
+
+    def test_parse_python_env_shebang(self, parser: CodeParser, tmp_path: Path):
+        """CodeParser detects python from env shebang."""
+        test_file = tmp_path / "myscript"
+        test_file.write_text("#!/usr/bin/env python3\nprint('hello')")
+
+        doc = parser.parse(test_file)
+        assert doc.metadata["language"] == "python"
+
+    def test_cannot_parse_binary_extensionless(self, parser: CodeParser, tmp_path: Path):
+        """CodeParser rejects binary extensionless files."""
+        test_file = tmp_path / "binary"
+        test_file.write_bytes(b"\x00\x01\x02\x03\xff\xfe")
+
+        assert not parser.can_parse(test_file)

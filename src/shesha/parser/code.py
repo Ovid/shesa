@@ -7,7 +7,7 @@ import chardet
 from shesha.models import ParsedDocument
 
 # Map extensions to language names
-EXTENSION_TO_LANGUAGE = {
+EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".py": "python",
     ".js": "javascript",
     ".ts": "typescript",
@@ -34,13 +34,59 @@ EXTENSION_TO_LANGUAGE = {
     ".R": "r",
 }
 
+# Map shebang interpreters to language names
+SHEBANG_TO_LANGUAGE: dict[str, str] = {
+    "bash": "bash",
+    "sh": "bash",
+    "zsh": "zsh",
+    "python": "python",
+    "python3": "python",
+    "ruby": "ruby",
+    "perl": "perl",
+    "node": "javascript",
+    "php": "php",
+}
+
 
 class CodeParser:
     """Parser for source code files."""
 
     def can_parse(self, path: Path, mime_type: str | None = None) -> bool:
         """Check if this parser can handle the given file."""
-        return path.suffix.lower() in EXTENSION_TO_LANGUAGE
+        if path.suffix.lower() in EXTENSION_TO_LANGUAGE:
+            return True
+        if not path.suffix:
+            return self._has_valid_shebang(path)
+        return False
+
+    def _has_valid_shebang(self, path: Path) -> bool:
+        """Check if file has a valid shebang line (and is not binary)."""
+        try:
+            with open(path, "rb") as f:
+                header = f.read(512)
+            # Check for null bytes (binary file indicator)
+            if b"\x00" in header:
+                return False
+            first_line = header.split(b"\n")[0].decode("utf-8", errors="ignore")
+            if first_line.startswith("#!"):
+                return self._parse_shebang(first_line) is not None
+            return False
+        except OSError:
+            return False
+
+    def _parse_shebang(self, shebang_line: str) -> str | None:
+        """Extract language from shebang line."""
+        parts = shebang_line[2:].strip().split()
+        if not parts:
+            return None
+        # Handle /usr/bin/env style shebangs
+        if parts[0].endswith("/env") and len(parts) > 1:
+            interpreter = parts[1]
+        else:
+            interpreter = parts[0].split("/")[-1]
+        # Strip version numbers (e.g., python3 -> python)
+        base_interpreter = interpreter.rstrip("0123456789.")
+        return SHEBANG_TO_LANGUAGE.get(base_interpreter)
 
     def parse(
         self,
@@ -57,7 +103,13 @@ class CodeParser:
         """
         content, encoding = self._read_with_encoding_detection(path)
         ext = path.suffix.lower()
-        language = EXTENSION_TO_LANGUAGE.get(ext, "unknown")
+        language = EXTENSION_TO_LANGUAGE.get(ext)
+        if language is None:
+            # Try shebang detection for extensionless files
+            first_line = content.split("\n")[0] if content else ""
+            if first_line.startswith("#!"):
+                language = self._parse_shebang(first_line)
+            language = language or "unknown"
 
         if include_line_numbers:
             display_path = file_path or path.name
