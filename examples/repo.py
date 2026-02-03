@@ -49,9 +49,7 @@ if TYPE_CHECKING:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Explore git repositories using Shesha RLM"
-    )
+    parser = argparse.ArgumentParser(description="Explore git repositories using Shesha RLM")
     parser.add_argument(
         "repo",
         nargs="?",
