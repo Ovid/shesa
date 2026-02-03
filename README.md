@@ -428,7 +428,7 @@ See [SECURITY.md](SECURITY.md) for details on:
 - Docker sandbox isolation
 - Network policies
 
-## Who is Shesa?
+## Who is Shesha?
 
 [Shesha](https://en.wikipedia.org/wiki/Shesha), also known as Ananta, is a Hindu deity who embodies the concept of infinity and the eternal cycle of existence. He is famously depicted with a thousand heads that support the planets of the universe, representing a foundational stability that allows for the maintenance of vast, complex structures. As the celestial couch of the preserver deity Vishnu, he remains constant even as the world undergoes cycles of creation and dissolution, mirroring the ability of recursive models to manage essentially unbounded-length reasoning chains.
 
