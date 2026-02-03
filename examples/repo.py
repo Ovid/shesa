@@ -4,9 +4,36 @@
 from __future__ import annotations
 
 import argparse
+import time
 from typing import TYPE_CHECKING
 
+from shesha.rlm.trace import StepType
+
+# Support both running as script and importing as module
+if __name__ == "__main__":
+    from script_utils import (
+        ThinkingSpinner,
+        format_history_prefix,
+        format_progress,
+        format_stats,
+        format_thought_time,
+        is_exit_command,
+        should_warn_history_size,
+    )
+else:
+    from .script_utils import (
+        ThinkingSpinner,
+        format_history_prefix,
+        format_progress,
+        format_stats,
+        format_thought_time,
+        is_exit_command,
+        should_warn_history_size,
+    )
+
 if TYPE_CHECKING:
+    from shesha.storage.project import Project
+
     from shesha import Shesha
     from shesha.models import RepoProjectResult
 
@@ -82,6 +109,73 @@ def handle_updates(result: RepoProjectResult, auto_update: bool) -> RepoProjectR
         return result.apply_updates()
 
     return result
+
+
+def run_interactive_loop(project: Project, verbose: bool) -> None:
+    """Run the interactive question-answer loop."""
+    print()
+    print('Ask questions about the codebase. Type "quit" or "exit" to leave.')
+    print()
+
+    history: list[tuple[str, str]] = []
+
+    while True:
+        try:
+            user_input = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nGoodbye!")
+            break
+
+        if not user_input:
+            continue
+
+        if is_exit_command(user_input):
+            print("Goodbye!")
+            break
+
+        if should_warn_history_size(history):
+            print(f"Warning: Conversation history is large ({len(history)} exchanges).")
+            try:
+                clear = input("Clear history? (y/n): ").strip().lower()
+                if clear == "y":
+                    history.clear()
+                    print("History cleared.")
+            except (EOFError, KeyboardInterrupt):
+                pass  # User cancelled, continue with existing history
+
+        try:
+            spinner = ThinkingSpinner()
+            spinner.start()
+            query_start_time = time.time()
+
+            def on_progress(step_type: StepType, iteration: int, content: str) -> None:
+                if verbose:
+                    spinner.stop()
+                    elapsed = time.time() - query_start_time
+                    print(format_progress(step_type, iteration, content, elapsed_seconds=elapsed))
+                    spinner.start()
+
+            prefix = format_history_prefix(history)
+            full_question = f"{prefix}{user_input}" if prefix else user_input
+            result = project.query(full_question, on_progress=on_progress)
+            spinner.stop()
+
+            elapsed = time.time() - query_start_time
+            print(format_thought_time(elapsed))
+            print(result.answer)
+            print()
+
+            history.append((user_input, result.answer))
+
+            if verbose:
+                print(format_stats(result.execution_time, result.token_usage, result.trace))
+                print()
+
+        except Exception as e:
+            spinner.stop()
+            print(f"Error: {e}")
+            print('Try again or type "quit" to exit.')
+            print()
 
 
 if __name__ == "__main__":

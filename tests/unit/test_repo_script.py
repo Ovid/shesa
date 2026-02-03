@@ -188,3 +188,62 @@ class TestHandleUpdates:
 
         mock_result.apply_updates.assert_not_called()
         assert result is mock_result
+
+
+class TestRunInteractiveLoop:
+    """Tests for run_interactive_loop function."""
+
+    def test_quit_exits_loop(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Typing 'quit' should exit the loop."""
+        from examples.repo import run_interactive_loop
+
+        mock_project = MagicMock()
+
+        with patch("builtins.input", return_value="quit"):
+            run_interactive_loop(mock_project, verbose=False)
+
+        captured = capsys.readouterr()
+        assert "Goodbye!" in captured.out
+        mock_project.query.assert_not_called()
+
+    def test_exit_exits_loop(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Typing 'exit' should exit the loop."""
+        from examples.repo import run_interactive_loop
+
+        mock_project = MagicMock()
+
+        with patch("builtins.input", return_value="exit"):
+            run_interactive_loop(mock_project, verbose=False)
+
+        captured = capsys.readouterr()
+        assert "Goodbye!" in captured.out
+
+    def test_empty_input_continues(self) -> None:
+        """Empty input should continue loop without query."""
+        from examples.repo import run_interactive_loop
+
+        mock_project = MagicMock()
+
+        # First empty, then quit
+        with patch("builtins.input", side_effect=["", "quit"]):
+            run_interactive_loop(mock_project, verbose=False)
+
+        mock_project.query.assert_not_called()
+
+    def test_query_is_made(self) -> None:
+        """Questions should trigger project.query."""
+        from examples.repo import run_interactive_loop
+
+        mock_result = MagicMock()
+        mock_result.answer = "The answer is 42"
+        mock_result.execution_time = 1.5
+        mock_result.token_usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        mock_result.trace = MagicMock(steps=[])
+
+        mock_project = MagicMock()
+        mock_project.query.return_value = mock_result
+
+        with patch("builtins.input", side_effect=["What is X?", "quit"]):
+            run_interactive_loop(mock_project, verbose=False)
+
+        mock_project.query.assert_called_once()
