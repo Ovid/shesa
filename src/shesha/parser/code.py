@@ -118,6 +118,7 @@ class CodeParser:
         return ParsedDocument(
             name=path.name,
             content=content,
+            # For extensionless files, format is empty - language is in metadata
             format=ext.lstrip("."),
             metadata={"language": language, "encoding": encoding},
             char_count=len(content),
