@@ -58,9 +58,7 @@ class TestLLMClientRetry:
         """Client retries on rate limit."""
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="response"))]
-        mock_response.usage = MagicMock(
-            prompt_tokens=10, completion_tokens=5, total_tokens=15
-        )
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
 
         # Import after patching
         from litellm.exceptions import RateLimitError as LiteLLMRateLimit
@@ -84,9 +82,7 @@ class TestLLMClientRetry:
         """Client doesn't retry on auth error (4xx)."""
         from litellm.exceptions import AuthenticationError
 
-        mock_litellm.completion.side_effect = AuthenticationError(
-            "invalid key", "model", None
-        )
+        mock_litellm.completion.side_effect = AuthenticationError("invalid key", "model", None)
 
         client = LLMClient(
             model="test-model",

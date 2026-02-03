@@ -118,7 +118,7 @@ class TestSpecialCharacters:
             "\x00null byte",
             "\n\n\nmany newlines\n\n\n",
             "unicode: \u2028\u2029",  # Line/paragraph separators
-            "emoji: \U0001F600",
+            "emoji: \U0001f600",
             "rtl: \u200f\u200etext",  # RTL/LTR marks
         ],
     )

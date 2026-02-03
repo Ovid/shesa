@@ -94,7 +94,10 @@ class TestShesha:
     def test_stop_after_restart_stops_pool(self, tmp_path: Path):
         """Stop after start-stop-start cycle should stop the pool."""
         mock_pool = MagicMock()
-        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool", return_value=mock_pool):
+        with (
+            patch("shesha.shesha.docker"),
+            patch("shesha.shesha.ContainerPool", return_value=mock_pool),
+        ):
             shesha = Shesha(model="test-model", storage_path=tmp_path)
 
             # First cycle: start then stop

@@ -1,6 +1,6 @@
 """Security utilities for Shesha."""
 
-from shesha.security.containers import ContainerSecurityConfig, DEFAULT_SECURITY
+from shesha.security.containers import DEFAULT_SECURITY, ContainerSecurityConfig
 from shesha.security.paths import PathTraversalError, safe_path, sanitize_filename
 from shesha.security.redaction import RedactionConfig, redact
 
