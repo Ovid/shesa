@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Shared utilities for Shesha example scripts."""
 
+import sys
 import threading
 import time
 
@@ -106,3 +107,24 @@ def should_warn_history_size(history: list[tuple[str, str]]) -> bool:
         return True
     total_chars = sum(len(q) + len(a) for q, a in history)
     return total_chars >= HISTORY_WARN_CHARS
+
+
+def install_urllib3_cleanup_hook() -> None:
+    """Install hook to suppress harmless urllib3 cleanup errors during shutdown.
+
+    When Python exits, objects are garbage collected in arbitrary order. If the
+    underlying file handle gets closed before urllib3's HTTPResponse finalizer
+    runs, it raises "ValueError: I/O operation on closed file". This is harmless
+    (the connection is being closed anyway) but produces ugly output. We suppress
+    only this specific error while letting other unraisable exceptions through.
+    """
+    original_hook = sys.unraisablehook
+
+    def suppress_urllib3_error(unraisable: sys.UnraisableHookArgs) -> None:
+        if unraisable.exc_type is ValueError and "I/O operation on closed file" in str(
+            unraisable.exc_value
+        ):
+            return
+        original_hook(unraisable)
+
+    sys.unraisablehook = suppress_urllib3_error

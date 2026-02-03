@@ -1,5 +1,7 @@
 """Tests for script_utils shared utilities."""
 
+import sys
+
 from shesha.rlm.trace import StepType, TokenUsage, Trace
 
 
@@ -161,3 +163,20 @@ class TestShouldWarnHistorySize:
         large_text = "x" * 50000
         history = [("q", large_text)]
         assert should_warn_history_size(history)
+
+
+class TestInstallUrllib3CleanupHook:
+    """Tests for install_urllib3_cleanup_hook function."""
+
+    def test_hook_installed(self) -> None:
+        """Hook should be installed on sys.unraisablehook."""
+        from examples.script_utils import install_urllib3_cleanup_hook
+
+        original = sys.unraisablehook
+        install_urllib3_cleanup_hook()
+
+        # Hook should be changed
+        assert sys.unraisablehook != original
+
+        # Restore original
+        sys.unraisablehook = original
