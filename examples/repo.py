@@ -74,7 +74,7 @@ def handle_updates(result: RepoProjectResult, auto_update: bool) -> RepoProjectR
         print("Applying updates...")
         return result.apply_updates()
 
-    print(f"Updates available for {result.project.name}.")
+    print(f"Updates available for {result.project.project_id}.")
     response = input("Apply updates? (y/n): ").strip().lower()
 
     if response == "y":

@@ -166,7 +166,7 @@ class TestHandleUpdates:
         updated_result = MagicMock()
         mock_result = MagicMock()
         mock_result.status = "updates_available"
-        mock_result.project.name = "test-repo"
+        mock_result.project.project_id = "test-repo"
         mock_result.apply_updates.return_value = updated_result
 
         with patch("builtins.input", return_value="y"):
@@ -181,7 +181,7 @@ class TestHandleUpdates:
 
         mock_result = MagicMock()
         mock_result.status = "updates_available"
-        mock_result.project.name = "test-repo"
+        mock_result.project.project_id = "test-repo"
 
         with patch("builtins.input", return_value="n"):
             result = handle_updates(mock_result, auto_update=False)
