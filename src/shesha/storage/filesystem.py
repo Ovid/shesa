@@ -10,6 +10,7 @@ from shesha.exceptions import (
     ProjectNotFoundError,
 )
 from shesha.models import ParsedDocument
+from shesha.security.paths import safe_path
 
 
 class FilesystemStorage:
@@ -24,7 +25,7 @@ class FilesystemStorage:
 
     def _project_path(self, project_id: str) -> Path:
         """Get the path for a project directory."""
-        return self.projects_dir / project_id
+        return safe_path(self.projects_dir, project_id)
 
     def create_project(self, project_id: str) -> None:
         """Create a new project."""
@@ -67,7 +68,7 @@ class FilesystemStorage:
         if not self.project_exists(project_id):
             raise ProjectNotFoundError(project_id)
         docs_dir = self._project_path(project_id) / "docs"
-        doc_path = docs_dir / f"{doc.name}.json"
+        doc_path = safe_path(docs_dir, f"{doc.name}.json")
         # Create parent directories for nested paths (e.g., src/main.py.json)
         doc_path.parent.mkdir(parents=True, exist_ok=True)
         doc_data = {
@@ -90,7 +91,8 @@ class FilesystemStorage:
         """Retrieve a document by name."""
         if not self.project_exists(project_id):
             raise ProjectNotFoundError(project_id)
-        doc_path = self._project_path(project_id) / "docs" / f"{doc_name}.json"
+        docs_dir = self._project_path(project_id) / "docs"
+        doc_path = safe_path(docs_dir, f"{doc_name}.json")
         if not doc_path.exists():
             raise DocumentNotFoundError(project_id, doc_name)
         doc_data = json.loads(doc_path.read_text())
@@ -115,7 +117,8 @@ class FilesystemStorage:
         """Delete a document from a project."""
         if not self.project_exists(project_id):
             raise ProjectNotFoundError(project_id)
-        doc_path = self._project_path(project_id) / "docs" / f"{doc_name}.json"
+        docs_dir = self._project_path(project_id) / "docs"
+        doc_path = safe_path(docs_dir, f"{doc_name}.json")
         if doc_path.exists():
             doc_path.unlink()
 

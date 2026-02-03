@@ -10,6 +10,7 @@ from shesha.exceptions import (
     ProjectNotFoundError,
 )
 from shesha.models import ParsedDocument
+from shesha.security.paths import PathTraversalError
 from shesha.storage.filesystem import FilesystemStorage
 
 
@@ -136,3 +137,28 @@ class TestDocumentOperations:
         )
         with pytest.raises(ProjectNotFoundError):
             storage.store_document("no-such-project", doc)
+
+
+class TestPathTraversalProtection:
+    """Tests for path traversal protection in storage."""
+
+    def test_project_id_traversal_blocked(self, tmp_path: Path) -> None:
+        """Project ID with traversal is blocked."""
+        storage = FilesystemStorage(tmp_path)
+        with pytest.raises(PathTraversalError):
+            storage.create_project("../escape")
+
+    def test_document_name_traversal_blocked(self, tmp_path: Path) -> None:
+        """Document name with traversal is blocked."""
+        storage = FilesystemStorage(tmp_path)
+        storage.create_project("test-project")
+        doc = ParsedDocument(
+            name="../../etc/passwd",
+            content="malicious",
+            format="txt",
+            metadata={},
+            char_count=9,
+            parse_warnings=[],
+        )
+        with pytest.raises(PathTraversalError):
+            storage.store_document("test-project", doc)
