@@ -9,6 +9,8 @@ import docker
 from docker.errors import DockerException
 from docker.models.containers import Container
 
+from shesha.security.containers import DEFAULT_SECURITY, ContainerSecurityConfig
+
 
 @dataclass
 class ExecutionResult:
@@ -36,12 +38,14 @@ class ContainerExecutor:
         memory_limit: str = "512m",
         cpu_count: int = 1,
         llm_query_handler: LLMQueryHandler | None = None,
+        security: ContainerSecurityConfig = DEFAULT_SECURITY,
     ) -> None:
         """Initialize executor with container settings."""
         self.image = image
         self.memory_limit = memory_limit
         self.cpu_count = cpu_count
         self.llm_query_handler = llm_query_handler
+        self.security = security
         self._client: docker.DockerClient | None = None
         self._container: Container | None = None
         self._socket: Any = None
@@ -67,7 +71,7 @@ class ContainerExecutor:
             tty=False,
             mem_limit=self.memory_limit,
             cpu_count=self.cpu_count,
-            network_disabled=True,  # No network - llm_query goes through host
+            **self.security.to_docker_kwargs(),
         )
         # Attach to container for bidirectional communication
         self._socket = self._container.attach_socket(params={"stdin": 1, "stdout": 1, "stream": 1})

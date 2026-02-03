@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from shesha.sandbox.executor import ContainerExecutor, ExecutionResult
+from shesha.security.containers import ContainerSecurityConfig
 
 
 def make_docker_frame(data: bytes, stream_type: int = 1) -> bytes:
@@ -346,3 +347,44 @@ class TestContainerExecutor:
         error_msg = str(exc_info.value)
         assert "Docker" in error_msg
         assert "not running" in error_msg or "start" in error_msg.lower()
+
+
+class TestContainerSecurityIntegration:
+    """Tests for container security integration."""
+
+    @patch("shesha.sandbox.executor.docker")
+    def test_executor_uses_default_security(self, mock_docker: MagicMock) -> None:
+        """Executor applies default security config."""
+        mock_client = MagicMock()
+        mock_docker.from_env.return_value = mock_client
+        mock_container = MagicMock()
+        mock_client.containers.run.return_value = mock_container
+
+        executor = ContainerExecutor()
+        executor.start()
+
+        # Verify security kwargs were passed
+        call_kwargs = mock_client.containers.run.call_args[1]
+        assert call_kwargs["cap_drop"] == ["ALL"]
+        assert call_kwargs["privileged"] is False
+        assert call_kwargs["read_only"] is True
+        assert "no-new-privileges:true" in call_kwargs["security_opt"]
+
+        executor.stop()
+
+    @patch("shesha.sandbox.executor.docker")
+    def test_executor_accepts_custom_security(self, mock_docker: MagicMock) -> None:
+        """Executor accepts custom security config."""
+        mock_client = MagicMock()
+        mock_docker.from_env.return_value = mock_client
+        mock_container = MagicMock()
+        mock_client.containers.run.return_value = mock_container
+
+        custom_security = ContainerSecurityConfig(cap_drop=["NET_ADMIN"])
+        executor = ContainerExecutor(security=custom_security)
+        executor.start()
+
+        call_kwargs = mock_client.containers.run.call_args[1]
+        assert call_kwargs["cap_drop"] == ["NET_ADMIN"]
+
+        executor.stop()
