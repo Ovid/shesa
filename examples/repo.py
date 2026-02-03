@@ -68,8 +68,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def show_picker(shesha: Shesha) -> str | None:
-    """Show interactive repo picker. Returns project name, URL, or None if no projects."""
+def show_picker(shesha: Shesha) -> tuple[str, bool] | None:
+    """Show interactive repo picker.
+
+    Returns:
+        None if no projects exist.
+        (project_name, True) if user selected an existing project by number.
+        (url_or_path, False) if user entered a new URL/path.
+    """
     projects = shesha.list_projects()
     if not projects:
         return None
@@ -81,16 +87,16 @@ def show_picker(shesha: Shesha) -> str | None:
 
     user_input = input("Enter number or new repo URL: ").strip()
 
-    # Check if it's a number
+    # Check if it's a number selecting an existing project
     try:
         num = int(user_input)
         if 1 <= num <= len(projects):
-            return projects[num - 1]
+            return (projects[num - 1], True)
     except ValueError:
         pass
 
-    # Otherwise treat as URL/path
-    return user_input
+    # Otherwise treat as new URL/path
+    return (user_input, False)
 
 
 def prompt_for_repo() -> str:
@@ -207,34 +213,47 @@ def main() -> None:
     shesha = Shesha(config=config)
 
     # Determine which repo to use
+    project = None
     if args.repo:
         repo_url = args.repo
     else:
         # Interactive picker mode
-        repo_url = show_picker(shesha)
-        if repo_url is None:
+        picker_result = show_picker(shesha)
+        if picker_result is None:
             repo_url = prompt_for_repo()
-        if not repo_url:
+        elif picker_result[1]:
+            # User selected existing project by number
+            project_name = picker_result[0]
+            print(f"Loading project: {project_name}")
+            project = shesha.get_project(project_name)
+        else:
+            # User entered a new URL/path
+            repo_url = picker_result[0]
+
+        if project is None and not repo_url:
             print("No repository specified. Exiting.")
             sys.exit(0)
 
-    # Load or create project
-    print(f"Loading repository: {repo_url}")
-    result = shesha.create_project_from_repo(repo_url)
+    # Load or create project from URL if not already loaded
+    if project is None:
+        print(f"Loading repository: {repo_url}")
+        result = shesha.create_project_from_repo(repo_url)
 
-    # Handle status
-    if result.status == "created":
-        print(f"Loaded {result.files_ingested} files.")
-    elif result.status == "unchanged":
-        print(f"Using cached repository ({result.files_ingested} files).")
+        # Handle status
+        if result.status == "created":
+            print(f"Loaded {result.files_ingested} files.")
+        elif result.status == "unchanged":
+            print(f"Using cached repository ({result.files_ingested} files).")
 
-    result = handle_updates(result, args.update)
+        result = handle_updates(result, args.update)
 
-    if result.status == "created":
-        print(f"Updated: {result.files_ingested} files.")
+        if result.status == "created":
+            print(f"Updated: {result.files_ingested} files.")
+
+        project = result.project
 
     # Enter interactive loop
-    run_interactive_loop(result.project, args.verbose)
+    run_interactive_loop(project, args.verbose)
 
 
 if __name__ == "__main__":

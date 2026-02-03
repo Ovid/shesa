@@ -68,36 +68,39 @@ class TestShowPicker:
         mock_shesha.list_projects.return_value = ["project-a", "project-b"]
 
         with patch("builtins.input", return_value="1"):
-            result = show_picker(mock_shesha)
+            value, is_existing = show_picker(mock_shesha)
 
         captured = capsys.readouterr()
         assert "1. project-a" in captured.out
         assert "2. project-b" in captured.out
-        assert result == "project-a"
+        assert value == "project-a"
+        assert is_existing is True
 
     def test_select_by_number(self) -> None:
-        """Selecting a number returns corresponding project name."""
+        """Selecting a number returns corresponding project name with is_existing=True."""
         from examples.repo import show_picker
 
         mock_shesha = MagicMock()
         mock_shesha.list_projects.return_value = ["project-a", "project-b"]
 
         with patch("builtins.input", return_value="2"):
-            result = show_picker(mock_shesha)
+            value, is_existing = show_picker(mock_shesha)
 
-        assert result == "project-b"
+        assert value == "project-b"
+        assert is_existing is True
 
     def test_enter_new_url(self) -> None:
-        """Entering a URL should return it."""
+        """Entering a URL should return it with is_existing=False."""
         from examples.repo import show_picker
 
         mock_shesha = MagicMock()
         mock_shesha.list_projects.return_value = ["project-a"]
 
         with patch("builtins.input", return_value="https://github.com/new/repo"):
-            result = show_picker(mock_shesha)
+            value, is_existing = show_picker(mock_shesha)
 
-        assert result == "https://github.com/new/repo"
+        assert value == "https://github.com/new/repo"
+        assert is_existing is False
 
 
 class TestPromptForRepo:
@@ -268,3 +271,56 @@ class TestMain:
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "SHESHA_API_KEY" in captured.out
+
+    def test_picker_existing_project_uses_get_project(self) -> None:
+        """Selecting existing project via picker should use get_project."""
+        import os
+        import sys
+
+        from examples.repo import main
+
+        mock_project = MagicMock()
+        mock_shesha = MagicMock()
+        mock_shesha.list_projects.return_value = ["existing-project"]
+        mock_shesha.get_project.return_value = mock_project
+
+        with patch.object(sys, "argv", ["repo.py"]):
+            with patch.dict(os.environ, {"SHESHA_API_KEY": "test-key"}, clear=True):
+                with patch("examples.repo.Shesha", return_value=mock_shesha):
+                    with patch("examples.repo.SheshaConfig"):
+                        with patch("builtins.input", side_effect=["1", "quit"]):
+                            main()
+
+        # Should use get_project for existing project, NOT create_project_from_repo
+        mock_shesha.get_project.assert_called_once_with("existing-project")
+        mock_shesha.create_project_from_repo.assert_not_called()
+
+    def test_picker_new_url_uses_create_project_from_repo(self) -> None:
+        """Entering new URL via picker should use create_project_from_repo."""
+        import os
+        import sys
+
+        from examples.repo import main
+
+        mock_result = MagicMock()
+        mock_result.status = "created"
+        mock_result.files_ingested = 10
+        mock_result.project = MagicMock()
+
+        mock_shesha = MagicMock()
+        mock_shesha.list_projects.return_value = ["existing-project"]
+        mock_shesha.create_project_from_repo.return_value = mock_result
+
+        with patch.object(sys, "argv", ["repo.py"]):
+            with patch.dict(os.environ, {"SHESHA_API_KEY": "test-key"}, clear=True):
+                with patch("examples.repo.Shesha", return_value=mock_shesha):
+                    with patch("examples.repo.SheshaConfig"):
+                        with patch(
+                            "builtins.input",
+                            side_effect=["https://github.com/new/repo", "quit"],
+                        ):
+                            main()
+
+        # Should use create_project_from_repo for new URL, NOT get_project
+        mock_shesha.create_project_from_repo.assert_called_once_with("https://github.com/new/repo")
+        mock_shesha.get_project.assert_not_called()
