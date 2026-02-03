@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import chardet
+
 from shesha.models import ParsedDocument
 
 # Map extensions to language names
@@ -53,7 +55,7 @@ class CodeParser:
             include_line_numbers: If True, format with line numbers and file header.
             file_path: Path to show in the file header (defaults to path.name).
         """
-        content = path.read_text(encoding="utf-8")
+        content, encoding = self._read_with_encoding_detection(path)
         ext = path.suffix.lower()
         language = EXTENSION_TO_LANGUAGE.get(ext, "unknown")
 
@@ -65,7 +67,7 @@ class CodeParser:
             name=path.name,
             content=content,
             format=ext.lstrip("."),
-            metadata={"language": language, "encoding": "utf-8"},
+            metadata={"language": language, "encoding": encoding},
             char_count=len(content),
             parse_warnings=[],
         )
@@ -82,3 +84,23 @@ class CodeParser:
             formatted_lines.append(f"{i:>{width}}| {line}")
 
         return "\n".join(formatted_lines)
+
+    def _read_with_encoding_detection(self, path: Path) -> tuple[str, str]:
+        """Read file with automatic encoding detection."""
+        raw_bytes = path.read_bytes()
+
+        # Try UTF-8 first (most common)
+        try:
+            return raw_bytes.decode("utf-8"), "utf-8"
+        except UnicodeDecodeError:
+            pass
+
+        # Fall back to chardet detection
+        detected = chardet.detect(raw_bytes)
+        encoding = detected.get("encoding") or "utf-8"
+
+        try:
+            return raw_bytes.decode(encoding), encoding
+        except (UnicodeDecodeError, LookupError):
+            # Last resort: decode with errors replaced
+            return raw_bytes.decode("utf-8", errors="replace"), "utf-8"

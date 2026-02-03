@@ -82,3 +82,14 @@ class TestCodeParser:
         assert "  1|" in lines[1]
         # Line 100 should be padded to 3 digits
         assert "100|" in lines[100]
+
+    def test_parse_non_utf8_file(self, parser: CodeParser, tmp_path: Path):
+        """CodeParser handles non-UTF-8 files via chardet."""
+        # Create a Latin-1 encoded file
+        content = "# Comment with accent: café"
+        test_file = tmp_path / "latin1.py"
+        test_file.write_bytes(content.encode("latin-1"))
+
+        doc = parser.parse(test_file)
+        assert "caf" in doc.content  # Should decode successfully
+        assert doc.metadata["encoding"] in ["latin-1", "ISO-8859-1", "Windows-1252"]
