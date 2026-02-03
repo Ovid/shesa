@@ -31,3 +31,20 @@ class TestRepoIngester:
         """is_local_path returns False for URLs."""
         assert not ingester.is_local_path("https://github.com/org/repo")
         assert not ingester.is_local_path("git@github.com:org/repo.git")
+
+    def test_detect_host_github(self, ingester: RepoIngester):
+        """detect_host identifies GitHub URLs."""
+        assert ingester.detect_host("https://github.com/org/repo") == "github.com"
+        assert ingester.detect_host("git@github.com:org/repo.git") == "github.com"
+
+    def test_detect_host_gitlab(self, ingester: RepoIngester):
+        """detect_host identifies GitLab URLs."""
+        assert ingester.detect_host("https://gitlab.com/org/repo") == "gitlab.com"
+
+    def test_detect_host_bitbucket(self, ingester: RepoIngester):
+        """detect_host identifies Bitbucket URLs."""
+        assert ingester.detect_host("https://bitbucket.org/org/repo") == "bitbucket.org"
+
+    def test_detect_host_local(self, ingester: RepoIngester):
+        """detect_host returns None for local paths."""
+        assert ingester.detect_host("/home/user/repo") is None
