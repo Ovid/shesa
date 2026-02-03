@@ -4,10 +4,17 @@
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from shesha import Shesha, SheshaConfig
 from shesha.rlm.trace import StepType
+
+# Storage path for repo projects
+STORAGE_PATH = Path.home() / ".shesha" / "repos"
 
 # Support both running as script and importing as module
 if __name__ == "__main__":
@@ -17,6 +24,7 @@ if __name__ == "__main__":
         format_progress,
         format_stats,
         format_thought_time,
+        install_urllib3_cleanup_hook,
         is_exit_command,
         should_warn_history_size,
     )
@@ -27,6 +35,7 @@ else:
         format_progress,
         format_stats,
         format_thought_time,
+        install_urllib3_cleanup_hook,
         is_exit_command,
         should_warn_history_size,
     )
@@ -178,5 +187,57 @@ def run_interactive_loop(project: Project, verbose: bool) -> None:
             print()
 
 
+def main() -> None:
+    """Main entry point."""
+    install_urllib3_cleanup_hook()
+    args = parse_args()
+
+    if not os.environ.get("SHESHA_API_KEY"):
+        print("Error: SHESHA_API_KEY environment variable not set.")
+        print()
+        print("Environment variables:")
+        print("  SHESHA_API_KEY   (required) API key for your LLM provider")
+        print("  SHESHA_MODEL     (optional) Model name, e.g.:")
+        print("                   - claude-sonnet-4-20250514 (default, Anthropic)")
+        print("                   - gpt-4o (OpenAI)")
+        print("                   - gemini/gemini-1.5-pro (Google)")
+        print()
+        print("The provider is auto-detected from the model name via LiteLLM.")
+        sys.exit(1)
+
+    config = SheshaConfig.load(storage_path=STORAGE_PATH)
+    shesha = Shesha(config=config)
+
+    # Determine which repo to use
+    if args.repo:
+        repo_url = args.repo
+    else:
+        # Interactive picker mode
+        repo_url = show_picker(shesha)
+        if repo_url is None:
+            repo_url = prompt_for_repo()
+        if not repo_url:
+            print("No repository specified. Exiting.")
+            sys.exit(0)
+
+    # Load or create project
+    print(f"Loading repository: {repo_url}")
+    result = shesha.create_project_from_repo(repo_url)
+
+    # Handle status
+    if result.status == "created":
+        print(f"Loaded {result.files_ingested} files.")
+    elif result.status == "unchanged":
+        print(f"Using cached repository ({result.files_ingested} files).")
+
+    result = handle_updates(result, args.update)
+
+    if result.status == "created":
+        print(f"Updated: {result.files_ingested} files.")
+
+    # Enter interactive loop
+    run_interactive_loop(result.project, args.verbose)
+
+
 if __name__ == "__main__":
-    pass
+    main()

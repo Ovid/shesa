@@ -247,3 +247,24 @@ class TestRunInteractiveLoop:
             run_interactive_loop(mock_project, verbose=False)
 
         mock_project.query.assert_called_once()
+
+
+class TestMain:
+    """Tests for main function."""
+
+    def test_no_api_key_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Missing API key should print error and exit."""
+        import os
+        import sys
+
+        from examples.repo import main
+
+        # Mock sys.argv so parse_args doesn't see pytest's args
+        with patch.object(sys, "argv", ["repo.py"]):
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "SHESHA_API_KEY" in captured.out
