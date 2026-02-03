@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """Interactive git repository explorer using Shesha."""
 
+from __future__ import annotations
+
 import argparse
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from shesha import Shesha
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -25,6 +31,37 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Show execution stats after each answer",
     )
     return parser.parse_args(argv)
+
+
+def show_picker(shesha: Shesha) -> str | None:
+    """Show interactive repo picker. Returns project name, URL, or None if no projects."""
+    projects = shesha.list_projects()
+    if not projects:
+        return None
+
+    print("Available repositories:")
+    for i, name in enumerate(projects, 1):
+        print(f"  {i}. {name}")
+    print()
+
+    user_input = input("Enter number or new repo URL: ").strip()
+
+    # Check if it's a number
+    try:
+        num = int(user_input)
+        if 1 <= num <= len(projects):
+            return projects[num - 1]
+    except ValueError:
+        pass
+
+    # Otherwise treat as URL/path
+    return user_input
+
+
+def prompt_for_repo() -> str:
+    """Prompt user to enter a repo URL or path."""
+    print("No repositories loaded yet.")
+    return input("Enter repo URL or local path: ").strip()
 
 
 if __name__ == "__main__":
