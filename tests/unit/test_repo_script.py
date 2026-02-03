@@ -120,3 +120,71 @@ class TestPromptForRepo:
             result = prompt_for_repo()
 
         assert result == "/path/to/repo"
+
+
+class TestHandleUpdates:
+    """Tests for handle_updates function."""
+
+    def test_created_status_returns_same(self) -> None:
+        """Status 'created' should return the same result."""
+        from examples.repo import handle_updates
+
+        mock_result = MagicMock()
+        mock_result.status = "created"
+        mock_result.files_ingested = 42
+
+        result = handle_updates(mock_result, auto_update=False)
+        assert result is mock_result
+
+    def test_unchanged_status_returns_same(self) -> None:
+        """Status 'unchanged' should return the same result."""
+        from examples.repo import handle_updates
+
+        mock_result = MagicMock()
+        mock_result.status = "unchanged"
+
+        result = handle_updates(mock_result, auto_update=False)
+        assert result is mock_result
+
+    def test_updates_available_auto_applies(self) -> None:
+        """With --update flag, should auto-apply updates."""
+        from examples.repo import handle_updates
+
+        updated_result = MagicMock()
+        mock_result = MagicMock()
+        mock_result.status = "updates_available"
+        mock_result.apply_updates.return_value = updated_result
+
+        result = handle_updates(mock_result, auto_update=True)
+        mock_result.apply_updates.assert_called_once()
+        assert result is updated_result
+
+    def test_updates_available_prompts_user_yes(self) -> None:
+        """Without --update, should prompt and apply if 'y'."""
+        from examples.repo import handle_updates
+
+        updated_result = MagicMock()
+        mock_result = MagicMock()
+        mock_result.status = "updates_available"
+        mock_result.project.name = "test-repo"
+        mock_result.apply_updates.return_value = updated_result
+
+        with patch("builtins.input", return_value="y"):
+            result = handle_updates(mock_result, auto_update=False)
+
+        mock_result.apply_updates.assert_called_once()
+        assert result is updated_result
+
+    def test_updates_available_prompts_user_no(self) -> None:
+        """Without --update, should prompt and skip if 'n'."""
+        from examples.repo import handle_updates
+
+        mock_result = MagicMock()
+        mock_result.status = "updates_available"
+        mock_result.project.name = "test-repo"
+
+        with patch("builtins.input", return_value="n"):
+            result = handle_updates(mock_result, auto_update=False)
+
+        mock_result.apply_updates.assert_not_called()
+        assert result is mock_result

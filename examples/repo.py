@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from shesha import Shesha
+    from shesha.models import RepoProjectResult
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -62,6 +63,25 @@ def prompt_for_repo() -> str:
     """Prompt user to enter a repo URL or path."""
     print("No repositories loaded yet.")
     return input("Enter repo URL or local path: ").strip()
+
+
+def handle_updates(result: RepoProjectResult, auto_update: bool) -> RepoProjectResult:
+    """Handle update prompting. Returns updated result if applied."""
+    if result.status != "updates_available":
+        return result
+
+    if auto_update:
+        print("Applying updates...")
+        return result.apply_updates()
+
+    print(f"Updates available for {result.project.name}.")
+    response = input("Apply updates? (y/n): ").strip().lower()
+
+    if response == "y":
+        print("Applying updates...")
+        return result.apply_updates()
+
+    return result
 
 
 if __name__ == "__main__":
