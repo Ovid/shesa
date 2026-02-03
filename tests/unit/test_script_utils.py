@@ -87,3 +87,77 @@ class TestFormatStats:
         assert "prompt: 100" in result
         assert "completion: 50" in result
         assert "Trace steps: 0" in result
+
+
+class TestFormatHistoryPrefix:
+    """Tests for format_history_prefix function."""
+
+    def test_empty_history(self) -> None:
+        """Empty history returns empty string."""
+        from examples.script_utils import format_history_prefix
+
+        assert format_history_prefix([]) == ""
+
+    def test_single_exchange(self) -> None:
+        """Single exchange formats correctly."""
+        from examples.script_utils import format_history_prefix
+
+        history = [("What is X?", "X is Y.")]
+        result = format_history_prefix(history)
+        assert "Previous conversation:" in result
+        assert "Q1: What is X?" in result
+        assert "A1: X is Y." in result
+        assert "Current question:" in result
+
+
+class TestIsExitCommand:
+    """Tests for is_exit_command function."""
+
+    def test_quit_is_exit(self) -> None:
+        """'quit' should be recognized as exit."""
+        from examples.script_utils import is_exit_command
+
+        assert is_exit_command("quit")
+        assert is_exit_command("QUIT")
+        assert is_exit_command("Quit")
+
+    def test_exit_is_exit(self) -> None:
+        """'exit' should be recognized as exit."""
+        from examples.script_utils import is_exit_command
+
+        assert is_exit_command("exit")
+        assert is_exit_command("EXIT")
+
+    def test_other_not_exit(self) -> None:
+        """Other inputs should not be exit commands."""
+        from examples.script_utils import is_exit_command
+
+        assert not is_exit_command("hello")
+        assert not is_exit_command("question")
+
+
+class TestShouldWarnHistorySize:
+    """Tests for should_warn_history_size function."""
+
+    def test_small_history_no_warning(self) -> None:
+        """Small history should not trigger warning."""
+        from examples.script_utils import should_warn_history_size
+
+        history = [("q", "a") for _ in range(5)]
+        assert not should_warn_history_size(history)
+
+    def test_many_exchanges_warns(self) -> None:
+        """10+ exchanges should trigger warning."""
+        from examples.script_utils import should_warn_history_size
+
+        history = [("q", "a") for _ in range(10)]
+        assert should_warn_history_size(history)
+
+    def test_large_chars_warns(self) -> None:
+        """50k+ chars should trigger warning."""
+        from examples.script_utils import should_warn_history_size
+
+        # Create history with large content (50k+ chars total)
+        large_text = "x" * 50000
+        history = [("q", large_text)]
+        assert should_warn_history_size(history)
