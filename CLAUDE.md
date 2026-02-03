@@ -25,6 +25,8 @@ Containers network-isolated (egress whitelist for LLM APIs only).
 ## Commands
 
 ```bash
+python -m venv .venv             # Create virtual environment
+source .venv/bin/activate        # Activate venv (use .venv first!)
 pip install -e ".[dev]"          # Install
 pytest                           # All tests
 pytest tests/path::test_name -v  # Single test
