@@ -54,3 +54,6 @@ warn_unused_ignores = true
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning:litellm.*:",  # litellm uses deprecated asyncio.iscoroutinefunction
+]
