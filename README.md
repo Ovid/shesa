@@ -1,5 +1,9 @@
 # Shesha
 
+<p align="center">
+  <img src="images/shesha.png" alt="Shesha logo" width="200">
+</p>
+
 **Ask complex questions across large document collections—and get answers with citations**
 
 Shesha lets AI explore your documents the way a researcher would: reading, searching, cross-referencing, and iterating until it finds the answer. Unlike simple RAG that retrieves chunks, Shesha reasons across your entire corpus.
