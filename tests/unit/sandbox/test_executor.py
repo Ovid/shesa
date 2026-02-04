@@ -583,3 +583,22 @@ class TestExecuteProtocolHandling:
 
         # Container should be stopped after protocol violation
         mock_stop.assert_called_once()
+
+    def test_execute_handles_invalid_json_as_protocol_error(self):
+        """execute() treats invalid JSON from container as protocol violation."""
+        from shesha.sandbox.executor import ContainerExecutor
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        # Container returns invalid JSON (e.g., sandbox wrote to sys.__stdout__)
+        with patch.object(executor, "_read_line", return_value="not valid json {{{"):
+            with patch.object(executor, "_send_raw"):
+                with patch.object(executor, "stop") as mock_stop:
+                    result = executor.execute("print('hello')")
+
+        # Should return error result, not raise JSONDecodeError
+        assert result.status == "error"
+        assert "json" in result.error.lower() or "protocol" in result.error.lower()
+        # Container should be stopped (invalid output = compromised state)
+        mock_stop.assert_called_once()

@@ -177,6 +177,17 @@ class ContainerExecutor:
                 return_value=None,
                 error=f"Protocol error: {e}",
             )
+        except json.JSONDecodeError as e:
+            # Invalid JSON from container (e.g., sandbox wrote to sys.__stdout__).
+            # Treat as protocol violation - container is in unknown state.
+            self.stop()
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error=f"Protocol error: invalid JSON from container: {e}",
+            )
 
     def _send_raw(self, data: str) -> None:
         """Send raw data to container stdin."""
