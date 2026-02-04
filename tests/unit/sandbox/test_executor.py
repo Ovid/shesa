@@ -296,12 +296,14 @@ class TestConnectionClose:
 class TestBufferLimits:
     """Tests for buffer size limits in _read_line."""
 
-    def test_read_line_raises_on_buffer_overflow(self):
-        """_read_line raises ProtocolError when buffer exceeds MAX_BUFFER_SIZE."""
+    def test_read_line_raises_on_oversized_data_without_newline(self):
+        """_read_line raises ProtocolError when data exceeds limits without newline."""
         from shesha.sandbox.executor import MAX_BUFFER_SIZE, ProtocolError
 
         mock_socket = MagicMock()
-        # Send chunks that exceed MAX_BUFFER_SIZE without a newline
+        # Send chunks that would exceed MAX_BUFFER_SIZE without a newline
+        # Note: This will now hit MAX_LINE_LENGTH (1MB) before MAX_BUFFER_SIZE (10MB)
+        # since we check line length for streaming data without newlines
         chunk_size = 1024 * 1024  # 1 MB chunks
         chunks_needed = (MAX_BUFFER_SIZE // chunk_size) + 2
 
@@ -325,7 +327,9 @@ class TestBufferLimits:
         with pytest.raises(ProtocolError) as exc_info:
             executor._read_line(timeout=5)
 
-        assert "buffer" in str(exc_info.value).lower()
+        # Either buffer overflow or line length limit - both protect against DoS
+        error_msg = str(exc_info.value).lower()
+        assert "buffer" in error_msg or "line" in error_msg
 
 
 class TestContainerExecutor:
@@ -486,6 +490,45 @@ class TestLineLengthLimit:
                 return next(chunk_iter)
             except StopIteration:
                 return b""
+
+        mock_socket._sock.recv = mock_recv
+        mock_socket._sock.settimeout = MagicMock()
+
+        executor = ContainerExecutor()
+        executor._socket = mock_socket
+        executor._raw_buffer = b""
+        executor._content_buffer = b""
+
+        with pytest.raises(ProtocolError) as exc_info:
+            executor._read_line(timeout=5)
+
+        assert "line" in str(exc_info.value).lower()
+
+    def test_read_line_raises_on_streaming_oversized_line_without_newline(self):
+        """_read_line raises when data streams past MAX_LINE_LENGTH without newline."""
+        from shesha.sandbox.executor import (
+            MAX_LINE_LENGTH,
+            ContainerExecutor,
+            ProtocolError,
+        )
+
+        mock_socket = MagicMock()
+
+        # Stream chunks without newline that total > MAX_LINE_LENGTH
+        chunk_size = 100_000  # 100KB chunks
+        chunks_needed = (MAX_LINE_LENGTH // chunk_size) + 2  # Exceed limit
+        chunk_data = b"x" * chunk_size
+        chunks_sent = 0
+
+        def mock_recv(size):
+            nonlocal chunks_sent
+            if chunks_sent < chunks_needed:
+                chunks_sent += 1
+                # Return Docker-framed data without newline
+                return make_docker_frame(chunk_data)
+            # Keep connection open (don't return b"")
+            time.sleep(0.1)
+            return make_docker_frame(chunk_data)
 
         mock_socket._sock.recv = mock_recv
         mock_socket._sock.settimeout = MagicMock()

@@ -277,12 +277,22 @@ class ContainerExecutor:
                 self._content_buffer += payload
                 if len(self._content_buffer) > MAX_BUFFER_SIZE:
                     raise ProtocolError(f"Content buffer exceeded {MAX_BUFFER_SIZE} bytes")
+                # Check line length limit even without newline (prevents streaming attack)
+                if b"\n" not in self._content_buffer and len(self._content_buffer) > MAX_LINE_LENGTH:
+                    raise ProtocolError(
+                        f"Line length {len(self._content_buffer)} exceeds max {MAX_LINE_LENGTH}"
+                    )
             else:
                 # Not a Docker header - treat raw buffer as plain data
                 # This handles non-multiplexed streams
                 self._content_buffer += self._raw_buffer
                 if len(self._content_buffer) > MAX_BUFFER_SIZE:
                     raise ProtocolError(f"Content buffer exceeded {MAX_BUFFER_SIZE} bytes")
+                # Check line length limit even without newline (prevents streaming attack)
+                if b"\n" not in self._content_buffer and len(self._content_buffer) > MAX_LINE_LENGTH:
+                    raise ProtocolError(
+                        f"Line length {len(self._content_buffer)} exceeds max {MAX_LINE_LENGTH}"
+                    )
                 self._raw_buffer = b""
 
                 # If still no newline, read more
