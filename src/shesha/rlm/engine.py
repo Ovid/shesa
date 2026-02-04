@@ -2,13 +2,22 @@
 
 import re
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from shesha.llm.client import LLMClient
-from shesha.rlm.prompts import build_subcall_prompt, build_system_prompt, wrap_repl_output
+from shesha.models import QueryContext
+from shesha.rlm.prompts import (
+    SUBCALL_PROMPT_TEMPLATE,
+    build_subcall_prompt,
+    build_system_prompt,
+    wrap_repl_output,
+)
 from shesha.rlm.trace import StepType, TokenUsage, Trace
+from shesha.rlm.trace_writer import TraceWriter
 from shesha.sandbox.executor import ContainerExecutor
+from shesha.storage.filesystem import FilesystemStorage
 
 # Callback type for progress notifications
 ProgressCallback = Callable[[StepType, int, str], None]
@@ -114,6 +123,8 @@ class RLMEngine:
         question: str,
         doc_names: list[str] | None = None,
         on_progress: ProgressCallback | None = None,
+        storage: FilesystemStorage | None = None,
+        project_id: str | None = None,
     ) -> QueryResult:
         """Run an RLM query against documents."""
         start_time = time.time()
@@ -132,6 +143,30 @@ class RLMEngine:
             doc_names=doc_names,
             doc_sizes=doc_sizes,
         )
+
+        # Helper to write trace
+        def _write_trace(result: QueryResult, status: str) -> None:
+            if storage is not None and project_id is not None:
+                trace_id = str(uuid.uuid4())
+                context = QueryContext(
+                    trace_id=trace_id,
+                    question=question,
+                    document_ids=doc_names or [f"doc_{i}" for i in range(len(documents))],
+                    model=self.model,
+                    system_prompt=system_prompt,
+                    subcall_prompt=SUBCALL_PROMPT_TEMPLATE,
+                )
+                writer = TraceWriter(storage)
+                writer.write_trace(
+                    project_id=project_id,
+                    trace=result.trace,
+                    context=context,
+                    answer=result.answer,
+                    token_usage=result.token_usage,
+                    execution_time=result.execution_time,
+                    status=status,
+                )
+                writer.cleanup_old_traces(project_id)
 
         # Initialize LLM client
         llm = LLMClient(model=self.model, system_prompt=system_prompt, api_key=self.api_key)
@@ -230,12 +265,14 @@ class RLMEngine:
                         break
 
                 if final_answer:
-                    return QueryResult(
+                    query_result = QueryResult(
                         answer=final_answer,
                         trace=trace,
                         token_usage=token_usage,
                         execution_time=time.time() - start_time,
                     )
+                    _write_trace(query_result, "success")
+                    return query_result
 
                 # Add output to conversation
                 combined_output = "\n\n".join(all_output)
@@ -245,12 +282,14 @@ class RLMEngine:
                 messages.append({"role": "user", "content": wrapped_output})
 
             # Max iterations reached
-            return QueryResult(
+            query_result = QueryResult(
                 answer="[Max iterations reached without final answer]",
                 trace=trace,
                 token_usage=token_usage,
                 execution_time=time.time() - start_time,
             )
+            _write_trace(query_result, "max_iterations")
+            return query_result
 
         finally:
             executor.stop()

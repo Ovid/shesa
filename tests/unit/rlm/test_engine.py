@@ -1,5 +1,6 @@
 """Tests for RLM engine."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from shesha.rlm.engine import QueryResult, RLMEngine, extract_code_blocks
@@ -195,3 +196,51 @@ class TestRLMEngine:
         # Should return LLM response
         assert result == "Analysis result"
         mock_llm_cls.assert_called_once()  # Sub-LLM was called
+
+
+class TestEngineTraceWriting:
+    """Tests for trace writing integration."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_query_writes_trace_when_storage_provided(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Query writes trace file when storage is provided."""
+        from shesha.storage.filesystem import FilesystemStorage
+
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("test-project")
+
+        # Configure mock to return FINAL answer
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content="```repl\nFINAL('answer')\n```",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="answer",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")
+        engine.query(
+            documents=["doc content"],
+            question="What?",
+            storage=storage,
+            project_id="test-project",
+        )
+
+        traces = storage.list_traces("test-project")
+        assert len(traces) == 1
