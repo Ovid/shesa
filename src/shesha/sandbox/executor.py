@@ -199,6 +199,17 @@ class ContainerExecutor:
                 return_value=None,
                 error=f"Protocol error: missing required field {e}",
             )
+        except UnicodeDecodeError as e:
+            # Non-UTF8 bytes from container (e.g., writing to sys.stdout.buffer).
+            # Treat as protocol violation - container is sending invalid data.
+            self.stop()
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error=f"Protocol error: invalid UTF-8 from container: {e}",
+            )
 
     def _send_raw(self, data: str) -> None:
         """Send raw data to container stdin."""

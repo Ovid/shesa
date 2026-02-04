@@ -668,3 +668,39 @@ class TestExecuteProtocolHandling:
         assert "protocol" in result.error.lower() or "missing" in result.error.lower()
         # Container should be stopped
         mock_stop.assert_called_once()
+
+    def test_execute_handles_non_utf8_as_protocol_error(self):
+        """execute() treats non-UTF8 bytes from container as protocol violation."""
+        from shesha.sandbox.executor import ContainerExecutor
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        # Container sends invalid UTF-8 bytes (e.g., via sys.stdout.buffer)
+        # \xff\xfe is invalid UTF-8
+        invalid_utf8 = b"\xff\xfe{\"status\": \"ok\"}\n"
+        frame = make_docker_frame(invalid_utf8)
+
+        chunks = [frame]
+        chunk_iter = iter(chunks)
+
+        def mock_recv(size):
+            try:
+                return next(chunk_iter)
+            except StopIteration:
+                return b""
+
+        executor._socket._sock.recv = mock_recv
+        executor._socket._sock.settimeout = MagicMock()
+        executor._raw_buffer = b""
+        executor._content_buffer = b""
+
+        with patch.object(executor, "_send_raw"):
+            with patch.object(executor, "stop") as mock_stop:
+                result = executor.execute("print('hello')")
+
+        # Should return error result, not raise UnicodeDecodeError
+        assert result.status == "error"
+        assert "protocol" in result.error.lower() or "decode" in result.error.lower()
+        # Container should be stopped
+        mock_stop.assert_called_once()
