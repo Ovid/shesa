@@ -2,6 +2,7 @@
 
 from shesha.rlm.engine import ProgressCallback, QueryResult, RLMEngine
 from shesha.rlm.trace import StepType, TokenUsage, Trace, TraceStep
+from shesha.rlm.trace_writer import TraceWriter
 
 __all__ = [
     "ProgressCallback",
@@ -11,4 +12,5 @@ __all__ = [
     "TraceStep",
     "StepType",
     "TokenUsage",
+    "TraceWriter",
 ]
