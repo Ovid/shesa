@@ -228,6 +228,29 @@ class TestCreateProjectFromRepo:
                 # pull() should NOT be called for local repos
                 mock_ingester.pull.assert_not_called()
 
+    def test_saves_source_url_for_local_repo(self, tmp_path: Path):
+        """create_project_from_repo saves source URL for local repos."""
+        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
+            with patch("shesha.shesha.RepoIngester") as mock_ingester_cls:
+                mock_ingester = MagicMock()
+                mock_ingester_cls.return_value = mock_ingester
+
+                mock_ingester.is_local_path.return_value = True
+                mock_ingester.get_saved_sha.return_value = None
+                mock_ingester.get_sha_from_path.return_value = "abc123"
+                mock_ingester.list_files_from_path.return_value = []
+                mock_ingester.repos_dir = tmp_path / "repos"
+
+                shesha = Shesha(model="test-model", storage_path=tmp_path)
+                shesha.create_project_from_repo(
+                    url="/path/to/local/repo",
+                    name="my-project",
+                )
+
+                mock_ingester.save_source_url.assert_called_once_with(
+                    "my-project", "/path/to/local/repo"
+                )
+
 
 class TestCheckRepoForUpdates:
     """Tests for check_repo_for_updates method."""

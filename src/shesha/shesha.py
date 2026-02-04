@@ -318,6 +318,9 @@ class Shesha:
         if sha:
             self._repo_ingester.save_sha(name, sha)
 
+        # Save source URL for later retrieval
+        self._repo_ingester.save_source_url(name, url)
+
         project = self.get_project(name)
         return RepoProjectResult(
             project=project,
