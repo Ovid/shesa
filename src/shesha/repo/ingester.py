@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from shesha.exceptions import AuthenticationError, RepoIngestError
+from shesha.security.paths import safe_path
 
 
 class RepoIngester:
@@ -26,6 +27,10 @@ class RepoIngester:
         self.storage_path = Path(storage_path)
         self.repos_dir = self.storage_path / "repos"
         self.repos_dir.mkdir(parents=True, exist_ok=True)
+
+    def _repo_path(self, project_id: str) -> Path:
+        """Get safe path for a project's repo directory."""
+        return safe_path(self.repos_dir, project_id)
 
     def is_local_path(self, url: str) -> bool:
         """Check if url is a local filesystem path."""

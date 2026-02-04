@@ -9,6 +9,7 @@ import pytest
 
 from shesha.exceptions import AuthenticationError, RepoIngestError
 from shesha.repo.ingester import RepoIngester
+from shesha.security.paths import PathTraversalError
 
 
 @pytest.fixture
@@ -390,3 +391,22 @@ class TestGitFetchPull:
 
             with pytest.raises(RepoIngestError):
                 ingester.pull("my-project")
+
+
+class TestPathTraversalProtection:
+    """Tests for path traversal protection in RepoIngester."""
+
+    def test_repo_path_helper_exists(self, ingester: RepoIngester):
+        """_repo_path helper method exists and returns safe path."""
+        path = ingester._repo_path("valid-project")
+        assert path == ingester.repos_dir / "valid-project"
+
+    def test_repo_path_blocks_traversal(self, ingester: RepoIngester):
+        """_repo_path raises PathTraversalError on traversal attempt."""
+        with pytest.raises(PathTraversalError):
+            ingester._repo_path("../escape")
+
+    def test_repo_path_blocks_absolute_path(self, ingester: RepoIngester):
+        """_repo_path raises PathTraversalError on absolute path."""
+        with pytest.raises(PathTraversalError):
+            ingester._repo_path("/etc/passwd")
