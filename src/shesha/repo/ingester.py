@@ -264,3 +264,9 @@ class RepoIngester:
 
         if result.returncode != 0:
             raise RepoIngestError(url, RuntimeError(result.stderr))
+
+    def delete_repo(self, project_id: str) -> None:
+        """Delete the cloned repository directory for a project."""
+        repo_path = self.repos_dir / project_id
+        if repo_path.exists():
+            shutil.rmtree(repo_path)

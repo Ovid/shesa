@@ -326,6 +326,28 @@ class TestSourceURLTracking:
         assert ingester.get_source_url("nonexistent") is None
 
 
+class TestDeleteRepo:
+    """Tests for delete_repo functionality."""
+
+    def test_delete_repo_removes_cloned_directory(self, tmp_path: Path):
+        """delete_repo removes the cloned repository directory."""
+        ingester = RepoIngester(tmp_path)
+        repo_path = ingester.repos_dir / "my-project"
+        repo_path.mkdir(parents=True)
+        (repo_path / "file.txt").write_text("content")
+
+        ingester.delete_repo("my-project")
+
+        assert not repo_path.exists()
+
+    def test_delete_repo_does_nothing_for_nonexistent(self, tmp_path: Path):
+        """delete_repo silently succeeds for non-existent repos."""
+        ingester = RepoIngester(tmp_path)
+
+        # Should not raise
+        ingester.delete_repo("nonexistent")
+
+
 class TestGitFetchPull:
     """Tests for git fetch and pull functionality."""
 
