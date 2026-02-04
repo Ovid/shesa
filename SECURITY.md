@@ -40,10 +40,11 @@ If network access is required for sub-LLM calls:
 
 ### 4. Path Traversal Protection
 
-- **Safe Path Resolution**: All user-provided paths are resolved and validated against base directories
-- **Filename Sanitization**: Removes null bytes, path separators, and leading dots from filenames
-- **Escape Detection**: Raises `PathTraversalError` if resolved path escapes the allowed directory
+- **Safe Path Resolution**: All user-provided paths are resolved and validated against base directories using `safe_path()`
+- **Nested Paths Allowed**: Document names like "src/main.py" are permitted and create nested directories
+- **Escape Detection**: Raises `PathTraversalError` if resolved path escapes the allowed directory (e.g., "../" attempts)
 - **Covers All Storage Operations**: Projects, documents, raw files, and repository directories
+- **Optional Flattening**: `sanitize_filename()` is available for cases requiring flat filenames (replaces separators with underscores)
 
 ### 5. Secret Redaction
 
