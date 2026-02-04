@@ -43,12 +43,25 @@ If network access is required for sub-LLM calls:
 - **Safe Path Resolution**: All user-provided paths are resolved and validated against base directories
 - **Filename Sanitization**: Removes null bytes, path separators, and leading dots from filenames
 - **Escape Detection**: Raises `PathTraversalError` if resolved path escapes the allowed directory
+- **Covers All Storage Operations**: Projects, documents, raw files, and repository directories
 
 ### 5. Secret Redaction
 
 - **Trace Redaction**: Execution traces can be redacted before logging or display via `trace.redacted()`
 - **Pattern Matching**: Detects common secret patterns (API keys, bearer tokens, AWS credentials, private keys)
 - **Configurable**: Custom patterns can be added via `RedactionConfig`
+
+### 6. Protocol Limits
+
+The container communication protocol enforces limits to prevent resource exhaustion:
+
+| Limit | Value | Purpose |
+|-------|-------|---------|
+| Max buffer size | 10 MB | Prevents memory exhaustion from large outputs |
+| Max line length | 1 MB | Prevents oversized JSON messages |
+| Max read duration | 5 min | Overall deadline prevents hanging |
+
+When limits are exceeded, the container is terminated and an error is returned.
 
 ## Configuration
 
