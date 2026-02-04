@@ -20,6 +20,7 @@ Shesha executes LLM-generated code in Docker containers. The primary threats are
   - `<repl_output type="untrusted_document_content">` wraps REPL execution output shown to the main LLM
 - **Hardened System Prompt**: Explicit warnings about adversarial content
 - **Instruction/Content Separation**: `llm_query(instruction, content)` keeps trusted instructions separate from untrusted document data
+- **Adversarial Testing**: Test suite covers tag injection, instruction override attempts, nested tags, and special character handling
 
 ### 2. Docker Sandbox
 
@@ -28,12 +29,26 @@ Shesha executes LLM-generated code in Docker containers. The primary threats are
 - **Execution Timeout**: 30-second timeout per code execution
 - **Non-root User**: Code runs as unprivileged `sandbox` user
 - **Read-only Filesystem**: No persistent writes allowed
+- **Capabilities Dropped**: All Linux capabilities dropped (`--cap-drop=ALL`)
+- **No Privilege Escalation**: `no-new-privileges` security option prevents setuid binaries
 
 ### 3. Network Policy (When Enabled)
 
 If network access is required for sub-LLM calls:
 - **Egress Whitelist**: Only allowed to LLM API endpoints
 - **No Inbound**: No incoming connections allowed
+
+### 4. Path Traversal Protection
+
+- **Safe Path Resolution**: All user-provided paths are resolved and validated against base directories
+- **Filename Sanitization**: Removes null bytes, path separators, and leading dots from filenames
+- **Escape Detection**: Raises `PathTraversalError` if resolved path escapes the allowed directory
+
+### 5. Secret Redaction
+
+- **Trace Redaction**: Execution traces can be redacted before logging or display via `trace.redacted()`
+- **Pattern Matching**: Detects common secret patterns (API keys, bearer tokens, AWS credentials, private keys)
+- **Configurable**: Custom patterns can be added via `RedactionConfig`
 
 ## Configuration
 
@@ -45,6 +60,8 @@ Security-relevant settings in `SheshaConfig`:
 | `execution_timeout_sec` | 30 | Max execution time per code block |
 | `max_output_chars` | 50000 | Truncate large outputs |
 | `allowed_hosts` | LLM APIs only | Network egress whitelist |
+| `cap_drop` | `["ALL"]` | Linux capabilities to drop |
+| `security_opt` | `["no-new-privileges:true"]` | Docker security options |
 
 ## Disclaimer
 
