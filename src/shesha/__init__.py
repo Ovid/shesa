@@ -20,7 +20,10 @@ from shesha.rlm import ProgressCallback, QueryResult, StepType, TokenUsage, Trac
 from shesha.shesha import Shesha
 from shesha.storage import FilesystemStorage
 
-__version__ = "0.1.0"
+try:
+    from shesha._version import __version__
+except ImportError:
+    __version__ = "0.0.0.dev0"  # Fallback before package is built
 
 __all__ = [
     "__version__",
