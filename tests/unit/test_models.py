@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from shesha.models import RepoProjectResult
+from shesha.models import QueryContext, RepoProjectResult
 
 
 class TestRepoProjectResult:
@@ -92,3 +92,24 @@ class TestRepoProjectResult:
 
         with pytest.raises(ValueError, match="only valid when status is 'updates_available'"):
             result.apply_updates()
+
+
+class TestQueryContext:
+    """Tests for QueryContext dataclass."""
+
+    def test_query_context_stores_metadata(self) -> None:
+        """QueryContext stores all query metadata."""
+        ctx = QueryContext(
+            trace_id="abc123",
+            question="What is X?",
+            document_ids=["doc1", "doc2"],
+            model="claude-sonnet-4-20250514",
+            system_prompt="You are an assistant...",
+            subcall_prompt="Analyze this...",
+        )
+        assert ctx.trace_id == "abc123"
+        assert ctx.question == "What is X?"
+        assert ctx.document_ids == ["doc1", "doc2"]
+        assert ctx.model == "claude-sonnet-4-20250514"
+        assert ctx.system_prompt == "You are an assistant..."
+        assert ctx.subcall_prompt == "Analyze this..."
