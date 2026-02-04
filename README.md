@@ -62,9 +62,11 @@ pip install shesha
 
 ### From Source
 
+
 ```bash
-git clone https://github.com/Ovid/shesha.git
-cd shesha
+# Yup. I misnamed the repo. Oops! It should have been "shesha.git", not "shesa.git." I'm an idiot.
+git clone https://github.com/Ovid/shesa.git
+cd shesa
 
 # Create and activate a virtual environment
 python3 -m venv .venv
