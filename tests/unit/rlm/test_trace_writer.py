@@ -56,6 +56,7 @@ class TestTraceWriterFileCreation:
         fixed_time = datetime.datetime(2026, 2, 3, 14, 30, 0, 123000, tzinfo=datetime.UTC)
         with patch("shesha.rlm.trace_writer.datetime") as mock_dt:
             mock_dt.datetime.now.return_value = fixed_time
+            mock_dt.datetime.fromtimestamp = datetime.datetime.fromtimestamp
             mock_dt.UTC = datetime.UTC
             path = writer.write_trace(
                 project_id="test-project",
@@ -136,3 +137,54 @@ class TestTraceWriterContent:
         assert header["system_prompt"] == "You are an assistant..."
         assert header["subcall_prompt"] == "Analyze this..."
         assert "timestamp" in header
+
+    def test_trace_file_contains_all_steps(
+        self,
+        storage: FilesystemStorage,
+        context: QueryContext,
+    ) -> None:
+        """Trace file contains one line per step with correct fields."""
+        from shesha.rlm.trace_writer import TraceWriter
+
+        trace = Trace()
+        trace.add_step(
+            StepType.CODE_GENERATED, "print('hello')", iteration=0, tokens_used=50
+        )
+        trace.add_step(
+            StepType.CODE_OUTPUT, "hello", iteration=0, duration_ms=100
+        )
+        trace.add_step(
+            StepType.FINAL_ANSWER, "42", iteration=0
+        )
+
+        writer = TraceWriter(storage)
+        path = writer.write_trace(
+            project_id="test-project",
+            trace=trace,
+            context=context,
+            answer="42",
+            token_usage=TokenUsage(prompt_tokens=100, completion_tokens=50),
+            execution_time=1.5,
+            status="success",
+        )
+
+        lines = path.read_text().strip().split("\n")
+        # Header + 3 steps + summary = 5 lines
+        assert len(lines) >= 4  # At least header + 3 steps
+
+        # Check step lines (lines 1, 2, 3)
+        step1 = json.loads(lines[1])
+        assert step1["type"] == "step"
+        assert step1["step_type"] == "code_generated"
+        assert step1["iteration"] == 0
+        assert step1["content"] == "print('hello')"
+        assert step1["tokens_used"] == 50
+
+        step2 = json.loads(lines[2])
+        assert step2["type"] == "step"
+        assert step2["step_type"] == "code_output"
+        assert step2["duration_ms"] == 100
+
+        step3 = json.loads(lines[3])
+        assert step3["type"] == "step"
+        assert step3["step_type"] == "final_answer"

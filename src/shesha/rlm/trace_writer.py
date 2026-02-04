@@ -64,6 +64,21 @@ class TraceWriter:
         }
         lines.append(json.dumps(header))
 
+        # Steps
+        for step in trace.steps:
+            step_data = {
+                "type": "step",
+                "step_type": step.type.value,
+                "iteration": step.iteration,
+                "timestamp": datetime.datetime.fromtimestamp(
+                    step.timestamp, tz=datetime.UTC
+                ).isoformat(),
+                "content": step.content,
+                "tokens_used": step.tokens_used,
+                "duration_ms": step.duration_ms,
+            }
+            lines.append(json.dumps(step_data))
+
         # Write file
         path = traces_dir / filename
         path.write_text("\n".join(lines) + "\n")
