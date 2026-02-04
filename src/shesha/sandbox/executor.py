@@ -117,6 +117,16 @@ class ContainerExecutor:
 
     def execute(self, code: str, timeout: int = 30) -> ExecutionResult:
         """Execute code in the container, handling llm_query callbacks."""
+        # Check if executor is in stopped state (e.g., after protocol error)
+        if self._socket is None:
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error="Executor stopped: no socket connection",
+            )
+
         self._send_raw(json.dumps({"action": "execute", "code": code}) + "\n")
 
         try:

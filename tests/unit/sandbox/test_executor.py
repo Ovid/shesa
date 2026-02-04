@@ -704,3 +704,17 @@ class TestExecuteProtocolHandling:
         assert "protocol" in result.error.lower() or "decode" in result.error.lower()
         # Container should be stopped
         mock_stop.assert_called_once()
+
+    def test_execute_returns_error_when_socket_is_none(self):
+        """execute() returns error result when called after stop() (no socket)."""
+        from shesha.sandbox.executor import ContainerExecutor
+
+        executor = ContainerExecutor()
+        # Simulate stopped state - socket is None
+        executor._socket = None
+
+        result = executor.execute("print('hello')")
+
+        # Should return error result, not raise RuntimeError
+        assert result.status == "error"
+        assert "stopped" in result.error.lower() or "socket" in result.error.lower()
