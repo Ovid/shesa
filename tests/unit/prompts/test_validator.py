@@ -1,6 +1,13 @@
 """Tests for prompt validator."""
 
-from shesha.prompts.validator import extract_placeholders
+import pytest
+
+from shesha.prompts.validator import (
+    PROMPT_SCHEMAS,
+    PromptValidationError,
+    extract_placeholders,
+    validate_prompt,
+)
 
 
 def test_extract_placeholders_finds_simple():
@@ -29,3 +36,39 @@ def test_extract_placeholders_ignores_escaped_braces():
     text = "Use {{literal}} braces and {real_placeholder}"
     placeholders = extract_placeholders(text)
     assert placeholders == {"real_placeholder"}
+
+
+def test_prompt_schemas_defined():
+    """PROMPT_SCHEMAS defines required placeholders for each prompt."""
+    assert "system.md" in PROMPT_SCHEMAS
+    assert "subcall.md" in PROMPT_SCHEMAS
+    assert "code_required.md" in PROMPT_SCHEMAS
+
+    assert "doc_count" in PROMPT_SCHEMAS["system.md"].required
+    assert "instruction" in PROMPT_SCHEMAS["subcall.md"].required
+    assert PROMPT_SCHEMAS["code_required.md"].required == set()
+
+
+def test_validate_prompt_passes_valid():
+    """validate_prompt passes when all required placeholders present."""
+    content = "Hello {instruction}, content: {content}"
+    # Should not raise
+    validate_prompt("subcall.md", content)
+
+
+def test_validate_prompt_fails_missing():
+    """validate_prompt raises for missing required placeholder."""
+    content = "Hello {instruction}"  # missing {content}
+    with pytest.raises(PromptValidationError) as exc_info:
+        validate_prompt("subcall.md", content)
+    assert "missing required placeholder" in str(exc_info.value).lower()
+    assert "content" in str(exc_info.value)
+
+
+def test_validate_prompt_fails_unknown():
+    """validate_prompt raises for unknown placeholder."""
+    content = "Hello {instruction}, {content}, {typo}"
+    with pytest.raises(PromptValidationError) as exc_info:
+        validate_prompt("subcall.md", content)
+    assert "unknown placeholder" in str(exc_info.value).lower()
+    assert "typo" in str(exc_info.value)
