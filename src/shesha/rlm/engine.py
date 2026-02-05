@@ -5,15 +5,12 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from shesha.llm.client import LLMClient
 from shesha.models import QueryContext
-from shesha.rlm.prompts import (
-    SUBCALL_PROMPT_TEMPLATE,
-    build_subcall_prompt,
-    build_system_prompt,
-    wrap_repl_output,
-)
+from shesha.prompts import PromptLoader
+from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output
 from shesha.rlm.trace import StepType, TokenUsage, Trace
 from shesha.rlm.trace_writer import TraceWriter
 from shesha.sandbox.executor import ContainerExecutor
@@ -51,6 +48,7 @@ class RLMEngine:
         max_output_chars: int = 50000,
         execution_timeout: int = 30,
         max_subcall_content_chars: int = 500_000,
+        prompts_dir: Path | None = None,
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -59,6 +57,7 @@ class RLMEngine:
         self.max_output_chars = max_output_chars
         self.execution_timeout = execution_timeout
         self.max_subcall_content_chars = max_subcall_content_chars
+        self.prompt_loader = PromptLoader(prompts_dir)
 
     def _handle_llm_query(
         self,
@@ -97,7 +96,7 @@ class RLMEngine:
             return error_msg
 
         # Build prompt and call LLM
-        prompt = build_subcall_prompt(instruction, content)
+        prompt = self.prompt_loader.render_subcall_prompt(instruction, content)
         sub_llm = LLMClient(model=self.model, api_key=self.api_key)
         response = sub_llm.complete(messages=[{"role": "user", "content": prompt}])
 
@@ -137,11 +136,19 @@ class RLMEngine:
         # Build system prompt with per-document sizes
         doc_sizes = [len(d) for d in documents]
         total_chars = sum(doc_sizes)
-        system_prompt = build_system_prompt(
+
+        # Build document sizes list
+        size_lines = []
+        for i, (name, size) in enumerate(zip(doc_names, doc_sizes)):
+            warning = " EXCEEDS LIMIT - must chunk" if size > MAX_SUBCALL_CHARS else ""
+            size_lines.append(f"    - context[{i}] ({name}): {size:,} chars{warning}")
+        doc_sizes_list = "\n".join(size_lines)
+
+        system_prompt = self.prompt_loader.render_system_prompt(
             doc_count=len(documents),
             total_chars=total_chars,
-            doc_names=doc_names,
-            doc_sizes=doc_sizes,
+            doc_sizes_list=doc_sizes_list,
+            max_subcall_chars=MAX_SUBCALL_CHARS,
         )
 
         # Helper to write trace
@@ -154,7 +161,7 @@ class RLMEngine:
                     document_ids=doc_names or [f"doc_{i}" for i in range(len(documents))],
                     model=self.model,
                     system_prompt=system_prompt,
-                    subcall_prompt=SUBCALL_PROMPT_TEMPLATE,
+                    subcall_prompt=self.prompt_loader.get_raw_template("subcall.md"),
                 )
                 writer = TraceWriter(storage)
                 writer.write_trace(
@@ -214,10 +221,7 @@ class RLMEngine:
                     messages.append(
                         {
                             "role": "user",
-                            "content": (
-                                "Your response must contain a ```repl block with Python code. "
-                                "Write code now to explore the documents."
-                            ),
+                            "content": self.prompt_loader.render_code_required(),
                         }
                     )
                     continue

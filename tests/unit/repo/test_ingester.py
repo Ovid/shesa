@@ -54,6 +54,27 @@ class TestRepoIngester:
         """detect_host returns None for local paths."""
         assert ingester.detect_host("/home/user/repo") is None
 
+    def test_is_git_repo_returns_true_for_git_dir(self, ingester: RepoIngester, tmp_path: Path):
+        """is_git_repo returns True for directories with .git."""
+        repo_dir = tmp_path / "my-repo"
+        repo_dir.mkdir()
+        (repo_dir / ".git").mkdir()
+        assert ingester.is_git_repo(repo_dir) is True
+
+    def test_is_git_repo_returns_false_for_non_git_dir(
+        self, ingester: RepoIngester, tmp_path: Path
+    ):
+        """is_git_repo returns False for directories without .git."""
+        non_repo_dir = tmp_path / "not-a-repo"
+        non_repo_dir.mkdir()
+        assert ingester.is_git_repo(non_repo_dir) is False
+
+    def test_is_git_repo_returns_false_for_nonexistent(
+        self, ingester: RepoIngester, tmp_path: Path
+    ):
+        """is_git_repo returns False for paths that don't exist."""
+        assert ingester.is_git_repo(tmp_path / "nonexistent") is False
+
 
 class TestTokenResolution:
     """Tests for token resolution logic."""

@@ -9,6 +9,8 @@ Features:
     - Interactive picker for previously indexed repositories
     - Automatic update detection and application
     - Conversation history for follow-up questions
+    - Session transcript export with "write" command
+    - In-session help with "help" or "?" command
     - Verbose mode with execution stats and progress
 
 Usage:
@@ -39,6 +41,10 @@ Example:
     > How does the sandbox execute code?
     [Thought for 15 seconds]
     The sandbox executes code in isolated Docker containers...
+
+    # Save session transcript
+    > write                    # Auto-generates timestamped filename
+    > write my-notes.md        # Custom filename
 """
 
 from __future__ import annotations
@@ -51,10 +57,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from shesha import Shesha, SheshaConfig
+from shesha.exceptions import RepoIngestError
 from shesha.rlm.trace import StepType
 
 # Storage path for repo projects
 STORAGE_PATH = Path.home() / ".shesha" / "repos"
+
+INTERACTIVE_HELP = """\
+Shesha Repository Explorer - Ask questions about the indexed codebase.
+
+Commands:
+  help, ?              Show this help message
+  write                Save session transcript (auto-generated filename)
+  write <filename>     Save session transcript to specified file
+  quit, exit           Leave the session
+
+Tip: Use --verbose flag for execution stats after each answer."""
 
 # Support both running as script and importing as module
 if __name__ == "__main__":
@@ -66,7 +84,11 @@ if __name__ == "__main__":
         format_thought_time,
         install_urllib3_cleanup_hook,
         is_exit_command,
+        is_help_command,
+        is_write_command,
+        parse_write_command,
         should_warn_history_size,
+        write_session,
     )
 else:
     from .script_utils import (
@@ -77,12 +99,40 @@ else:
         format_thought_time,
         install_urllib3_cleanup_hook,
         is_exit_command,
+        is_help_command,
+        is_write_command,
+        parse_write_command,
         should_warn_history_size,
+        write_session,
     )
 
 if TYPE_CHECKING:
     from shesha.models import RepoProjectResult
     from shesha.project import Project
+
+
+def _looks_like_repo_url_or_path(value: str) -> bool:
+    """Check if value looks like a repository URL or filesystem path.
+
+    Args:
+        value: User input string to validate.
+
+    Returns:
+        True if value looks like a URL or path, False otherwise.
+    """
+    # URLs
+    if value.startswith(("http://", "https://", "git@")):
+        return True
+    # Absolute paths
+    if value.startswith("/"):
+        return True
+    # Home-relative paths
+    if value.startswith("~"):
+        return True
+    # Relative paths
+    if value.startswith("./") or value.startswith("../"):
+        return True
+    return False
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -194,8 +244,18 @@ def show_picker(shesha: Shesha) -> tuple[str, bool] | None:
         except ValueError:
             pass  # Not a number, treat as URL/path below
 
-        # Otherwise treat as new URL/path
-        return (user_input, False)
+        # Check for exit commands
+        if is_exit_command(user_input):
+            return ("", False)
+
+        # Validate that input looks like a URL or path
+        if _looks_like_repo_url_or_path(user_input):
+            return (user_input, False)
+
+        # Invalid input - show error and reprompt
+        print(f"Invalid input: '{user_input}'")
+        print("Enter a number, 'd<N>' to delete, URL, or local path.")
+        print()
 
 
 def prompt_for_repo() -> str:
@@ -246,7 +306,7 @@ def handle_updates(result: RepoProjectResult, auto_update: bool) -> RepoProjectR
     return result
 
 
-def run_interactive_loop(project: Project, verbose: bool) -> None:
+def run_interactive_loop(project: Project, verbose: bool, project_name: str) -> None:
     """Run the interactive question-answer loop for querying the codebase.
 
     Provides a REPL-style interface where users can ask questions about the
@@ -257,6 +317,7 @@ def run_interactive_loop(project: Project, verbose: bool) -> None:
         project: The Shesha project containing the indexed repository.
         verbose: If True, displays execution stats (time, tokens, trace)
             and progress updates during query processing.
+        project_name: Name or URL of the project for session transcript metadata.
 
     Note:
         The loop continues until the user types "quit", "exit", or presses
@@ -264,7 +325,8 @@ def run_interactive_loop(project: Project, verbose: bool) -> None:
         prepended to each query for context.
     """
     print()
-    print('Ask questions about the codebase. Type "quit" or "exit" to leave.')
+    print("Ask questions about the codebase.")
+    print('Type "help" or "?" for commands.')
     print()
 
     history: list[tuple[str, str]] = []
@@ -282,6 +344,25 @@ def run_interactive_loop(project: Project, verbose: bool) -> None:
         if is_exit_command(user_input):
             print("Goodbye!")
             break
+
+        if is_help_command(user_input):
+            print(INTERACTIVE_HELP)
+            print()
+            continue
+
+        if is_write_command(user_input):
+            if not history:
+                print("Nothing to save - no exchanges yet.")
+                print()
+                continue
+            try:
+                filename = parse_write_command(user_input)
+                path = write_session(history, project_name, filename)
+                print(f"Session saved to {path} ({len(history)} exchanges)")
+            except OSError as e:
+                print(f"Error saving session: {e}")
+            print()
+            continue
 
         if should_warn_history_size(history):
             print(f"Warning: Conversation history is large ({len(history)} exchanges).")
@@ -406,7 +487,11 @@ def main() -> None:
     # Load or create project from URL if not already loaded
     if project is None:
         print(f"Loading repository: {repo_url}")
-        result = shesha.create_project_from_repo(repo_url)
+        try:
+            result = shesha.create_project_from_repo(repo_url)
+        except RepoIngestError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
 
         # Handle status
         if result.status == "created":
@@ -422,7 +507,7 @@ def main() -> None:
         project = result.project
 
     # Enter interactive loop
-    run_interactive_loop(project, args.verbose)
+    run_interactive_loop(project, args.verbose, project.project_id)
 
 
 if __name__ == "__main__":

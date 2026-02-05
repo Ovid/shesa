@@ -278,3 +278,14 @@ class TestThoughtTimeFormatting:
         """Handles zero seconds."""
         result = format_thought_time(0.4)
         assert result == "[Thought for 0 seconds]"
+
+
+class TestWriteCommand:
+    """Tests for write command in barsoom interactive loop."""
+
+    def test_write_command_recognized(self) -> None:
+        """Write command should not be treated as a query."""
+        from examples.script_utils import is_write_command
+
+        assert is_write_command("write")
+        assert is_write_command("write session.md")

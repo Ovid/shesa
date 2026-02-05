@@ -36,6 +36,17 @@ class RepoIngester:
         """Check if url is a local filesystem path."""
         return url.startswith("/") or url.startswith("~") or Path(url).exists()
 
+    def is_git_repo(self, path: Path) -> bool:
+        """Check if path is a git repository.
+
+        Args:
+            path: Filesystem path to check.
+
+        Returns:
+            True if path exists and contains a .git directory.
+        """
+        return path.exists() and (path / ".git").exists()
+
     def detect_host(self, url: str) -> str | None:
         """Detect the git host from a URL."""
         if self.is_local_path(url):

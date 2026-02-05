@@ -324,6 +324,28 @@ class TestCreateProjectFromRepo:
                     "my-project", "/path/to/local/repo"
                 )
 
+    def test_raises_for_non_git_local_path(self, tmp_path: Path):
+        """create_project_from_repo raises RepoIngestError for non-git local dirs."""
+        from shesha.exceptions import RepoIngestError
+
+        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
+            with patch("shesha.shesha.RepoIngester") as mock_ingester_cls:
+                mock_ingester = MagicMock()
+                mock_ingester_cls.return_value = mock_ingester
+
+                mock_ingester.is_local_path.return_value = True
+                mock_ingester.is_git_repo.return_value = False
+
+                shesha = Shesha(model="test-model", storage_path=tmp_path)
+
+                with pytest.raises(RepoIngestError) as exc_info:
+                    shesha.create_project_from_repo(
+                        url="/path/to/non-git-dir",
+                        name="my-project",
+                    )
+
+                assert "not a git repository" in str(exc_info.value).lower()
+
 
 class TestCheckRepoForUpdates:
     """Tests for check_repo_for_updates method."""
@@ -336,7 +358,7 @@ class TestCheckRepoForUpdates:
                 mock_ingester_cls.return_value = mock_ingester
 
                 # Cloned repo with matching SHAs
-                mock_ingester.get_repo_url.return_value = "https://github.com/org/repo"
+                mock_ingester.get_source_url.return_value = "https://github.com/org/repo"
                 mock_ingester.is_local_path.return_value = False
                 mock_ingester.get_saved_sha.return_value = "abc123"
                 mock_ingester.get_remote_sha.return_value = "abc123"
@@ -358,7 +380,7 @@ class TestCheckRepoForUpdates:
                 mock_ingester_cls.return_value = mock_ingester
 
                 # Cloned repo with different SHAs
-                mock_ingester.get_repo_url.return_value = "https://github.com/org/repo"
+                mock_ingester.get_source_url.return_value = "https://github.com/org/repo"
                 mock_ingester.is_local_path.return_value = False
                 mock_ingester.get_saved_sha.return_value = "abc123"
                 mock_ingester.get_remote_sha.return_value = "def456"
@@ -389,7 +411,7 @@ class TestCheckRepoForUpdates:
                 mock_ingester_cls.return_value = mock_ingester
 
                 # No repo URL stored (not a cloned repo)
-                mock_ingester.get_repo_url.return_value = None
+                mock_ingester.get_source_url.return_value = None
 
                 shesha = Shesha(model="test-model", storage_path=tmp_path)
                 shesha._storage.create_project("my-project")
@@ -398,6 +420,31 @@ class TestCheckRepoForUpdates:
                     shesha.check_repo_for_updates("my-project")
 
                 assert "No repository URL" in str(exc_info.value)
+
+    def test_works_with_local_repo(self, tmp_path: Path):
+        """check_repo_for_updates works with local repos using get_source_url."""
+        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
+            with patch("shesha.shesha.RepoIngester") as mock_ingester_cls:
+                mock_ingester = MagicMock()
+                mock_ingester_cls.return_value = mock_ingester
+
+                # Local repo - get_repo_url returns None (no cloned dir)
+                # but get_source_url returns the local path
+                mock_ingester.get_source_url.return_value = "/path/to/local/repo"
+                mock_ingester.is_local_path.return_value = True
+                mock_ingester.get_saved_sha.return_value = "abc123"
+                mock_ingester.get_sha_from_path.return_value = "abc123"
+                mock_ingester.resolve_token.return_value = None
+
+                shesha = Shesha(model="test-model", storage_path=tmp_path)
+                shesha._storage.create_project("my-project")
+
+                result = shesha.check_repo_for_updates("my-project")
+
+                assert result.status == "unchanged"
+                assert result.project.project_id == "my-project"
+                # Verify it used get_source_url, not get_repo_url
+                mock_ingester.get_source_url.assert_called_once_with("my-project")
 
 
 class TestGetProjectInfo:

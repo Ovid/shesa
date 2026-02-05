@@ -18,6 +18,8 @@ The Barsoom series consists of 7 novels:
 Features:
     - Automatic setup on first run (uploads all 7 novels)
     - Conversation history for follow-up questions
+    - Session transcript export with "write" command
+    - In-session help with "help" or "?" command
     - Verbose mode with execution stats and progress
     - Non-interactive mode for scripted queries
 
@@ -51,6 +53,10 @@ Example:
     > Who is the son of Dejah Thoris?
     [Thought for 29 seconds]
     The son of Dejah Thoris and John Carter is **Carthoris of Helium**.
+
+    # Save session transcript
+    > write                    # Auto-generates timestamped filename
+    > write my-research.md     # Custom filename
 """
 
 import argparse
@@ -73,7 +79,11 @@ if __name__ == "__main__":
         format_thought_time,
         install_urllib3_cleanup_hook,
         is_exit_command,
+        is_help_command,
+        is_write_command,
+        parse_write_command,
         should_warn_history_size,
+        write_session,
     )
 else:
     from .script_utils import (
@@ -84,8 +94,23 @@ else:
         format_thought_time,
         install_urllib3_cleanup_hook,
         is_exit_command,
+        is_help_command,
+        is_write_command,
+        parse_write_command,
         should_warn_history_size,
+        write_session,
     )
+
+INTERACTIVE_HELP = """\
+Shesha Barsoom Explorer - Ask questions about the Barsoom novel series.
+
+Commands:
+  help, ?              Show this help message
+  write                Save session transcript (auto-generated filename)
+  write <filename>     Save session transcript to specified file
+  quit, exit           Leave the session
+
+Tip: Use --verbose flag for execution stats after each answer."""
 
 BOOKS = {
     "barsoom-1.txt": "A Princess of Mars",
@@ -251,7 +276,8 @@ def main() -> None:
         return
 
     print()
-    print('Ask questions about the Barsoom series. Type "quit" or "exit" to leave.')
+    print("Ask questions about the Barsoom series.")
+    print('Type "help" or "?" for commands.')
     print()
 
     # Conversation history for follow-up questions
@@ -271,6 +297,25 @@ def main() -> None:
         if is_exit_command(user_input):
             print("Goodbye!")
             break
+
+        if is_help_command(user_input):
+            print(INTERACTIVE_HELP)
+            print()
+            continue
+
+        if is_write_command(user_input):
+            if not history:
+                print("Nothing to save - no exchanges yet.")
+                print()
+                continue
+            try:
+                filename = parse_write_command(user_input)
+                path = write_session(history, PROJECT_NAME, filename)
+                print(f"Session saved to {path} ({len(history)} exchanges)")
+            except OSError as e:
+                print(f"Error saving session: {e}")
+            print()
+            continue
 
         # Check if history is getting large
         if should_warn_history_size(history):

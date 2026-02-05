@@ -10,6 +10,7 @@ import docker
 from docker.errors import DockerException
 
 from shesha.config import SheshaConfig
+from shesha.exceptions import RepoIngestError
 from shesha.models import ParsedDocument, ProjectInfo, RepoProjectResult
 from shesha.parser import create_default_registry
 from shesha.project import Project
@@ -207,7 +208,7 @@ class Shesha:
         if not self._storage.project_exists(project_id):
             raise ValueError(f"Project '{project_id}' does not exist")
 
-        url = self._repo_ingester.get_repo_url(project_id)
+        url = self._repo_ingester.get_source_url(project_id)
         if not url:
             raise ValueError(
                 f"No repository URL found for project '{project_id}'. "
@@ -322,7 +323,11 @@ class Shesha:
         path: str | None,
     ) -> RepoProjectResult:
         """Create a new project from repo."""
-        if not self._repo_ingester.is_local_path(url):
+        if self._repo_ingester.is_local_path(url):
+            local_path = Path(url).expanduser()
+            if not self._repo_ingester.is_git_repo(local_path):
+                raise RepoIngestError(url, RuntimeError(f"'{url}' is not a git repository"))
+        else:
             self._repo_ingester.clone(url, name, token)
         return self._ingest_repo(url, name, token, path, is_update=False)
 
