@@ -60,3 +60,29 @@ class MultiRepoAnalyzer:
     def impacts(self) -> dict[str, ImpactReport]:
         """Impact reports by project_id (populated after Phase 2)."""
         return self._impacts
+
+    def add_repo(self, url_or_path: str) -> str:
+        """Add a repo to the analysis.
+
+        If the repo was previously indexed, reuses it (with update check).
+        If updates are available, they are automatically applied.
+
+        Args:
+            url_or_path: Git repository URL or local filesystem path.
+
+        Returns:
+            The project_id for the added repository.
+        """
+        result = self._shesha.create_project_from_repo(url_or_path)
+
+        # Apply updates if available
+        if result.status == "updates_available":
+            result = result.apply_updates()
+
+        project_id = result.project.project_id
+
+        # Avoid duplicates
+        if project_id not in self._repos:
+            self._repos.append(project_id)
+
+        return project_id

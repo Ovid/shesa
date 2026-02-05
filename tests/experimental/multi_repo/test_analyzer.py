@@ -76,3 +76,70 @@ class TestMultiRepoAnalyzerProperties:
         analyzer._impacts = {"test": report}
 
         assert analyzer.impacts == {"test": report}
+
+
+class TestMultiRepoAnalyzerAddRepo:
+    """Tests for add_repo method."""
+
+    def test_add_repo_creates_project(self):
+        """add_repo creates a project via Shesha."""
+        mock_shesha = MagicMock()
+        mock_result = MagicMock()
+        mock_result.project.project_id = "org-repo"
+        mock_result.status = "created"
+        mock_shesha.create_project_from_repo.return_value = mock_result
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        project_id = analyzer.add_repo("https://github.com/org/repo")
+
+        assert project_id == "org-repo"
+        assert "org-repo" in analyzer.repos
+        mock_shesha.create_project_from_repo.assert_called_once_with(
+            "https://github.com/org/repo"
+        )
+
+    def test_add_repo_reuses_existing(self):
+        """add_repo reuses existing project if unchanged."""
+        mock_shesha = MagicMock()
+        mock_result = MagicMock()
+        mock_result.project.project_id = "org-repo"
+        mock_result.status = "unchanged"
+        mock_shesha.create_project_from_repo.return_value = mock_result
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        project_id = analyzer.add_repo("https://github.com/org/repo")
+
+        assert project_id == "org-repo"
+        assert "org-repo" in analyzer.repos
+
+    def test_add_repo_handles_updates(self):
+        """add_repo applies updates if available."""
+        mock_shesha = MagicMock()
+        mock_result = MagicMock()
+        mock_result.project.project_id = "org-repo"
+        mock_result.status = "updates_available"
+        mock_updated_result = MagicMock()
+        mock_updated_result.project.project_id = "org-repo"
+        mock_updated_result.status = "created"
+        mock_result.apply_updates.return_value = mock_updated_result
+        mock_shesha.create_project_from_repo.return_value = mock_result
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        project_id = analyzer.add_repo("https://github.com/org/repo")
+
+        assert project_id == "org-repo"
+        mock_result.apply_updates.assert_called_once()
+
+    def test_add_repo_avoids_duplicates(self):
+        """add_repo doesn't add the same repo twice."""
+        mock_shesha = MagicMock()
+        mock_result = MagicMock()
+        mock_result.project.project_id = "org-repo"
+        mock_result.status = "unchanged"
+        mock_shesha.create_project_from_repo.return_value = mock_result
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        analyzer.add_repo("https://github.com/org/repo")
+        analyzer.add_repo("https://github.com/org/repo")
+
+        assert analyzer.repos.count("org-repo") == 1
