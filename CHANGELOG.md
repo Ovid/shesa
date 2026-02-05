@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- External prompt files in `prompts/` directory for easier customization
+- `python -m shesha.prompts` CLI tool for validating prompt files
+- Support for alternate prompt directories via `SHESHA_PROMPTS_DIR` environment variable
+- `prompts/README.md` documenting prompt customization
+
 ## [0.3.0] 2026-02-04
 
 ### Fixed
