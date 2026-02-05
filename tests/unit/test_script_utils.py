@@ -1,5 +1,6 @@
 """Tests for script_utils shared utilities."""
 
+import re
 import sys
 
 from shesha.rlm.trace import StepType, TokenUsage, Trace
@@ -248,3 +249,29 @@ class TestParseWriteCommand:
 
         assert parse_write_command("write myfile.md") == "myfile.md"
         assert parse_write_command("write FILE.MD") == "FILE.MD"
+
+
+class TestGenerateSessionFilename:
+    """Tests for generate_session_filename function."""
+
+    def test_filename_format(self) -> None:
+        """Filename should match session-YYYY-MM-DD-HHMMSS.md pattern."""
+        from examples.script_utils import generate_session_filename
+
+        filename = generate_session_filename()
+        pattern = r"^session-\d{4}-\d{2}-\d{2}-\d{6}\.md$"
+        assert re.match(pattern, filename), f"'{filename}' doesn't match expected pattern"
+
+    def test_filename_has_md_extension(self) -> None:
+        """Filename should end with .md."""
+        from examples.script_utils import generate_session_filename
+
+        filename = generate_session_filename()
+        assert filename.endswith(".md")
+
+    def test_filename_starts_with_session(self) -> None:
+        """Filename should start with 'session-'."""
+        from examples.script_utils import generate_session_filename
+
+        filename = generate_session_filename()
+        assert filename.startswith("session-")

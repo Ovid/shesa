@@ -4,6 +4,7 @@
 import sys
 import threading
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from shesha.rlm.trace import StepType, TokenUsage, Trace
@@ -164,3 +165,13 @@ def install_urllib3_cleanup_hook() -> None:
         original_hook(unraisable)
 
     sys.unraisablehook = suppress_urllib3_error
+
+
+def generate_session_filename() -> str:
+    """Generate a timestamped session filename.
+
+    Returns:
+        Filename like 'session-2026-02-05-143022.md'.
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    return f"session-{timestamp}.md"
