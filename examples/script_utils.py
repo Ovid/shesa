@@ -201,14 +201,16 @@ def format_session_transcript(history: list[tuple[str, str]], project_name: str)
     ]
 
     for question, answer in history:
-        lines.extend([
-            "",
-            f"**User:** {question}",
-            "",
-            answer,
-            "",
-            "---",
-        ])
+        lines.extend(
+            [
+                "",
+                f"**User:** {question}",
+                "",
+                answer,
+                "",
+                "---",
+            ]
+        )
 
     return "\n".join(lines)
 
