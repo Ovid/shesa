@@ -22,3 +22,10 @@ def test_extract_placeholders_empty():
     text = "No placeholders here"
     placeholders = extract_placeholders(text)
     assert placeholders == set()
+
+
+def test_extract_placeholders_ignores_escaped_braces():
+    """extract_placeholders ignores {{escaped}} braces."""
+    text = "Use {{literal}} braces and {real_placeholder}"
+    placeholders = extract_placeholders(text)
+    assert placeholders == {"real_placeholder"}
