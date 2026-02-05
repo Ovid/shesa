@@ -2,6 +2,9 @@
 
 import re
 import sys
+from pathlib import Path
+
+import pytest
 
 from shesha.rlm.trace import StepType, TokenUsage, Trace
 
@@ -323,3 +326,57 @@ class TestFormatSessionTranscript:
 
         result = format_session_transcript([], "project")
         assert "**Date:**" in result
+
+
+class TestWriteSession:
+    """Tests for write_session function."""
+
+    def test_writes_file_to_specified_path(self, tmp_path: Path) -> None:
+        """Should write transcript to specified filename."""
+        from examples.script_utils import write_session
+
+        history = [("Q?", "A.")]
+        filepath = tmp_path / "test.md"
+
+        result = write_session(history, "project", str(filepath))
+
+        assert result == str(filepath)
+        assert filepath.exists()
+        content = filepath.read_text()
+        assert "**User:** Q?" in content
+
+    def test_auto_generates_filename(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Should auto-generate filename when None provided."""
+        from examples.script_utils import write_session
+
+        # Change to tmp_path for the test
+        monkeypatch.chdir(tmp_path)
+
+        history = [("Q?", "A.")]
+        result = write_session(history, "project", None)
+
+        assert result.startswith("session-")
+        assert result.endswith(".md")
+        assert Path(result).exists()
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        """Should create parent directories if they don't exist."""
+        from examples.script_utils import write_session
+
+        history = [("Q?", "A.")]
+        filepath = tmp_path / "subdir" / "nested" / "test.md"
+
+        write_session(history, "project", str(filepath))
+
+        assert filepath.exists()
+
+    def test_returns_path_written(self, tmp_path: Path) -> None:
+        """Should return the path that was written to."""
+        from examples.script_utils import write_session
+
+        history = [("Q?", "A.")]
+        filepath = tmp_path / "output.md"
+
+        result = write_session(history, "project", str(filepath))
+
+        assert result == str(filepath)
