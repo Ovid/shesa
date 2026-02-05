@@ -209,3 +209,42 @@ class TestIsWriteCommand:
         assert not is_write_command("writeup")
         assert not is_write_command("rewrite")
         assert not is_write_command("")
+
+
+class TestParseWriteCommand:
+    """Tests for parse_write_command function."""
+
+    def test_write_alone_returns_none(self) -> None:
+        """'write' by itself returns None (auto-generate filename)."""
+        from examples.script_utils import parse_write_command
+
+        assert parse_write_command("write") is None
+        assert parse_write_command("WRITE") is None
+
+    def test_write_with_filename_returns_filename(self) -> None:
+        """'write <filename>' returns the filename."""
+        from examples.script_utils import parse_write_command
+
+        assert parse_write_command("write myfile.md") == "myfile.md"
+        assert parse_write_command("write path/to/file.md") == "path/to/file.md"
+
+    def test_strips_whitespace_from_filename(self) -> None:
+        """Whitespace around filename should be stripped."""
+        from examples.script_utils import parse_write_command
+
+        assert parse_write_command("write   myfile.md   ") == "myfile.md"
+        assert parse_write_command("WRITE    session.md") == "session.md"
+
+    def test_adds_md_extension_if_missing(self) -> None:
+        """Add .md extension if not present."""
+        from examples.script_utils import parse_write_command
+
+        assert parse_write_command("write myfile") == "myfile.md"
+        assert parse_write_command("write path/to/file") == "path/to/file.md"
+
+    def test_preserves_md_extension(self) -> None:
+        """Don't double-add .md extension."""
+        from examples.script_utils import parse_write_command
+
+        assert parse_write_command("write myfile.md") == "myfile.md"
+        assert parse_write_command("write FILE.MD") == "FILE.MD"

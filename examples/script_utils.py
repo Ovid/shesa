@@ -118,6 +118,25 @@ def is_write_command(user_input: str) -> bool:
     return lower == "write" or lower.startswith("write ")
 
 
+def parse_write_command(user_input: str) -> str | None:
+    """Parse write command and extract filename.
+
+    Args:
+        user_input: The user's input string (already confirmed as write command).
+
+    Returns:
+        The filename with .md extension, or None for auto-generate.
+    """
+    parts = user_input.split(maxsplit=1)
+    if len(parts) == 1:
+        return None
+
+    filename = parts[1].strip()
+    if not filename.lower().endswith(".md"):
+        filename = filename + ".md"
+    return filename
+
+
 def should_warn_history_size(history: list[tuple[str, str]]) -> bool:
     """Check if history is large enough to warrant a warning."""
     if len(history) >= HISTORY_WARN_EXCHANGES:
