@@ -33,3 +33,13 @@ def test_default_registry_has_docx_parser():
     """Default registry can parse docx files."""
     registry = create_default_registry()
     assert registry.find_parser(Path("test.docx")) is not None
+
+
+def test_default_registry_has_fallback_parser(tmp_path: Path):
+    """Default registry can parse unknown text files via fallback."""
+    registry = create_default_registry()
+    # Create a file with unknown extension that contains text
+    unknown_file = tmp_path / "config.xyz"
+    unknown_file.write_text("some=config\nkey=value")
+    # Fallback parser should catch it
+    assert registry.find_parser(unknown_file) is not None
