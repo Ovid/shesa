@@ -119,6 +119,78 @@ def collect_repos_from_storages(
     return repos
 
 
+def show_multi_picker(
+    repos: list[tuple[str, str | None, str]],
+) -> list[tuple[str, str | None, str]]:
+    """Show interactive multi-select picker for repos.
+
+    All repos start selected. User enters numbers to toggle,
+    'a' to add a URL, 'done' to proceed.
+
+    Args:
+        repos: List of (project_id, source_url, storage_label) tuples.
+
+    Returns:
+        Selected repos as list of (project_id, source_url, storage_label).
+        For user-added URLs, project_id is the URL itself and storage_label is "new".
+    """
+    # Mutable selection state: index -> selected
+    selected = {i: True for i in range(len(repos))}
+    all_repos = list(repos)  # May grow if user adds URLs
+
+    while True:
+        # Display grouped by storage
+        print()
+        print("Available repositories:")
+        storages: dict[str, list[tuple[int, str, str | None]]] = {}
+        for i, (pid, url, label) in enumerate(all_repos):
+            storages.setdefault(label, []).append((i, pid, url))
+
+        num = 0
+        index_map: dict[int, int] = {}  # display_num -> all_repos index
+        for label in ["multi-repo", "repo-explorer", "new"]:
+            if label not in storages:
+                continue
+            print(f"  [{label}]")
+            for repo_idx, pid, url in storages[label]:
+                num += 1
+                index_map[num] = repo_idx
+                marker = "*" if selected.get(repo_idx, True) else " "
+                print(f"    {num}. [{marker}] {pid}")
+
+        selected_count = sum(1 for s in selected.values() if s)
+        print()
+        print(f"Selected: {selected_count}/{len(all_repos)}")
+        user_input = input("Toggle number, 'a' to add URL, 'done' to proceed: ").strip()
+
+        if user_input.lower() == "done":
+            chosen = [all_repos[i] for i, sel in selected.items() if sel]
+            if not chosen:
+                print("At least one repo must be selected.")
+                continue
+            return chosen
+
+        if user_input.lower() == "a":
+            url = input("Enter repo URL: ").strip()
+            if url:
+                idx = len(all_repos)
+                all_repos.append((url, url, "new"))
+                selected[idx] = True
+            continue
+
+        try:
+            num_input = int(user_input)
+            if num_input in index_map:
+                repo_idx = index_map[num_input]
+                selected[repo_idx] = not selected[repo_idx]
+                action = "Selected" if selected[repo_idx] else "Deselected"
+                print(f"  {action}: {all_repos[repo_idx][0]}")
+            else:
+                print(f"Invalid number: {num_input}")
+        except ValueError:
+            print(f"Unknown command: '{user_input}'")
+
+
 def main() -> None:
     """Main entry point."""
     args = parse_args()

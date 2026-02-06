@@ -183,3 +183,94 @@ class TestCollectReposFromStorages:
         assert len(repos) == 1
         assert repos[0][0] == "Ovid-shesha"
         assert repos[0][2] == "repo-explorer"
+
+
+class TestShowMultiPicker:
+    """Tests for show_multi_picker."""
+
+    def test_all_selected_by_default(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """All repos start selected; 'done' returns all."""
+        from multi_repo import show_multi_picker
+
+        repos = [
+            ("org-auth", "https://github.com/org/auth", "multi-repo"),
+            ("org-api", "https://github.com/org/api", "repo-explorer"),
+        ]
+
+        with patch("builtins.input", return_value="done"):
+            result = show_multi_picker(repos)
+
+        assert len(result) == 2
+        assert ("org-auth", "https://github.com/org/auth", "multi-repo") in result
+        assert ("org-api", "https://github.com/org/api", "repo-explorer") in result
+
+    def test_toggle_deselects(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Entering a number deselects that repo."""
+        from multi_repo import show_multi_picker
+
+        repos = [
+            ("org-auth", "https://github.com/org/auth", "multi-repo"),
+            ("org-api", "https://github.com/org/api", "repo-explorer"),
+        ]
+
+        with patch("builtins.input", side_effect=["2", "done"]):
+            result = show_multi_picker(repos)
+
+        assert len(result) == 1
+        assert result[0][0] == "org-auth"
+
+    def test_toggle_reselects(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Entering same number twice re-selects."""
+        from multi_repo import show_multi_picker
+
+        repos = [
+            ("org-auth", "https://github.com/org/auth", "multi-repo"),
+            ("org-api", "https://github.com/org/api", "repo-explorer"),
+        ]
+
+        with patch("builtins.input", side_effect=["2", "2", "done"]):
+            result = show_multi_picker(repos)
+
+        assert len(result) == 2
+
+    def test_add_url(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """'a' prompts for URL and adds it."""
+        from multi_repo import show_multi_picker
+
+        repos = [("org-auth", "https://github.com/org/auth", "multi-repo")]
+
+        with patch("builtins.input", side_effect=["a", "https://github.com/org/new", "done"]):
+            result = show_multi_picker(repos)
+
+        assert len(result) == 2
+        added = [r for r in result if r[0] == "https://github.com/org/new"]
+        assert len(added) == 1
+
+    def test_deselect_all_shows_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Deselecting all repos and hitting 'done' shows error and re-prompts."""
+        from multi_repo import show_multi_picker
+
+        repos = [("org-auth", "https://github.com/org/auth", "multi-repo")]
+
+        with patch("builtins.input", side_effect=["1", "done", "1", "done"]):
+            result = show_multi_picker(repos)
+
+        captured = capsys.readouterr()
+        assert "At least one repo must be selected" in captured.out
+        assert len(result) == 1
+
+    def test_displays_grouped_by_storage(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Repos are displayed grouped by storage label."""
+        from multi_repo import show_multi_picker
+
+        repos = [
+            ("org-auth", "https://github.com/org/auth", "multi-repo"),
+            ("org-api", "https://github.com/org/api", "repo-explorer"),
+        ]
+
+        with patch("builtins.input", return_value="done"):
+            show_multi_picker(repos)
+
+        captured = capsys.readouterr()
+        assert "[multi-repo]" in captured.out
+        assert "[repo-explorer]" in captured.out
