@@ -88,7 +88,7 @@ class AnalysisGenerator:
             data = {"overview": result.answer, "components": [], "external_dependencies": []}
 
         # Get current SHA
-        head_sha = self._shesha._repo_ingester.get_saved_sha(project_id) or ""
+        head_sha = self._shesha.get_project_sha(project_id) or ""
 
         # Parse components
         components = []

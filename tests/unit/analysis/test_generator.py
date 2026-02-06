@@ -83,7 +83,7 @@ class TestAnalysisGeneration:
         mock_project.query.return_value = mock_result
 
         # Mock repo ingester for SHA
-        mock_shesha._repo_ingester.get_saved_sha.return_value = "abc123def"
+        mock_shesha.get_project_sha.return_value = "abc123def"
 
         generator = AnalysisGenerator(mock_shesha)
         result = generator.generate("test-project")
@@ -104,7 +104,7 @@ class TestAnalysisGeneration:
         mock_result = MagicMock()
         mock_result.answer = '{"overview": "Test", "components": [], "external_dependencies": []}'
         mock_project.query.return_value = mock_result
-        mock_shesha._repo_ingester.get_saved_sha.return_value = "sha123"
+        mock_shesha.get_project_sha.return_value = "sha123"
 
         generator = AnalysisGenerator(mock_shesha)
         generator.generate("test-project")
@@ -127,7 +127,7 @@ class TestAnalysisGeneration:
         mock_result = MagicMock()
         mock_result.answer = '{"overview": "Test", "components": [], "external_dependencies": []}'
         mock_project.query.return_value = mock_result
-        mock_shesha._repo_ingester.get_saved_sha.return_value = None
+        mock_shesha.get_project_sha.return_value = None
 
         generator = AnalysisGenerator(mock_shesha)
         result = generator.generate("test-project")
@@ -144,7 +144,7 @@ class TestAnalysisGeneration:
         mock_result = MagicMock()
         mock_result.answer = "This is a plain text response with no JSON."
         mock_project.query.return_value = mock_result
-        mock_shesha._repo_ingester.get_saved_sha.return_value = "sha456"
+        mock_shesha.get_project_sha.return_value = "sha456"
 
         generator = AnalysisGenerator(mock_shesha)
         result = generator.generate("test-project")

@@ -242,6 +242,17 @@ class Shesha:
             raise ValueError(f"Project '{project_id}' does not exist")
         return self._storage.load_analysis(project_id)
 
+    def get_project_sha(self, project_id: str) -> str | None:
+        """Get the saved HEAD SHA for a project.
+
+        Args:
+            project_id: ID of the project.
+
+        Returns:
+            The SHA string, or None if not available.
+        """
+        return self._repo_ingester.get_saved_sha(project_id)
+
     def generate_analysis(self, project_id: str) -> "RepoAnalysis":
         """Generate and store a codebase analysis for a project.
 
