@@ -309,7 +309,7 @@ def check_and_prompt_analysis(shesha: Shesha, project_id: str) -> None:
     try:
         status = shesha.get_analysis_status(project_id)
     except ValueError:
-        return  # Project doesn't exist or other error
+        return  # Project may not exist yet; skip analysis check gracefully
 
     if status == "missing":
         print("Note: No codebase analysis exists for this repository.")
@@ -330,7 +330,7 @@ def check_and_prompt_analysis(shesha: Shesha, project_id: str) -> None:
                 shesha.generate_analysis(project_id)
                 print("Analysis updated.")
         except (EOFError, KeyboardInterrupt):
-            print()
+            print()  # Clean line after interrupt
 
 
 def run_interactive_loop(

@@ -308,9 +308,10 @@ class TestRunInteractiveLoop:
         from examples.repo import run_interactive_loop
 
         mock_project = MagicMock()
+        mock_shesha = MagicMock()
 
         with patch("builtins.input", return_value="quit"):
-            run_interactive_loop(mock_project, verbose=False, project_name="test-project")
+            run_interactive_loop(mock_project, verbose=False, project_name="test-project", shesha=mock_shesha)
 
         captured = capsys.readouterr()
         assert "Goodbye!" in captured.out
@@ -321,9 +322,10 @@ class TestRunInteractiveLoop:
         from examples.repo import run_interactive_loop
 
         mock_project = MagicMock()
+        mock_shesha = MagicMock()
 
         with patch("builtins.input", return_value="exit"):
-            run_interactive_loop(mock_project, verbose=False, project_name="test-project")
+            run_interactive_loop(mock_project, verbose=False, project_name="test-project", shesha=mock_shesha)
 
         captured = capsys.readouterr()
         assert "Goodbye!" in captured.out
@@ -333,10 +335,11 @@ class TestRunInteractiveLoop:
         from examples.repo import run_interactive_loop
 
         mock_project = MagicMock()
+        mock_shesha = MagicMock()
 
         # First empty, then quit
         with patch("builtins.input", side_effect=["", "quit"]):
-            run_interactive_loop(mock_project, verbose=False, project_name="test-project")
+            run_interactive_loop(mock_project, verbose=False, project_name="test-project", shesha=mock_shesha)
 
         mock_project.query.assert_not_called()
 
@@ -352,9 +355,10 @@ class TestRunInteractiveLoop:
 
         mock_project = MagicMock()
         mock_project.query.return_value = mock_result
+        mock_shesha = MagicMock()
 
         with patch("builtins.input", side_effect=["What is X?", "quit"]):
-            run_interactive_loop(mock_project, verbose=False, project_name="test-project")
+            run_interactive_loop(mock_project, verbose=False, project_name="test-project", shesha=mock_shesha)
 
         mock_project.query.assert_called_once()
 
@@ -363,9 +367,10 @@ class TestRunInteractiveLoop:
         from examples.repo import run_interactive_loop
 
         mock_project = MagicMock()
+        mock_shesha = MagicMock()
 
         with patch("builtins.input", side_effect=["help", "quit"]):
-            run_interactive_loop(mock_project, verbose=False, project_name="test-project")
+            run_interactive_loop(mock_project, verbose=False, project_name="test-project", shesha=mock_shesha)
 
         captured = capsys.readouterr()
         assert "Commands:" in captured.out
@@ -379,9 +384,10 @@ class TestRunInteractiveLoop:
         from examples.repo import run_interactive_loop
 
         mock_project = MagicMock()
+        mock_shesha = MagicMock()
 
         with patch("builtins.input", side_effect=["?", "quit"]):
-            run_interactive_loop(mock_project, verbose=False, project_name="test-project")
+            run_interactive_loop(mock_project, verbose=False, project_name="test-project", shesha=mock_shesha)
 
         captured = capsys.readouterr()
         assert "Commands:" in captured.out
