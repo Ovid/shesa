@@ -1,6 +1,6 @@
 """Tests for storage base classes."""
 
-from shesha.storage.base import ParsedDocument
+from shesha.storage.base import ParsedDocument, StorageBackend
 
 
 def test_parsed_document_creation():
@@ -16,3 +16,19 @@ def test_parsed_document_creation():
     assert doc.name == "test.txt"
     assert doc.content == "Hello world"
     assert doc.char_count == 11
+
+
+class TestStorageBackendProtocol:
+    """Tests for StorageBackend protocol definition."""
+
+    def test_protocol_has_store_analysis_method(self):
+        """StorageBackend protocol includes store_analysis method."""
+        assert hasattr(StorageBackend, "store_analysis")
+
+    def test_protocol_has_load_analysis_method(self):
+        """StorageBackend protocol includes load_analysis method."""
+        assert hasattr(StorageBackend, "load_analysis")
+
+    def test_protocol_has_delete_analysis_method(self):
+        """StorageBackend protocol includes delete_analysis method."""
+        assert hasattr(StorageBackend, "delete_analysis")

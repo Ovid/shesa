@@ -1,9 +1,12 @@
 """Storage backend protocol and data classes."""
 
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from shesha.models import ParsedDocument
+
+if TYPE_CHECKING:
+    from shesha.models import RepoAnalysis
 
 
 class StorageBackend(Protocol):
@@ -51,6 +54,18 @@ class StorageBackend(Protocol):
 
     def load_all_documents(self, project_id: str) -> list[ParsedDocument]:
         """Load all documents in a project for querying."""
+        ...
+
+    def store_analysis(self, project_id: str, analysis: "RepoAnalysis") -> None:
+        """Store a codebase analysis for a project."""
+        ...
+
+    def load_analysis(self, project_id: str) -> "RepoAnalysis | None":
+        """Load the codebase analysis for a project."""
+        ...
+
+    def delete_analysis(self, project_id: str) -> None:
+        """Delete the codebase analysis for a project."""
         ...
 
 
