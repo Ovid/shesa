@@ -261,6 +261,33 @@ class TestTraceWriterCleanup:
         assert len(remaining) == 2
 
 
+class TestCleanupOldTracesErrorHandling:
+    """Tests for cleanup_old_traces error handling."""
+
+    def test_cleanup_raises_by_default_on_error(self, tmp_path: Path) -> None:
+        """cleanup_old_traces raises TraceWriteError when suppress_errors is False."""
+        from shesha.exceptions import TraceWriteError
+        from shesha.rlm.trace_writer import TraceWriter
+
+        storage = MagicMock()
+        storage.list_traces.side_effect = OSError("disk error")
+
+        writer = TraceWriter(storage, suppress_errors=False)
+        with pytest.raises(TraceWriteError):
+            writer.cleanup_old_traces("test-project", max_count=3)
+
+    def test_cleanup_suppresses_errors_when_configured(self, tmp_path: Path) -> None:
+        """cleanup_old_traces swallows errors when suppress_errors is True."""
+        from shesha.rlm.trace_writer import TraceWriter
+
+        storage = MagicMock()
+        storage.list_traces.side_effect = OSError("disk error")
+
+        writer = TraceWriter(storage, suppress_errors=True)
+        # Should not raise
+        writer.cleanup_old_traces("test-project", max_count=3)
+
+
 class TestTraceWriterSafety:
     """Tests for error handling and redaction."""
 

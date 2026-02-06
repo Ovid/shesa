@@ -123,14 +123,20 @@ class TraceWriter:
             project_id: The project ID
             max_count: Maximum number of traces to keep
         """
-        traces = self.storage.list_traces(project_id)
-        if len(traces) <= max_count:
-            return
+        try:
+            traces = self.storage.list_traces(project_id)
+            if len(traces) <= max_count:
+                return
 
-        # Sorted oldest first, delete until under limit
-        to_delete = traces[: len(traces) - max_count]
-        for trace_path in to_delete:
-            trace_path.unlink()
+            # Sorted oldest first, delete until under limit
+            to_delete = traces[: len(traces) - max_count]
+            for trace_path in to_delete:
+                trace_path.unlink()
+        except Exception as e:
+            if self.suppress_errors:
+                logger.warning(f"Failed to clean up traces for project {project_id}: {e}")
+                return
+            raise TraceWriteError(f"Failed to clean up traces for project {project_id}: {e}") from e
 
 
 class IncrementalTraceWriter:
