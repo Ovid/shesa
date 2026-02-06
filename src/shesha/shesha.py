@@ -196,9 +196,7 @@ class Shesha:
             analysis_status=analysis_status,
         )
 
-    def get_analysis_status(
-        self, project_id: str
-    ) -> Literal["current", "stale", "missing"]:
+    def get_analysis_status(self, project_id: str) -> Literal["current", "stale", "missing"]:
         """Check the status of a project's codebase analysis.
 
         Args:

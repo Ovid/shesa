@@ -59,7 +59,7 @@ class TestAnalysisGeneration:
 
         # Mock query result with valid JSON
         mock_result = MagicMock()
-        mock_result.answer = '''
+        mock_result.answer = """
         ```json
         {
           "overview": "A test application.",
@@ -79,7 +79,7 @@ class TestAnalysisGeneration:
           "external_dependencies": []
         }
         ```
-        '''
+        """
         mock_project.query.return_value = mock_result
 
         # Mock repo ingester for SHA

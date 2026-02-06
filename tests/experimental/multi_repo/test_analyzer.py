@@ -3,8 +3,11 @@
 import json
 from unittest.mock import MagicMock
 
+import pytest
+
 from shesha.experimental.multi_repo import MultiRepoAnalyzer
-from shesha.experimental.multi_repo.models import ImpactReport, RepoSummary
+from shesha.experimental.multi_repo.models import HLDDraft, ImpactReport, RepoSummary
+from shesha.models import AnalysisComponent, RepoAnalysis
 
 
 class TestMultiRepoAnalyzerInit:
@@ -331,8 +334,6 @@ class TestMultiRepoAnalyzerAlign:
         analyzer = MultiRepoAnalyzer(mock_shesha)
         analyzer._repos = ["test"]
 
-        from shesha.experimental.multi_repo.models import HLDDraft
-
         hld = HLDDraft(raw_hld="# HLD\n...")
 
         report = analyzer._run_align("PRD text", hld)
@@ -365,8 +366,6 @@ class TestMultiRepoAnalyzerAlign:
         analyzer = MultiRepoAnalyzer(mock_shesha)
         analyzer._repos = ["test"]
 
-        from shesha.experimental.multi_repo.models import HLDDraft
-
         hld = HLDDraft(raw_hld="# HLD\n...")
 
         report = analyzer._run_align("PRD text", hld)
@@ -381,8 +380,6 @@ class TestMultiRepoAnalyzerAnalyze:
 
     def test_analyze_without_repos_raises_valueerror(self):
         """analyze() raises ValueError when no repos added."""
-        import pytest
-
         mock_shesha = MagicMock()
         analyzer = MultiRepoAnalyzer(mock_shesha)
 
@@ -1134,9 +1131,6 @@ class TestAnalyzerWithAnalysis:
 
     def test_run_recon_uses_analysis_when_available(self):
         """_run_recon injects analysis context when available."""
-        from shesha.experimental.multi_repo import MultiRepoAnalyzer
-        from shesha.models import AnalysisComponent, RepoAnalysis
-
         mock_shesha = MagicMock()
         mock_project = MagicMock()
         mock_project.project_id = "test-repo"
@@ -1144,7 +1138,9 @@ class TestAnalyzerWithAnalysis:
 
         # Mock query result
         mock_query_result = MagicMock()
-        mock_query_result.answer = '{"apis": [], "models": [], "entry_points": [], "dependencies": []}'
+        mock_query_result.answer = (
+            '{"apis": [], "models": [], "entry_points": [], "dependencies": []}'
+        )
         mock_project.query.return_value = mock_query_result
 
         # Create analysis
@@ -1181,15 +1177,15 @@ class TestAnalyzerWithAnalysis:
 
     def test_run_recon_without_analysis_uses_standard_prompt(self):
         """_run_recon uses standard prompt when no analysis exists."""
-        from shesha.experimental.multi_repo import MultiRepoAnalyzer
-
         mock_shesha = MagicMock()
         mock_project = MagicMock()
         mock_project.project_id = "test-repo"
         mock_shesha.get_project.return_value = mock_project
 
         mock_query_result = MagicMock()
-        mock_query_result.answer = '{"apis": [], "models": [], "entry_points": [], "dependencies": []}'
+        mock_query_result.answer = (
+            '{"apis": [], "models": [], "entry_points": [], "dependencies": []}'
+        )
         mock_project.query.return_value = mock_query_result
 
         # No analysis available

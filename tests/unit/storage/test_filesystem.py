@@ -294,9 +294,7 @@ class TestAnalysisOperations:
         assert len(loaded.external_dependencies) == 1
         assert loaded.external_dependencies[0].optional is True
 
-    def test_load_analysis_returns_none_when_missing(
-        self, storage: FilesystemStorage
-    ) -> None:
+    def test_load_analysis_returns_none_when_missing(self, storage: FilesystemStorage) -> None:
         """Loading analysis returns None when no analysis exists."""
         storage.create_project("no-analysis")
         loaded = storage.load_analysis("no-analysis")
@@ -317,16 +315,12 @@ class TestAnalysisOperations:
         storage.delete_analysis("del-analysis")
         assert storage.load_analysis("del-analysis") is None
 
-    def test_delete_analysis_nonexistent_is_noop(
-        self, storage: FilesystemStorage
-    ) -> None:
+    def test_delete_analysis_nonexistent_is_noop(self, storage: FilesystemStorage) -> None:
         """Deleting nonexistent analysis doesn't raise."""
         storage.create_project("empty-analysis")
         storage.delete_analysis("empty-analysis")  # Should not raise
 
-    def test_store_analysis_nonexistent_project_raises(
-        self, storage: FilesystemStorage
-    ) -> None:
+    def test_store_analysis_nonexistent_project_raises(self, storage: FilesystemStorage) -> None:
         """Storing analysis to nonexistent project raises."""
         analysis = RepoAnalysis(
             version="1",
@@ -339,9 +333,7 @@ class TestAnalysisOperations:
         with pytest.raises(ProjectNotFoundError):
             storage.store_analysis("no-such-project", analysis)
 
-    def test_load_analysis_nonexistent_project_raises(
-        self, storage: FilesystemStorage
-    ) -> None:
+    def test_load_analysis_nonexistent_project_raises(self, storage: FilesystemStorage) -> None:
         """Loading analysis from nonexistent project raises."""
         with pytest.raises(ProjectNotFoundError):
             storage.load_analysis("no-such-project")
