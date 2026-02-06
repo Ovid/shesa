@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Experimental multi-repo PRD analysis (`shesha.experimental.multi_repo`)
+  - `MultiRepoAnalyzer` for analyzing how PRDs impact multiple codebases
+  - Four-phase workflow: recon, impact, synthesize, align
+  - Example script `examples/multi_repo.py`
 - External prompt files in `prompts/` directory for easier customization
 - `python -m shesha.prompts` CLI tool for validating prompt files
 - Support for alternate prompt directories via `SHESHA_PROMPTS_DIR` environment variable
