@@ -154,18 +154,25 @@ class MultiRepoAnalyzer:
                 pass
 
         # Try to find raw JSON by looking for balanced braces
-        # Find first { and try parsing from there
         start_idx = text.find("{")
-        if start_idx != -1:
-            # Try progressively longer substrings until we find valid JSON
-            for end_idx in range(len(text) - 1, start_idx, -1):
-                if text[end_idx] == "}":
-                    candidate = text[start_idx : end_idx + 1]
-                    try:
-                        result = json.loads(candidate)
-                        return result
-                    except json.JSONDecodeError:
-                        continue
+        if start_idx == -1:
+            return None
+
+        # Fast path: try first { to last } (covers most valid JSON responses)
+        end_idx = text.rfind("}")
+        if end_idx > start_idx:
+            try:
+                return json.loads(text[start_idx : end_idx + 1])
+            except json.JSONDecodeError:
+                pass  # Fall through to slower search
+
+        # Slow path: try progressively shorter substrings
+        for end_idx in range(len(text) - 1, start_idx, -1):
+            if text[end_idx] == "}":
+                try:
+                    return json.loads(text[start_idx : end_idx + 1])
+                except json.JSONDecodeError:
+                    continue
 
         return None
 
