@@ -69,6 +69,21 @@ def validate_prompt(filename: str, content: str) -> None:
             f"Available placeholders for this file: {{{', '.join(sorted(allowed))}}}"
         )
 
+    # Security check: subcall.md must contain untrusted content tags
+    if filename == "subcall.md":
+        if "<untrusted_document_content>" not in content:
+            raise PromptValidationError(
+                f"{filename} is missing required <untrusted_document_content> tag.\n\n"
+                "The subcall prompt MUST wrap {{content}} in "
+                "<untrusted_document_content> tags to defend against prompt injection."
+            )
+        if "</untrusted_document_content>" not in content:
+            raise PromptValidationError(
+                f"{filename} is missing required </untrusted_document_content> closing tag.\n\n"
+                "The subcall prompt MUST wrap {{content}} in "
+                "<untrusted_document_content> tags to defend against prompt injection."
+            )
+
 
 def extract_placeholders(text: str) -> set[str]:
     """Extract placeholder names from a template string.

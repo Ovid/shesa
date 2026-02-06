@@ -19,7 +19,9 @@ def valid_prompts_dir(tmp_path: Path) -> Path:
         "Sizes: {doc_sizes_list}\n"
         "Limit: {max_subcall_chars:,}"
     )
-    (prompts_dir / "subcall.md").write_text("{instruction}\n<content>{content}</content>")
+    (prompts_dir / "subcall.md").write_text(
+        "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
+    )
     (prompts_dir / "code_required.md").write_text("Write code now.")
 
     return prompts_dir
