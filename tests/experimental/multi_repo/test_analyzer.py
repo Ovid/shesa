@@ -1127,3 +1127,80 @@ class TestMultiRepoAnalyzerErrorHandling:
             if phase == "synthesize"
         )
         assert warning_found, f"Expected context warning, got: {progress_messages}"
+
+
+class TestAnalyzerWithAnalysis:
+    """Tests for analyzer using existing analysis."""
+
+    def test_run_recon_uses_analysis_when_available(self):
+        """_run_recon injects analysis context when available."""
+        from shesha.experimental.multi_repo import MultiRepoAnalyzer
+        from shesha.models import AnalysisComponent, RepoAnalysis
+
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_project.project_id = "test-repo"
+        mock_shesha.get_project.return_value = mock_project
+
+        # Mock query result
+        mock_query_result = MagicMock()
+        mock_query_result.answer = '{"apis": [], "models": [], "entry_points": [], "dependencies": []}'
+        mock_project.query.return_value = mock_query_result
+
+        # Create analysis
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123",
+            overview="A test service.",
+            components=[
+                AnalysisComponent(
+                    name="API",
+                    path="api/",
+                    description="REST API",
+                    apis=[{"type": "rest", "endpoints": ["/users"]}],
+                    models=["User"],
+                    entry_points=["main.py"],
+                    internal_dependencies=[],
+                )
+            ],
+            external_dependencies=[],
+        )
+        mock_shesha.get_analysis.return_value = analysis
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        analyzer._repos = ["test-repo"]
+
+        # Run recon
+        analyzer._run_recon("test-repo")
+
+        # Verify query was called with analysis context
+        call_args = mock_project.query.call_args
+        prompt = call_args[0][0]
+        assert "A test service." in prompt or "existing analysis" in prompt.lower()
+
+    def test_run_recon_without_analysis_uses_standard_prompt(self):
+        """_run_recon uses standard prompt when no analysis exists."""
+        from shesha.experimental.multi_repo import MultiRepoAnalyzer
+
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_project.project_id = "test-repo"
+        mock_shesha.get_project.return_value = mock_project
+
+        mock_query_result = MagicMock()
+        mock_query_result.answer = '{"apis": [], "models": [], "entry_points": [], "dependencies": []}'
+        mock_project.query.return_value = mock_query_result
+
+        # No analysis available
+        mock_shesha.get_analysis.return_value = None
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        analyzer._repos = ["test-repo"]
+
+        analyzer._run_recon("test-repo")
+
+        # Verify standard prompt was used (no analysis context)
+        call_args = mock_project.query.call_args
+        prompt = call_args[0][0]
+        assert "existing analysis" not in prompt.lower()

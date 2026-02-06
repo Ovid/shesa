@@ -16,6 +16,7 @@ from shesha.experimental.multi_repo.models import (
 
 if TYPE_CHECKING:
     from shesha import Shesha
+    from shesha.models import RepoAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,36 @@ class MultiRepoAnalyzer:
         prompts_dir = Path(__file__).parent / "prompts"
         return (prompts_dir / f"{name}.md").read_text()
 
+    def _format_analysis_context(self, analysis: "RepoAnalysis") -> str:
+        """Format analysis for injection into recon prompt.
+
+        Args:
+            analysis: The analysis to format.
+
+        Returns:
+            Formatted string for prompt injection.
+        """
+        lines = [f"Overview: {analysis.overview}", "", "Components:"]
+
+        for comp in analysis.components:
+            lines.append(f"- {comp.name} ({comp.path}): {comp.description}")
+            if comp.apis:
+                for api in comp.apis:
+                    api_type = api.get("type", "unknown")
+                    endpoints = api.get("endpoints", [])
+                    if endpoints:
+                        lines.append(f"  APIs ({api_type}): {', '.join(endpoints[:5])}")
+            if comp.models:
+                lines.append(f"  Models: {', '.join(comp.models)}")
+
+        if analysis.external_dependencies:
+            lines.append("")
+            lines.append("External Dependencies:")
+            for dep in analysis.external_dependencies:
+                lines.append(f"- {dep.name} ({dep.type}): {dep.description}")
+
+        return "\n".join(lines)
+
     def _extract_json(self, text: str) -> dict[str, Any] | None:
         """Extract JSON object from text that may contain markdown."""
         # Try to find JSON in code blocks first (greedy match for nested braces)
@@ -148,7 +179,18 @@ class MultiRepoAnalyzer:
             RepoSummary with extracted structure.
         """
         project = self._shesha.get_project(project_id)
-        prompt = self._load_prompt("recon")
+
+        # Check for existing analysis
+        analysis = self._shesha.get_analysis(project_id)
+
+        if analysis:
+            # Use analysis-enhanced prompt
+            context = self._format_analysis_context(analysis)
+            prompt_template = self._load_prompt("recon_with_analysis")
+            prompt = prompt_template.replace("{existing_analysis}", context)
+        else:
+            # Use standard recon prompt
+            prompt = self._load_prompt("recon")
 
         result = project.query(prompt)
         answer = result.answer
