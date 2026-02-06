@@ -75,3 +75,14 @@ class AnalysisComponent:
     internal_dependencies: list[str]
     auth: str | None = None
     data_persistence: str | None = None
+
+
+@dataclass
+class AnalysisExternalDep:
+    """An external dependency in a codebase analysis."""
+
+    name: str
+    type: str  # external_api, database, message_queue, ai_service, auth_service, storage
+    description: str
+    used_by: list[str]
+    optional: bool = False

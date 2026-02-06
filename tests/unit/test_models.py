@@ -4,7 +4,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from shesha.models import AnalysisComponent, ProjectInfo, QueryContext, RepoProjectResult
+from shesha.models import (
+    AnalysisComponent,
+    AnalysisExternalDep,
+    ProjectInfo,
+    QueryContext,
+    RepoProjectResult,
+)
 
 
 class TestProjectInfo:
@@ -198,3 +204,44 @@ class TestAnalysisComponent:
 
         assert comp.auth is None
         assert comp.data_persistence is None
+
+
+class TestAnalysisExternalDep:
+    """Tests for AnalysisExternalDep dataclass."""
+
+    def test_external_dep_required_fields(self):
+        """AnalysisExternalDep stores required fields correctly."""
+        dep = AnalysisExternalDep(
+            name="Amazon Bedrock",
+            type="ai_service",
+            description="Claude model for agent invocations",
+            used_by=["ai_layer"],
+        )
+
+        assert dep.name == "Amazon Bedrock"
+        assert dep.type == "ai_service"
+        assert dep.description == "Claude model for agent invocations"
+        assert dep.used_by == ["ai_layer"]
+
+    def test_external_dep_optional_defaults_false(self):
+        """AnalysisExternalDep defaults optional to False."""
+        dep = AnalysisExternalDep(
+            name="PostgreSQL",
+            type="database",
+            description="Main database",
+            used_by=["server"],
+        )
+
+        assert dep.optional is False
+
+    def test_external_dep_optional_true(self):
+        """AnalysisExternalDep can set optional to True."""
+        dep = AnalysisExternalDep(
+            name="Atlassian API",
+            type="external_api",
+            description="Jira/Confluence integration",
+            used_by=["ai_layer"],
+            optional=True,
+        )
+
+        assert dep.optional is True
