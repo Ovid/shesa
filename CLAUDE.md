@@ -28,7 +28,7 @@ Containers network-isolated (egress whitelist for LLM APIs only).
 python -m venv .venv             # Create virtual environment
 source .venv/bin/activate        # Activate venv (use .venv first!)
 pip install -e ".[dev]"          # Install
-pytest                           # All tests
+make all                         # All tests
 pytest tests/path::test_name -v  # Single test
 mypy src/shesha                  # Type check
 ruff check src tests             # Lint
@@ -54,6 +54,7 @@ make all                         # Format + lint + typecheck + test
 - Skipping red phase
 - More code than needed to pass
 - Untested code "because it's simple"
+- Tests which emit warnings
 
 ## Code Style
 
