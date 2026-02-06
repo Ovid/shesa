@@ -294,6 +294,17 @@ Command line options:
 python examples/repo.py https://github.com/org/repo --update --verbose
 ```
 
+## DeepWiki
+
+We love DeepWiki. Amazaing tool. DeepWiki can provide much of what we do, but there are some issues:
+
+1. Free plan means you can only update your code once a week. Shesha allows you to update your code when it's updated.
+2. You get to choose your model, including local ones, meaning *you* have control.
+3. Shesha is free, open-source, with a liberal MIT license
+4. We use a recursive language model which, while new, appears to be a game-changing new approach.
+5. Queries have their full execution change logged, meaning you can see *how* we got the answers we did.
+6. You can wrap a web interface around this library, or you can use it as a CLI on your box.
+
 ## How It Works
 
 1. **Upload**: Documents are parsed and stored in a project
