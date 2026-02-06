@@ -112,9 +112,11 @@ def main() -> None:
         sys.exit(0)
 
     # Callbacks
-    def on_discovery(repo_hint: str) -> bool:
-        response = input(f"Discovered dependency: {repo_hint}. Add it? (y/n): ")
-        return response.lower() == "y"
+    def on_discovery(repo_hint: str) -> str | None:
+        """Prompt user to provide URL for discovered dependency."""
+        print(f"\nDiscovered dependency: {repo_hint}")
+        response = input("Enter repo URL to add (or press Enter to skip): ").strip()
+        return response if response else None
 
     def on_alignment_issue(report: AlignmentReport) -> str:
         print(f"\nAlignment score: {report.alignment_score:.0%}")

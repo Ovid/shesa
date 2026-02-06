@@ -305,7 +305,7 @@ class MultiRepoAnalyzer:
     def analyze(
         self,
         prd: str,
-        on_discovery: Callable[[str], bool] | None = None,
+        on_discovery: Callable[[str], str | None] | None = None,
         on_alignment_issue: Callable[[AlignmentReport], str] | None = None,
         on_progress: Callable[[str, str], None] | None = None,
     ) -> tuple[HLDDraft, AlignmentReport]:
@@ -314,7 +314,8 @@ class MultiRepoAnalyzer:
         Args:
             prd: The PRD text (pasted inline).
             on_discovery: Called when new repo discovered.
-                Receives repo hint, returns True to add it.
+                Receives repo hint (e.g. "auth-service"), returns URL to add
+                (e.g. "https://github.com/org/auth-service") or None to skip.
                 If None, discoveries are ignored.
             on_alignment_issue: Called if alignment finds problems.
                 Receives report, returns "revise" | "accept" | "abort".
@@ -362,11 +363,18 @@ class MultiRepoAnalyzer:
                 for dep in report.discovered_dependencies:
                     if dep not in self._repos and dep not in discovered:
                         discovered.add(dep)
-                        if on_discovery and on_discovery(dep):
-                            # User wants to add this repo
-                            # Note: In real usage, they'd provide URL
-                            # For now, just track it was discovered
-                            pass
+                        if on_discovery:
+                            url = on_discovery(dep)
+                            if url:
+                                # User provided URL - add the repo
+                                if on_progress:
+                                    on_progress("discovery", f"Adding discovered repo: {dep}")
+                                new_project_id = self.add_repo(url)
+                                if new_project_id:
+                                    # Run recon on the new repo so it can be analyzed
+                                    self._summaries[new_project_id] = self._run_recon(
+                                        new_project_id
+                                    )
 
             discovery_round += 1
             if not discovered:

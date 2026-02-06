@@ -532,7 +532,7 @@ class TestMultiRepoAnalyzerAnalyze:
         ]
         mock_shesha.get_project.return_value = mock_project
 
-        discovery_callback = MagicMock(return_value=False)
+        discovery_callback = MagicMock(return_value=None)  # None = skip adding
 
         analyzer = MultiRepoAnalyzer(mock_shesha)
         analyzer._repos = ["test-repo"]
@@ -540,6 +540,100 @@ class TestMultiRepoAnalyzerAnalyze:
         analyzer.analyze("PRD", on_discovery=discovery_callback)
 
         discovery_callback.assert_called_once_with("other-service")
+
+    def test_analyze_adds_discovered_repo_when_url_returned(self):
+        """analyze() adds discovered repo when callback returns URL."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_project.project_id = "test-repo"
+
+        # Setup for discovered repo
+        mock_discovered_project = MagicMock()
+        mock_discovered_project.project_id = "other-service"
+
+        mock_discovered_result = MagicMock()
+        mock_discovered_result.project.project_id = "other-service"
+        mock_discovered_result.status = "created"
+
+        # Recon response
+        recon_result = MagicMock()
+        recon_result.answer = json.dumps(
+            {"apis": [], "models": [], "entry_points": [], "dependencies": []}
+        )
+
+        # Impact response with discovery
+        impact_result = MagicMock()
+        impact_result.answer = json.dumps(
+            {
+                "affected": True,
+                "changes": [],
+                "new_interfaces": [],
+                "modified_interfaces": [],
+                "discovered_dependencies": ["other-service"],
+            }
+        )
+
+        # Synthesize response
+        synth_result = MagicMock()
+        synth_result.answer = (
+            json.dumps(
+                {
+                    "component_changes": {},
+                    "data_flow": "",
+                    "interface_contracts": [],
+                    "implementation_sequence": [],
+                    "open_questions": [],
+                }
+            )
+            + "\n\n# HLD"
+        )
+
+        # Align response
+        align_result = MagicMock()
+        align_result.answer = json.dumps(
+            {
+                "covered": [],
+                "gaps": [],
+                "scope_creep": [],
+                "alignment_score": 1.0,
+                "recommendation": "approved",
+            }
+        )
+
+        # Query calls: recon(test-repo), impact(test-repo), recon(other-service),
+        # impact(other-service), synthesize, align
+        mock_project.query.side_effect = [
+            recon_result,
+            impact_result,
+            recon_result,  # recon for discovered repo
+            impact_result,  # impact for discovered repo (no new discoveries)
+            synth_result,
+            align_result,
+        ]
+
+        def get_project(project_id: str) -> MagicMock:
+            if project_id == "other-service":
+                return mock_discovered_project
+            return mock_project
+
+        mock_shesha.get_project.side_effect = get_project
+        mock_shesha.create_project_from_repo.return_value = mock_discovered_result
+        mock_discovered_project.query.side_effect = [recon_result, impact_result]
+
+        # Discovery callback returns URL for the discovered service
+        discovery_callback = MagicMock(return_value="https://github.com/org/other-service")
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        analyzer._repos = ["test-repo"]
+
+        analyzer.analyze("PRD", on_discovery=discovery_callback)
+
+        # Should have called add_repo with the URL
+        mock_shesha.create_project_from_repo.assert_called_once_with(
+            "https://github.com/org/other-service"
+        )
+        # Discovered repo should be in the repos list
+        assert "other-service" in analyzer.repos
 
     def test_analyze_calls_progress_callback(self):
         """analyze() invokes on_progress during phases."""
