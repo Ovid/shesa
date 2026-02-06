@@ -1,6 +1,12 @@
 """Tests for citation verification module."""
 
-from shesha.rlm.verification import Citation, Quote, VerificationResult, extract_citations
+from shesha.rlm.verification import (
+    Citation,
+    Quote,
+    VerificationResult,
+    extract_citations,
+    extract_quotes,
+)
 
 
 class TestDataclasses:
@@ -99,3 +105,39 @@ class TestExtractCitations:
         """Doc IDs are returned in order of first appearance."""
         ids = extract_citations("Doc 10, then Doc 2, then Doc 10 again.")
         assert ids == [10, 2]
+
+
+class TestExtractQuotes:
+    """Tests for extract_quotes()."""
+
+    def test_double_quoted_strings(self) -> None:
+        """Extracts double-quoted strings >= 10 chars."""
+        quotes = extract_quotes('The code says "this is a longer quote" in the file.')
+        assert quotes == ["this is a longer quote"]
+
+    def test_minimum_length_filter(self) -> None:
+        """Quotes shorter than 10 chars are excluded."""
+        quotes = extract_quotes('He said "short" and "this is long enough".')
+        assert quotes == ["this is long enough"]
+
+    def test_multiple_quotes(self) -> None:
+        """Extracts multiple qualifying quotes."""
+        text = 'Found "first quote text" and "second quote text" in code.'
+        quotes = extract_quotes(text)
+        assert quotes == ["first quote text", "second quote text"]
+
+    def test_empty_no_quotes(self) -> None:
+        """Returns empty list when no quotes are present."""
+        quotes = extract_quotes("No quoted text here.")
+        assert quotes == []
+
+    def test_backtick_quoted_strings(self) -> None:
+        """Extracts backtick-quoted code references >= 10 chars."""
+        quotes = extract_quotes("The function `get_all_items_from_db` does this.")
+        assert quotes == ["get_all_items_from_db"]
+
+    def test_deduplication(self) -> None:
+        """Duplicate quotes are deduplicated."""
+        text = 'Mentions "duplicate text here" and "duplicate text here" again.'
+        quotes = extract_quotes(text)
+        assert quotes == ["duplicate text here"]
