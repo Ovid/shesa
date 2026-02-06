@@ -32,6 +32,21 @@ class TestRepoIngester:
         """is_local_path returns True for home-relative paths."""
         assert ingester.is_local_path("~/projects/repo")
 
+    def test_is_local_path_relative_dot(self, ingester: RepoIngester):
+        """is_local_path returns True for ./ relative paths."""
+        assert ingester.is_local_path("./some/repo")
+
+    def test_is_local_path_relative_dotdot(self, ingester: RepoIngester):
+        """is_local_path returns True for ../ relative paths."""
+        assert ingester.is_local_path("../sibling/repo")
+
+    def test_is_local_path_rejects_bare_name(self, ingester: RepoIngester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """is_local_path returns False for bare names even if they exist on disk."""
+        target = tmp_path / "somerepo"
+        target.mkdir()
+        monkeypatch.chdir(tmp_path)
+        assert not ingester.is_local_path("somerepo")
+
     def test_is_local_path_url(self, ingester: RepoIngester):
         """is_local_path returns False for URLs."""
         assert not ingester.is_local_path("https://github.com/org/repo")
