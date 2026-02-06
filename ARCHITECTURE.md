@@ -80,6 +80,14 @@ User Query → RLM Core Loop → Docker Sandbox
 - **Project-Based Organization**: Documents are grouped into named projects for logical separation.
 - **Graceful Docker Degradation**: Shesha initializes successfully even if Docker is unavailable. Query functionality is disabled until Docker is present, with clear error messages guiding users.
 
+### System Requirements & Installation
+**Design Philosophy**: Infrastructure dependencies should be detected and validated before installation proceeds.
+
+- **System Audit**: The installer (`librarian install`) performs pre-flight checks:
+  - Python version validation (requires 3.11+, exits with clear error if older)
+  - Virtual environment detection (warns if running globally, provides setup guidance)
+  - Defensive error handling for unexpected platform issues
+
 ### Docker Availability Handling
 **Design Philosophy**: Docker is an infrastructure dependency, not a fatal requirement at startup.
 

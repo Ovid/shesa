@@ -1,3 +1,39 @@
+# Quick Start: Installation & Setup
+
+To install and set up Shesha, follow these quick steps from your terminal:
+
+### 1. Clone and Prepare Environment
+```bash
+git clone https://github.com/l00p3rl00p/sheshaMajorMcp-rlm.git
+cd sheshaMajorMcp-rlm
+
+# Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install Dependencies
+```bash
+pip install -e ".[dev]"
+```
+
+### 3. Run the Librarian Installer
+This is the recommended way to set up the system. It initializes your storage, runs a self-test, and guided Docker setup:
+```bash
+python -m shesha.librarian install
+```
+
+### What happens during installation?
+*   **System Audit**: Verifies Python 3.11+ (exits with clear error if older) and checks if you're in a virtual environment (provides setup guidance if not).
+*   **Infrastructure Check**: Detects if Docker is running (required for secure code sandboxing).
+*   **Interactive Guide**: If Docker is missing, provides platform-specific installation instructions (Docker Desktop, Homebrew, Colima, etc.) and lets you choose to install, skip, or abort.
+*   **State Setup**: Creates local storage and log directories.
+*   **Manifest**: Writes a local `.librarian/manifest.json` file recording your complete setup status.
+
+**Prerequisites**: Python 3.11+ and Docker (highly recommended for queries, though you can skip it for basic indexing).
+
+---
+
 # Shesha
 
 <p align="center">

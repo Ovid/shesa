@@ -214,6 +214,48 @@ def _write_install_artifacts(
     )
 
 
+def _perform_system_audit() -> tuple[bool, str]:
+    """Audit the runtime environment (Python version, venv, dependencies).
+    
+    Performs critical pre-flight checks before installation:
+    1. Python version >= 3.11 (hard requirement)
+    2. Virtual environment detection (strong recommendation)
+    
+    Returns:
+        (ok, details): ok=False stops installation; ok=True continues with warning if needed.
+    
+    Security note: This function only reads system state (sys.version_info, sys.prefix).
+    No external input is processed, so there are no injection risks.
+    """
+    try:
+        # 1. Python Version Check (hard requirement)
+        major, minor = sys.version_info.major, sys.version_info.minor
+        if (major, minor) < (3, 11):
+            return False, (
+                f"❌ Python {major}.{minor} detected. "
+                "Shesha requires Python 3.11 or higher. Please upgrade and try again."
+            )
+
+        # 2. Virtual Environment Awareness (strong recommendation)
+        in_venv = sys.prefix != sys.base_prefix
+        env_msg = ""
+        if not in_venv:
+            env_msg = (
+                "⚠️  Warning: You are running in a global Python environment.\n"
+                "  Recommendation: Use a virtual environment to avoid package conflicts.\n"
+                "  Quick fix: python3 -m venv .venv && source .venv/bin/activate\n\n"
+            )
+
+        # Success message
+        details = f"{env_msg}✓ Python v{major}.{minor} (ok)"
+        return True, details
+    
+    except Exception as e:  # noqa: BLE001 - defensive catch for unexpected system state
+        # Fallback: if we can't determine version or venv status, proceed with warning
+        # This should never happen but protects against unexpected platform issues
+        return True, f"⚠️  System audit incomplete (non-critical): {e}"
+
+
 def _prompt_docker_options() -> str:
     """Prompt user for Docker installation options if in a TTY."""
     if not sys.stdin.isatty():
@@ -391,10 +433,21 @@ def run_install(
     skip_docker: bool,
     skip_sandbox: bool,
 ) -> InstallResult:
-    paths.ensure_dirs()
-
     manifest_path = _manifest_path(manifest_dir)
     readme_path = _readme_path(manifest_dir)
+    paths.ensure_dirs()
+
+    # 0) System Audit: Pre-flight environment validation
+    #    - Validates Python >= 3.11 (hard requirement, exits if fails)
+    #    - Detects virtual environment usage (soft requirement, warns if not used)
+    #    - Provides actionable guidance for each issue
+    #    - Safe to run: only reads sys.version_info and sys.prefix
+    print("Self-test: System audit…")
+    system_ok, system_details = _perform_system_audit()
+    if not system_ok:
+        # Critical failure: Python version too old, cannot proceed
+        return InstallResult(ok=False, details=system_details)
+    print(f"  {system_details.strip()}")
 
     # 1) MCP loopback self-test (server starts and responds).
     print("Self-test: MCP stdio (initialize + health)…")
@@ -485,7 +538,7 @@ def run_install(
     # 3) Write manifest + readme.
     docker_status = "docker: skip" if not docker_available else "docker: ok"
     sandbox_status = "sandbox: skipped" if not docker_available or skip_sandbox else "sandbox: ok"
-    details = "; ".join([mcp_details, docker_status, sandbox_status])
+    details = "; ".join([system_details.split("\n")[-1], mcp_details, docker_status, sandbox_status])
     status = SelfTestStatus(
         ok=True,
         timestamp=_utc_now_iso(),

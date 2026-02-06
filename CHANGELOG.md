@@ -18,9 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local operator manifest output at `.librarian/manifest.json` with last self-test status and resolved state paths
 - Default local-first state paths with overrides via `LIBRARIAN_HOME`, `LIBRARIAN_STORAGE_PATH`, and `LIBRARIAN_LOG_DIR`
 - Librarian installer auto-builds the `shesha-sandbox` Docker image when missing (for query execution)
-- **Interactive Docker Installation**: Guided setup with platform-specific instructions when Docker is missing
-- **Graceful Docker Degradation**: Shesha initializes successfully without Docker; queries disabled until Docker is available
-- **Docker Status Tracking**: Manifest records Docker availability in `infra.docker_available` field
+- System audit on install with pre-flight checks for Python 3.11+ and virtual environment detection with actionable guidance
+- Interactive Docker installation with guided setup and platform-specific instructions when Docker is missing
+- Graceful Docker degradation: Shesha initializes successfully without Docker; queries disabled until Docker is available
+- Docker status tracking in manifest (`infra.docker_available` field)
 
 ## [0.3.0] 2026-02-04
 
