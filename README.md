@@ -1,6 +1,37 @@
 # Quick Start: Installation & Setup
 
-To install and set up Shesha, follow these quick steps from your terminal:
+**The simplest way to get started:**
+
+1. Clone the repo
+2. cd into it
+3. Install dependencies (pip install -e ".[dev]")
+4. Run the installer (librarian install)
+
+If you want to be more explict. 
+
+```bash
+git clone https://github.com/l00p3rl00p/sheshaMajorMcp-rlm.git
+cd sheshaMajorMcp-rlm
+pip install -e ".[dev]"
+python -m shesha.librarian install
+```
+
+That's it! The installer will guide you through everything automatically.
+
+### What the installer does for you:
+*   **System Audit**: Verifies Python 3.11+ (exits with clear error if older) and checks if you're in a virtual environment (provides setup guidance if not).
+*   **Infrastructure Check**: Detects if Docker is running (required for secure code sandboxing).
+*   **Interactive Guidance**: If Docker is missing, provides platform-specific installation instructions (Docker Desktop, Homebrew, Colima) and lets you choose to install, skip, or abort.
+*   **Complete Setup**: Creates local storage/log directories and writes `.librarian/manifest.json` with your system status.
+
+**Prerequisites**: Python 3.11+ and Docker (highly recommended for queries, though you can skip it for indexing-only use).
+
+---
+
+<details>
+<summary><b>Manual Setup (Advanced)</b></summary>
+
+If you prefer more control over the installation process:
 
 ### 1. Clone and Prepare Environment
 ```bash
@@ -18,19 +49,12 @@ pip install -e ".[dev]"
 ```
 
 ### 3. Run the Librarian Installer
-This is the recommended way to set up the system. It initializes your storage, runs a self-test, and guided Docker setup:
 ```bash
 python -m shesha.librarian install
 ```
 
-### What happens during installation?
-*   **System Audit**: Verifies Python 3.11+ (exits with clear error if older) and checks if you're in a virtual environment (provides setup guidance if not).
-*   **Infrastructure Check**: Detects if Docker is running (required for secure code sandboxing).
-*   **Interactive Guide**: If Docker is missing, provides platform-specific installation instructions (Docker Desktop, Homebrew, Colima, etc.) and lets you choose to install, skip, or abort.
-*   **State Setup**: Creates local storage and log directories.
-*   **Manifest**: Writes a local `.librarian/manifest.json` file recording your complete setup status.
+</details>
 
-**Prerequisites**: Python 3.11+ and Docker (highly recommended for queries, though you can skip it for basic indexing).
 
 ---
 
