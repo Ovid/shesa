@@ -295,12 +295,21 @@ class TestMainIntegration:
             source_exists=True,
         )
 
+        picker_result = [
+            ("org-auth", "https://github.com/org/auth", "multi-repo"),
+        ]
         with patch.object(sys_mod, "argv", ["multi_repo.py"]):
             with patch.dict(os.environ, {"SHESHA_API_KEY": "test-key"}, clear=True):
                 with patch("multi_repo.Shesha", return_value=mock_shesha):
                     with patch("multi_repo.SheshaConfig"):
-                        with patch("multi_repo.show_multi_picker", return_value=[("org-auth", "https://github.com/org/auth", "multi-repo")]) as mock_picker:
-                            with patch("multi_repo.collect_repos_from_storages", return_value=[("org-auth", "https://github.com/org/auth", "multi-repo")]):
+                        with patch(
+                            "multi_repo.show_multi_picker",
+                            return_value=picker_result,
+                        ) as mock_picker:
+                            with patch(
+                                "multi_repo.collect_repos_from_storages",
+                                return_value=picker_result,
+                            ):
                                 with patch("multi_repo.MultiRepoAnalyzer") as mock_analyzer_cls:
                                     mock_analyzer = MagicMock()
                                     mock_analyzer.repos = ["org-auth"]
