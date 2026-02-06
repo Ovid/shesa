@@ -63,7 +63,15 @@ def main() -> None:
     real_stdout = sys.stdout
     real_stdin = sys.stdin
 
-    # Set up the llm_query function in namespace
+    # Define FINAL and FINAL_VAR
+    class FinalAnswer:
+        def __init__(self, answer: str):
+            self.answer = answer
+
+    class FinalVar:
+        def __init__(self, var_name: str):
+            self.var_name = var_name
+
     def llm_query(instruction: str, content: str) -> str:
         """Request LLM query from host - blocks until response."""
         request = handle_llm_query(instruction, content)
@@ -77,17 +85,6 @@ def main() -> None:
             return str(response["result"])
         raise RuntimeError(f"Unexpected response: {response}")
 
-    NAMESPACE["llm_query"] = llm_query
-
-    # Define FINAL and FINAL_VAR
-    class FinalAnswer:
-        def __init__(self, answer: str):
-            self.answer = answer
-
-    class FinalVar:
-        def __init__(self, var_name: str):
-            self.var_name = var_name
-
     def make_final(answer: str) -> FinalAnswer:
         """Create FinalAnswer and register it for detection."""
         fa = FinalAnswer(answer)
@@ -100,10 +97,15 @@ def main() -> None:
         NAMESPACE["_return_value_"] = fv
         return fv
 
-    NAMESPACE["FINAL"] = make_final
-    NAMESPACE["FINAL_VAR"] = make_final_var
-    NAMESPACE["FinalAnswer"] = FinalAnswer
-    NAMESPACE["FinalVar"] = FinalVar
+    def register_builtins() -> None:
+        """Register built-in functions in the namespace."""
+        NAMESPACE["llm_query"] = llm_query
+        NAMESPACE["FINAL"] = make_final
+        NAMESPACE["FINAL_VAR"] = make_final_var
+        NAMESPACE["FinalAnswer"] = FinalAnswer
+        NAMESPACE["FinalVar"] = FinalVar
+
+    register_builtins()
 
     for line in sys.stdin:
         try:
@@ -126,6 +128,11 @@ def main() -> None:
             elif action == "setup":
                 # Initialize context variable
                 NAMESPACE["context"] = command.get("context", [])
+                print(json.dumps({"status": "ok"}), flush=True)
+
+            elif action == "reset":
+                NAMESPACE.clear()
+                register_builtins()
                 print(json.dumps({"status": "ok"}), flush=True)
 
             elif action == "ping":

@@ -4,9 +4,11 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
+import tempfile
 from pathlib import Path
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse
 
 from shesha.exceptions import AuthenticationError, RepoIngestError
 from shesha.security.paths import safe_path
@@ -34,7 +36,12 @@ class RepoIngester:
 
     def is_local_path(self, url: str) -> bool:
         """Check if url is a local filesystem path."""
-        return url.startswith("/") or url.startswith("~") or Path(url).exists()
+        return (
+            url.startswith("/")
+            or url.startswith("~")
+            or url.startswith("./")
+            or url.startswith("../")
+        )
 
     def is_git_repo(self, path: Path) -> bool:
         """Check if path is a git repository.
@@ -89,13 +96,19 @@ class RepoIngester:
         repo_path = self._repo_path(project_id)
         repo_path.mkdir(parents=True, exist_ok=True)
 
-        clone_url = self._inject_token(url, token) if token else url
+        cmd = ["git", "clone", "--depth=1", url, str(repo_path)]
+        env = None
 
-        result = subprocess.run(
-            ["git", "clone", "--depth=1", clone_url, str(repo_path)],
-            capture_output=True,
-            text=True,
-        )
+        if token:
+            env, askpass_path = self._create_askpass(token)
+        else:
+            askpass_path = None
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        finally:
+            if askpass_path is not None:
+                askpass_path.unlink(missing_ok=True)
 
         if result.returncode != 0:
             if repo_path.exists():
@@ -106,13 +119,26 @@ class RepoIngester:
 
         return repo_path
 
-    def _inject_token(self, url: str, token: str) -> str:
-        """Inject auth token into HTTPS URL."""
-        parsed = urlparse(url)
-        if parsed.scheme in ("http", "https"):
-            netloc = f"{token}@{parsed.netloc}"
-            return urlunparse(parsed._replace(netloc=netloc))
-        return url
+    @staticmethod
+    def _create_askpass(token: str) -> tuple[dict[str, str], Path]:
+        """Create a GIT_ASKPASS script that supplies the token via stdout.
+
+        Returns env dict and path to the temp script (caller must clean up).
+        """
+        fd, path = tempfile.mkstemp(suffix="_git_askpass.sh")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write('#!/bin/sh\necho "$GIT_TOKEN"\n')
+            os.chmod(path, stat.S_IRWXU)
+        except Exception:
+            Path(path).unlink(missing_ok=True)
+            raise
+
+        env = os.environ.copy()
+        env["GIT_ASKPASS"] = path
+        env["GIT_TOKEN"] = token
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        return env, Path(path)
 
     def save_sha(self, project_id: str, sha: str) -> None:
         """Save the HEAD SHA for a project."""

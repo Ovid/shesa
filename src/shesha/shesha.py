@@ -11,13 +11,21 @@ from docker.errors import DockerException
 
 from shesha.analysis import AnalysisGenerator
 from shesha.config import SheshaConfig
-from shesha.exceptions import RepoIngestError
+from shesha.exceptions import (
+    NoParserError,
+    ParseError,
+    ProjectNotFoundError,
+    RepoError,
+    RepoIngestError,
+)
 from shesha.models import ParsedDocument, ProjectInfo, RepoProjectResult
 from shesha.parser import create_default_registry
+from shesha.parser.registry import ParserRegistry
 from shesha.project import Project
 from shesha.repo.ingester import RepoIngester
 from shesha.rlm.engine import RLMEngine
 from shesha.sandbox.pool import ContainerPool
+from shesha.storage.base import StorageBackend
 from shesha.storage.filesystem import FilesystemStorage
 
 if TYPE_CHECKING:
@@ -35,14 +43,26 @@ class Shesha:
         api_key: str | None = None,
         pool_size: int | None = None,
         config: SheshaConfig | None = None,
+        storage: StorageBackend | None = None,
+        engine: RLMEngine | None = None,
+        parser_registry: ParserRegistry | None = None,
+        repo_ingester: RepoIngester | None = None,
     ) -> None:
-        """Initialize Shesha."""
-        # Verify Docker is available before proceeding
-        self._check_docker_available()
+        """Initialize Shesha.
 
+        Does not require Docker. Docker availability is checked lazily
+        when start() is called, allowing ingest-only workflows without
+        a Docker daemon.
+
+        Components can be injected for testing or extensibility:
+            storage: Custom StorageBackend (default: FilesystemStorage)
+            engine: Custom RLMEngine (default: created from config)
+            parser_registry: Custom ParserRegistry (default: all built-in parsers)
+            repo_ingester: Custom RepoIngester (default: created from config)
+        """
         # Use provided config or create from args
         if config is None:
-            config = SheshaConfig()
+            config = SheshaConfig.load()
         if model is not None:
             config.model = model
         if storage_path is not None:
@@ -54,29 +74,28 @@ class Shesha:
 
         self._config = config
 
-        # Initialize components
-        self._storage = FilesystemStorage(
+        # Initialize components (use injected or create defaults)
+        self._storage: StorageBackend = storage or FilesystemStorage(
             config.storage_path,
             keep_raw_files=config.keep_raw_files,
         )
-        self._parser_registry = create_default_registry()
-        self._pool = ContainerPool(
-            size=config.pool_size,
-            image=config.sandbox_image,
-            memory_limit=f"{config.container_memory_mb}m",
-        )
+        self._parser_registry = parser_registry or create_default_registry()
 
-        # Create RLM engine
-        self._rlm_engine = RLMEngine(
+        # Pool is created lazily in start()
+        self._pool: ContainerPool | None = None
+
+        # Create RLM engine (pool set later in start())
+        self._rlm_engine = engine or RLMEngine(
             model=config.model,
             api_key=config.api_key,
             max_iterations=config.max_iterations,
             max_output_chars=config.max_output_chars,
             execution_timeout=config.execution_timeout_sec,
+            max_traces_per_project=config.max_traces_per_project,
         )
 
         # Initialize repo ingester
-        self._repo_ingester = RepoIngester(storage_path=config.storage_path)
+        self._repo_ingester = repo_ingester or RepoIngester(storage_path=config.storage_path)
 
         # Track if stopped to avoid double-cleanup
         self._stopped = False
@@ -125,7 +144,7 @@ class Shesha:
     def get_project(self, project_id: str) -> Project:
         """Get an existing project."""
         if not self._storage.project_exists(project_id):
-            raise ValueError(f"Project '{project_id}' does not exist")
+            raise ProjectNotFoundError(project_id)
         return Project(
             project_id=project_id,
             storage=self._storage,
@@ -164,10 +183,10 @@ class Shesha:
             and analysis status.
 
         Raises:
-            ValueError: If project doesn't exist.
+            ProjectNotFoundError: If project doesn't exist.
         """
         if not self._storage.project_exists(project_id):
-            raise ValueError(f"Project '{project_id}' does not exist")
+            raise ProjectNotFoundError(project_id)
 
         source_url = self._repo_ingester.get_source_url(project_id)
         analysis_status = self.get_analysis_status(project_id)
@@ -208,10 +227,10 @@ class Shesha:
             "missing" if no analysis exists.
 
         Raises:
-            ValueError: If project doesn't exist.
+            ProjectNotFoundError: If project doesn't exist.
         """
         if not self._storage.project_exists(project_id):
-            raise ValueError(f"Project '{project_id}' does not exist")
+            raise ProjectNotFoundError(project_id)
 
         analysis = self._storage.load_analysis(project_id)
         if analysis is None:
@@ -236,10 +255,10 @@ class Shesha:
             RepoAnalysis if it exists, None otherwise.
 
         Raises:
-            ValueError: If project doesn't exist.
+            ProjectNotFoundError: If project doesn't exist.
         """
         if not self._storage.project_exists(project_id):
-            raise ValueError(f"Project '{project_id}' does not exist")
+            raise ProjectNotFoundError(project_id)
         return self._storage.load_analysis(project_id)
 
     def get_project_sha(self, project_id: str) -> str | None:
@@ -263,10 +282,10 @@ class Shesha:
             The generated RepoAnalysis.
 
         Raises:
-            ValueError: If project doesn't exist.
+            ProjectNotFoundError: If project doesn't exist.
         """
         if not self._storage.project_exists(project_id):
-            raise ValueError(f"Project '{project_id}' does not exist")
+            raise ProjectNotFoundError(project_id)
 
         generator = AnalysisGenerator(self)
         analysis = generator.generate(project_id)
@@ -286,14 +305,15 @@ class Shesha:
             RepoProjectResult with status 'unchanged' or 'updates_available'.
 
         Raises:
-            ValueError: If project doesn't exist or has no stored repo URL.
+            ProjectNotFoundError: If project doesn't exist.
+            RepoError: If project has no stored repo URL.
         """
         if not self._storage.project_exists(project_id):
-            raise ValueError(f"Project '{project_id}' does not exist")
+            raise ProjectNotFoundError(project_id)
 
         url = self._repo_ingester.get_source_url(project_id)
         if not url:
-            raise ValueError(
+            raise RepoError(
                 f"No repository URL found for project '{project_id}'. "
                 "This project may not have been created from a repository."
             )
@@ -306,8 +326,17 @@ class Shesha:
         self._parser_registry.register(parser)
 
     def start(self) -> None:
-        """Start the container pool."""
+        """Check Docker availability, create the container pool, and start it."""
+        if self._pool is not None and not self._stopped:
+            return
+        self._check_docker_available()
         self._stopped = False
+        self._pool = ContainerPool(
+            size=self._config.pool_size,
+            image=self._config.sandbox_image,
+            memory_limit=f"{self._config.container_memory_mb}m",
+        )
+        self._rlm_engine._pool = self._pool
         self._pool.start()
 
     def stop(self) -> None:
@@ -315,7 +344,8 @@ class Shesha:
         if self._stopped:
             return
         self._stopped = True
-        self._pool.stop()
+        if self._pool is not None:
+            self._pool.stop()
 
     def __enter__(self) -> "Shesha":
         """Context manager entry."""
@@ -459,16 +489,22 @@ class Shesha:
                 )
                 self._storage.store_document(name, doc)
                 files_ingested += 1
-            except Exception as e:
+            except (ParseError, NoParserError) as e:
                 files_skipped += 1
                 warnings.append(f"Failed to parse {file_path}: {e}")
+            except Exception as e:
+                raise RepoIngestError(url, cause=e) from e
 
         sha = self._repo_ingester.get_sha_from_path(repo_path)
         if sha:
             self._repo_ingester.save_sha(name, sha)
 
-        # Save source URL for later retrieval
-        self._repo_ingester.save_source_url(name, url)
+        # Save source URL for later retrieval (resolve local paths for CWD stability)
+        if self._repo_ingester.is_local_path(url):
+            save_url = str(Path(url).expanduser().resolve())
+        else:
+            save_url = url
+        self._repo_ingester.save_source_url(name, save_url)
 
         project = self.get_project(name)
         return RepoProjectResult(

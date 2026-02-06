@@ -56,6 +56,14 @@ class StorageBackend(Protocol):
         """Load all documents in a project for querying."""
         ...
 
+    def get_traces_dir(self, project_id: str) -> Path:
+        """Get the traces directory for a project, creating it if needed."""
+        ...
+
+    def list_traces(self, project_id: str) -> list[Path]:
+        """List all trace files in a project, sorted by name (oldest first)."""
+        ...
+
     def store_analysis(self, project_id: str, analysis: "RepoAnalysis") -> None:
         """Store a codebase analysis for a project."""
         ...

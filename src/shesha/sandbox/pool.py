@@ -51,6 +51,8 @@ class ContainerPool:
     def acquire(self) -> ContainerExecutor:
         """Acquire an executor from the pool."""
         with self._lock:
+            if not self._started:
+                raise RuntimeError("Cannot acquire from a stopped pool")
             if self._available:
                 executor = self._available.popleft()
             else:
@@ -69,6 +71,14 @@ class ContainerPool:
             if executor in self._in_use:
                 self._in_use.remove(executor)
                 self._available.append(executor)
+
+    def discard(self, executor: ContainerExecutor) -> None:
+        """Remove an executor from _in_use without returning it to _available.
+
+        Use this for broken executors that should not be reused.
+        """
+        with self._lock:
+            self._in_use.discard(executor)
 
     def __enter__(self) -> "ContainerPool":
         """Context manager entry."""

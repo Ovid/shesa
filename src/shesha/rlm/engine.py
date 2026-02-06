@@ -10,11 +10,12 @@ from pathlib import Path
 from shesha.llm.client import LLMClient
 from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
-from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output
+from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output, wrap_subcall_content
 from shesha.rlm.trace import StepType, TokenUsage, Trace, TraceStep
 from shesha.rlm.trace_writer import IncrementalTraceWriter, TraceWriter
 from shesha.sandbox.executor import ContainerExecutor
-from shesha.storage.filesystem import FilesystemStorage
+from shesha.sandbox.pool import ContainerPool
+from shesha.storage.base import StorageBackend
 
 # Callback type for progress notifications
 ProgressCallback = Callable[[StepType, int, str], None]
@@ -49,6 +50,8 @@ class RLMEngine:
         execution_timeout: int = 30,
         max_subcall_content_chars: int = 500_000,
         prompts_dir: Path | None = None,
+        pool: ContainerPool | None = None,
+        max_traces_per_project: int = 50,
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -58,6 +61,8 @@ class RLMEngine:
         self.execution_timeout = execution_timeout
         self.max_subcall_content_chars = max_subcall_content_chars
         self.prompt_loader = PromptLoader(prompts_dir)
+        self._pool = pool
+        self.max_traces_per_project = max_traces_per_project
 
     def _handle_llm_query(
         self,
@@ -100,8 +105,11 @@ class RLMEngine:
                 on_progress(StepType.SUBCALL_RESPONSE, iteration, error_msg)
             return error_msg
 
+        # Wrap content in untrusted tags (code-level security boundary)
+        wrapped_content = wrap_subcall_content(content)
+
         # Build prompt and call LLM
-        prompt = self.prompt_loader.render_subcall_prompt(instruction, content)
+        prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
         sub_llm = LLMClient(model=self.model, api_key=self.api_key)
         response = sub_llm.complete(messages=[{"role": "user", "content": prompt}])
 
@@ -129,7 +137,7 @@ class RLMEngine:
         question: str,
         doc_names: list[str] | None = None,
         on_progress: ProgressCallback | None = None,
-        storage: FilesystemStorage | None = None,
+        storage: StorageBackend | None = None,
         project_id: str | None = None,
     ) -> QueryResult:
         """Run an RLM query against documents."""
@@ -159,7 +167,9 @@ class RLMEngine:
         )
 
         # Set up incremental trace writer
-        inc_writer = IncrementalTraceWriter(storage) if storage is not None else None
+        inc_writer = (
+            IncrementalTraceWriter(storage, suppress_errors=True) if storage is not None else None
+        )
         trace_finalized = False
         if inc_writer is not None and project_id is not None:
             trace_id = str(uuid.uuid4())
@@ -189,7 +199,9 @@ class RLMEngine:
                 status=status,
             )
             if storage is not None and project_id is not None:
-                TraceWriter(storage).cleanup_old_traces(project_id)
+                TraceWriter(storage, suppress_errors=True).cleanup_old_traces(
+                    project_id, max_count=self.max_traces_per_project
+                )
 
         # Initialize LLM client
         llm = LLMClient(model=self.model, system_prompt=system_prompt, api_key=self.api_key)
@@ -212,8 +224,15 @@ class RLMEngine:
                 on_step=_write_step,
             )
 
-        executor = ContainerExecutor(llm_query_handler=llm_query_callback)
-        executor.start()
+        # Acquire executor from pool or create standalone
+        if self._pool is not None:
+            executor = self._pool.acquire()
+            executor.llm_query_handler = llm_query_callback
+            owns_executor = False
+        else:
+            executor = ContainerExecutor(llm_query_handler=llm_query_callback)
+            executor.start()
+            owns_executor = True
 
         try:
             # Set up context in sandbox
@@ -323,4 +342,16 @@ class RLMEngine:
 
         finally:
             _finalize_trace("[interrupted]", "interrupted")
-            executor.stop()
+            if owns_executor:
+                executor.stop()
+            else:
+                executor.llm_query_handler = None
+                try:
+                    executor.reset_namespace()
+                except Exception:
+                    # Executor is broken (e.g., socket closed after protocol error).
+                    # Stop it and discard from pool — don't return a broken executor.
+                    executor.stop()
+                    self._pool.discard(executor)  # type: ignore[union-attr]
+                else:
+                    self._pool.release(executor)  # type: ignore[union-attr]

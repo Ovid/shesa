@@ -115,6 +115,10 @@ class ContainerExecutor:
         """Initialize the context variable in the container."""
         self._send_command({"action": "setup", "context": context})
 
+    def reset_namespace(self) -> dict[str, Any]:
+        """Reset the sandbox namespace, clearing user variables but keeping builtins."""
+        return self._send_command({"action": "reset"})
+
     def execute(self, code: str, timeout: int = 30) -> ExecutionResult:
         """Execute code in the container, handling llm_query callbacks."""
         # Check if executor is in stopped state (e.g., after protocol error)

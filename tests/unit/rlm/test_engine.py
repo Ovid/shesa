@@ -135,6 +135,110 @@ class TestRLMEngine:
         assert StepType.FINAL_ANSWER in step_types
 
     @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_acquires_executor_from_pool(
+        self,
+        mock_llm_cls: MagicMock,
+    ):
+        """When pool is provided, engine acquires executor from pool instead of creating one."""
+        from shesha.sandbox.pool import ContainerPool
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("answer")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_pool = MagicMock(spec=ContainerPool)
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="answer",
+        )
+        mock_pool.acquire.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", pool=mock_pool)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        assert result.answer == "answer"
+        mock_pool.acquire.assert_called_once()
+        mock_pool.release.assert_called_once_with(mock_executor)
+        mock_executor.stop.assert_not_called()
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_resets_namespace_before_release(
+        self,
+        mock_llm_cls: MagicMock,
+    ):
+        """Engine resets executor namespace before releasing back to pool."""
+        from shesha.sandbox.pool import ContainerPool
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("done")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_pool = MagicMock(spec=ContainerPool)
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="done",
+        )
+        mock_pool.acquire.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", pool=mock_pool)
+        engine.query(documents=["doc"], question="Q?")
+
+        mock_executor.reset_namespace.assert_called_once()
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_creates_executor_without_pool(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Without pool, engine creates and stops its own executor (backward compat)."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("answer")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="answer",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")  # No pool
+        result = engine.query(documents=["doc"], question="Q?")
+
+        assert result.answer == "answer"
+        mock_executor_cls.assert_called_once()
+        mock_executor.start.assert_called_once()
+        mock_executor.stop.assert_called_once()
+
+    @patch("shesha.rlm.engine.LLMClient")
     def test_engine_returns_error_for_oversized_subcall_content(
         self,
         mock_llm_cls: MagicMock,
@@ -197,6 +301,138 @@ class TestRLMEngine:
         # Should return LLM response
         assert result == "Analysis result"
         mock_llm_cls.assert_called_once()  # Sub-LLM was called
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_wraps_subcall_content_in_untrusted_tags(
+        self,
+        mock_llm_cls: MagicMock,
+    ):
+        """_handle_llm_query wraps content in untrusted tags before calling LLM."""
+        mock_sub_llm = MagicMock()
+        mock_sub_llm.complete.return_value = MagicMock(
+            content="Summary result",
+            prompt_tokens=50,
+            completion_tokens=25,
+            total_tokens=75,
+        )
+        mock_llm_cls.return_value = mock_sub_llm
+
+        engine = RLMEngine(model="test-model", max_subcall_content_chars=10000)
+        trace = Trace()
+        token_usage = TokenUsage()
+
+        engine._handle_llm_query(
+            instruction="Summarize this",
+            content="Untrusted document data",
+            trace=trace,
+            token_usage=token_usage,
+            iteration=0,
+        )
+
+        # Verify the prompt sent to LLM contains the wrapping tags
+        call_args = mock_sub_llm.complete.call_args
+        messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
+        prompt_text = messages[0]["content"]
+        assert "<untrusted_document_content>" in prompt_text
+        assert "</untrusted_document_content>" in prompt_text
+        assert "Untrusted document data" in prompt_text
+
+
+class TestEngineTraceWriterSuppression:
+    """Tests for engine trace writer suppress_errors configuration."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_creates_incremental_trace_writer_with_suppress_errors(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Engine creates IncrementalTraceWriter with suppress_errors=True."""
+        from shesha.storage.filesystem import FilesystemStorage
+
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("test-project")
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content="```repl\nFINAL('answer')\n```",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="answer",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        with patch("shesha.rlm.engine.IncrementalTraceWriter") as mock_inc_writer_cls:
+            mock_inc_writer = MagicMock()
+            mock_inc_writer.path = None
+            mock_inc_writer_cls.return_value = mock_inc_writer
+
+            engine = RLMEngine(model="test-model")
+            engine.query(
+                documents=["doc content"],
+                question="What?",
+                storage=storage,
+                project_id="test-project",
+            )
+
+            mock_inc_writer_cls.assert_called_once_with(storage, suppress_errors=True)
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_creates_trace_writer_with_suppress_errors(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Engine creates TraceWriter with suppress_errors=True for cleanup."""
+        from shesha.storage.filesystem import FilesystemStorage
+
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("test-project")
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content="```repl\nFINAL('answer')\n```",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="answer",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        with patch("shesha.rlm.engine.TraceWriter") as mock_writer_cls:
+            mock_writer = MagicMock()
+            mock_writer_cls.return_value = mock_writer
+
+            engine = RLMEngine(model="test-model")
+            engine.query(
+                documents=["doc content"],
+                question="What?",
+                storage=storage,
+                project_id="test-project",
+            )
+
+            mock_writer_cls.assert_called_once_with(storage, suppress_errors=True)
 
 
 class TestEngineTraceWriting:
@@ -366,3 +602,53 @@ class TestEngineTraceWriting:
         summary = json.loads(lines[-1])
         assert summary["type"] == "summary"
         assert summary["status"] == "interrupted"
+
+
+class TestEngineMaxTracesConfig:
+    """Tests for max_traces_per_project plumbing."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_passes_max_traces_to_cleanup(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Engine passes max_traces_per_project to cleanup_old_traces."""
+        from shesha.storage.filesystem import FilesystemStorage
+
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("test-project")
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content="```repl\nFINAL('answer')\n```",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="answer",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        with patch("shesha.rlm.engine.TraceWriter") as mock_writer_cls:
+            mock_writer = MagicMock()
+            mock_writer_cls.return_value = mock_writer
+
+            engine = RLMEngine(model="test-model", max_traces_per_project=25)
+            engine.query(
+                documents=["doc content"],
+                question="What?",
+                storage=storage,
+                project_id="test-project",
+            )
+
+            mock_writer.cleanup_old_traces.assert_called_once_with("test-project", max_count=25)

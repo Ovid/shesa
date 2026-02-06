@@ -274,3 +274,26 @@ def test_wrap_repl_output_truncates_large_output():
     # Should be truncated
     assert "truncated" in wrapped.lower()
     assert "10,000" in wrapped or "10000" in wrapped  # chars omitted
+
+
+def test_wrap_subcall_content_basic():
+    """wrap_subcall_content wraps content in untrusted tags."""
+    from shesha.rlm.prompts import wrap_subcall_content
+
+    content = "Document text here"
+    wrapped = wrap_subcall_content(content)
+
+    assert "<untrusted_document_content>" in wrapped
+    assert "</untrusted_document_content>" in wrapped
+    assert "Document text here" in wrapped
+
+
+def test_wrap_subcall_content_preserves_full_content():
+    """wrap_subcall_content does not truncate content."""
+    from shesha.rlm.prompts import wrap_subcall_content
+
+    large_content = "x" * 600_000
+    wrapped = wrap_subcall_content(large_content)
+
+    assert large_content in wrapped
+    assert "truncated" not in wrapped.lower()

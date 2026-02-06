@@ -82,3 +82,14 @@ class RepoIngestError(RepoError):
         super().__init__(msg)
         if cause:
             self.__cause__ = cause
+
+
+class TraceWriteError(SheshaError):
+    """Raised when writing a trace fails."""
+
+
+class EngineNotConfiguredError(SheshaError):
+    """Raised when a query is attempted without an RLM engine."""
+
+    def __init__(self) -> None:
+        super().__init__("No RLM engine configured for queries")

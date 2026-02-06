@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from shesha.sandbox.pool import ContainerPool
 
 
@@ -54,3 +56,13 @@ class TestContainerPool:
         pool.stop()
 
         assert mock_executor.stop.call_count == 2
+
+    @patch("shesha.sandbox.pool.ContainerExecutor")
+    def test_acquire_raises_after_stop(self, mock_executor_cls: MagicMock):
+        """Acquiring from a stopped pool raises RuntimeError."""
+        pool = ContainerPool(size=1, image="shesha-sandbox")
+        pool.start()
+        pool.stop()
+
+        with pytest.raises(RuntimeError, match="stopped"):
+            pool.acquire()

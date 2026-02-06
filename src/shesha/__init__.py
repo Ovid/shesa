@@ -5,6 +5,7 @@ from shesha.exceptions import (
     AuthenticationError,
     DocumentError,
     DocumentNotFoundError,
+    EngineNotConfiguredError,
     NoParserError,
     ParseError,
     ProjectError,
@@ -13,6 +14,7 @@ from shesha.exceptions import (
     RepoError,
     RepoIngestError,
     SheshaError,
+    TraceWriteError,
 )
 from shesha.models import ParsedDocument, ProjectInfo, QueryContext, RepoProjectResult
 from shesha.project import Project
@@ -56,4 +58,6 @@ __all__ = [
     "RepoError",
     "AuthenticationError",
     "RepoIngestError",
+    "TraceWriteError",
+    "EngineNotConfiguredError",
 ]

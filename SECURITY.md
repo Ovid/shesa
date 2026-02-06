@@ -32,11 +32,9 @@ Shesha executes LLM-generated code in Docker containers. The primary threats are
 - **Capabilities Dropped**: All Linux capabilities dropped (`--cap-drop=ALL`)
 - **No Privilege Escalation**: `no-new-privileges` security option prevents setuid binaries
 
-### 3. Network Policy (When Enabled)
+### 3. Network Isolation
 
-If network access is required for sub-LLM calls:
-- **Egress Whitelist**: Only allowed to LLM API endpoints
-- **No Inbound**: No incoming connections allowed
+Containers have networking disabled by default. All LLM sub-calls are routed through the host process (not from within the container), so no egress is required.
 
 ### 4. Path Traversal Protection
 
@@ -73,7 +71,6 @@ Security-relevant settings in `SheshaConfig`:
 | `container_memory_mb` | 512 | Memory limit per container |
 | `execution_timeout_sec` | 30 | Max execution time per code block |
 | `max_output_chars` | 50000 | Truncate large outputs |
-| `allowed_hosts` | LLM APIs only | Network egress whitelist |
 | `cap_drop` | `["ALL"]` | Linux capabilities to drop |
 | `security_opt` | `["no-new-privileges:true"]` | Docker security options |
 

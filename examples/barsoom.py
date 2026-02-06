@@ -89,6 +89,7 @@ from script_utils import (
 
 from shesha import Shesha
 from shesha.config import SheshaConfig
+from shesha.exceptions import ProjectNotFoundError
 from shesha.rlm.trace import StepType
 
 INTERACTIVE_HELP = """\
@@ -229,7 +230,7 @@ def main() -> None:
     # Get the project
     try:
         project = shesha.get_project(PROJECT_NAME)
-    except ValueError as e:
+    except ProjectNotFoundError as e:
         print(f"Error: {e}")
         sys.exit(1)
 

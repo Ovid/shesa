@@ -771,3 +771,29 @@ class TestExecuteProtocolHandling:
         # Should return error result, not raise RuntimeError
         assert result.status == "error"
         assert "stopped" in result.error.lower() or "socket" in result.error.lower()
+
+
+class TestResetNamespace:
+    """Tests for namespace reset in executor."""
+
+    def test_reset_namespace_sends_reset_action(self):
+        """reset_namespace() sends {"action": "reset"} to container."""
+        from shesha.sandbox.executor import ContainerExecutor
+
+        executor = ContainerExecutor()
+
+        with patch.object(executor, "_send_command", return_value={"status": "ok"}) as mock_cmd:
+            executor.reset_namespace()
+
+        mock_cmd.assert_called_once_with({"action": "reset"})
+
+    def test_reset_namespace_returns_response(self):
+        """reset_namespace() returns the response from the container."""
+        from shesha.sandbox.executor import ContainerExecutor
+
+        executor = ContainerExecutor()
+
+        with patch.object(executor, "_send_command", return_value={"status": "ok"}):
+            result = executor.reset_namespace()
+
+        assert result == {"status": "ok"}

@@ -32,6 +32,23 @@ class TestRepoIngester:
         """is_local_path returns True for home-relative paths."""
         assert ingester.is_local_path("~/projects/repo")
 
+    def test_is_local_path_relative_dot(self, ingester: RepoIngester):
+        """is_local_path returns True for ./ relative paths."""
+        assert ingester.is_local_path("./some/repo")
+
+    def test_is_local_path_relative_dotdot(self, ingester: RepoIngester):
+        """is_local_path returns True for ../ relative paths."""
+        assert ingester.is_local_path("../sibling/repo")
+
+    def test_is_local_path_rejects_bare_name(
+        self, ingester: RepoIngester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """is_local_path returns False for bare names even if they exist on disk."""
+        target = tmp_path / "somerepo"
+        target.mkdir()
+        monkeypatch.chdir(tmp_path)
+        assert not ingester.is_local_path("somerepo")
+
     def test_is_local_path_url(self, ingester: RepoIngester):
         """is_local_path returns False for URLs."""
         assert not ingester.is_local_path("https://github.com/org/repo")
@@ -144,8 +161,8 @@ class TestGitClone:
             call_args = mock_run.call_args[0][0]
             assert "--depth=1" in call_args
 
-    def test_clone_injects_token_into_url(self, ingester: RepoIngester):
-        """clone() injects token into HTTPS URL."""
+    def test_clone_uses_askpass_for_token(self, ingester: RepoIngester):
+        """clone() passes token via GIT_ASKPASS, not in command-line args."""
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stderr="")
 
@@ -156,8 +173,51 @@ class TestGitClone:
             )
 
             call_args = mock_run.call_args[0][0]
+            call_kwargs = mock_run.call_args[1] if mock_run.call_args[1] else {}
+            # Token must NOT appear in command-line args
+            cmd_str = " ".join(call_args)
+            assert "my_token" not in cmd_str
+            # Token must NOT appear in URL
             url_in_cmd = [a for a in call_args if "github.com" in a][0]
-            assert "my_token@github.com" in url_in_cmd
+            assert "my_token" not in url_in_cmd
+            # GIT_ASKPASS must be set in env
+            env = call_kwargs.get("env", {})
+            assert "GIT_ASKPASS" in env
+
+    def test_clone_askpass_passes_token_via_env(self, ingester: RepoIngester):
+        """clone() passes token via GIT_TOKEN env var, not in args."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+            ingester.clone(
+                url="https://github.com/org/repo",
+                project_id="my-project",
+                token="my_token",
+            )
+
+            call_kwargs = mock_run.call_args[1] if mock_run.call_args[1] else {}
+            env = call_kwargs.get("env", {})
+            assert env["GIT_TOKEN"] == "my_token"
+            assert env["GIT_TERMINAL_PROMPT"] == "0"
+
+    def test_clone_without_token_has_no_askpass(self, ingester: RepoIngester):
+        """clone() does not set GIT_ASKPASS when no token."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+            ingester.clone(
+                url="https://github.com/org/repo",
+                project_id="my-project",
+            )
+
+            call_kwargs = mock_run.call_args[1] if mock_run.call_args[1] else {}
+            env = call_kwargs.get("env")
+            if env:
+                assert "GIT_ASKPASS" not in env
+
+    def test_inject_token_method_removed(self, ingester: RepoIngester):
+        """_inject_token private method no longer exists."""
+        assert not hasattr(ingester, "_inject_token")
 
     def test_clone_auth_failure_raises(self, ingester: RepoIngester):
         """clone() raises AuthenticationError on auth failure."""

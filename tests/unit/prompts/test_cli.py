@@ -13,7 +13,9 @@ def test_cli_validates_valid_prompts(tmp_path: Path):
     (prompts_dir / "system.md").write_text(
         "{doc_count} {total_chars:,} {doc_sizes_list} {max_subcall_chars:,}"
     )
-    (prompts_dir / "subcall.md").write_text("{instruction}\n{content}")
+    (prompts_dir / "subcall.md").write_text(
+        "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
+    )
     (prompts_dir / "code_required.md").write_text("Write code.")
 
     result = subprocess.run(

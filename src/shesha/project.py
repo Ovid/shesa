@@ -2,10 +2,11 @@
 
 from pathlib import Path
 
+from shesha.exceptions import EngineNotConfiguredError
+from shesha.models import ParsedDocument
 from shesha.parser.registry import ParserRegistry
 from shesha.rlm.engine import ProgressCallback, QueryResult, RLMEngine
 from shesha.storage.base import StorageBackend
-from shesha.storage.filesystem import FilesystemStorage
 
 
 class Project:
@@ -41,6 +42,16 @@ class Project:
                 continue  # Skip unsupported files
 
             doc = parser.parse(file_path)
+            if path.is_dir():
+                relative_name = file_path.relative_to(path).as_posix()
+                doc = ParsedDocument(
+                    name=relative_name,
+                    content=doc.content,
+                    format=doc.format,
+                    metadata=doc.metadata,
+                    char_count=doc.char_count,
+                    parse_warnings=doc.parse_warnings,
+                )
             self._storage.store_document(self.project_id, doc, raw_path=file_path)
             uploaded.append(doc.name)
 
@@ -61,17 +72,14 @@ class Project:
     ) -> QueryResult:
         """Query the documents with a question."""
         if self._rlm_engine is None:
-            raise RuntimeError("No RLM engine configured for queries")
+            raise EngineNotConfiguredError()
 
         docs = self._storage.load_all_documents(self.project_id)
-        # Only pass storage for tracing if it's a FilesystemStorage
-        # (TraceWriter uses FS-specific methods like get_traces_dir)
-        fs_storage = self._storage if isinstance(self._storage, FilesystemStorage) else None
         return self._rlm_engine.query(
             documents=[d.content for d in docs],
             question=question,
             doc_names=[d.name for d in docs],
             on_progress=on_progress,
-            storage=fs_storage,
+            storage=self._storage,
             project_id=self.project_id,
         )

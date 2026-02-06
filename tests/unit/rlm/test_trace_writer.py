@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from shesha.exceptions import TraceWriteError
 from shesha.models import QueryContext
 from shesha.rlm.trace import StepType, TokenUsage, Trace
 from shesha.storage.filesystem import FilesystemStorage
@@ -260,6 +261,33 @@ class TestTraceWriterCleanup:
         assert len(remaining) == 2
 
 
+class TestCleanupOldTracesErrorHandling:
+    """Tests for cleanup_old_traces error handling."""
+
+    def test_cleanup_raises_by_default_on_error(self, tmp_path: Path) -> None:
+        """cleanup_old_traces raises TraceWriteError when suppress_errors is False."""
+        from shesha.exceptions import TraceWriteError
+        from shesha.rlm.trace_writer import TraceWriter
+
+        storage = MagicMock()
+        storage.list_traces.side_effect = OSError("disk error")
+
+        writer = TraceWriter(storage, suppress_errors=False)
+        with pytest.raises(TraceWriteError):
+            writer.cleanup_old_traces("test-project", max_count=3)
+
+    def test_cleanup_suppresses_errors_when_configured(self, tmp_path: Path) -> None:
+        """cleanup_old_traces swallows errors when suppress_errors is True."""
+        from shesha.rlm.trace_writer import TraceWriter
+
+        storage = MagicMock()
+        storage.list_traces.side_effect = OSError("disk error")
+
+        writer = TraceWriter(storage, suppress_errors=True)
+        # Should not raise
+        writer.cleanup_old_traces("test-project", max_count=3)
+
+
 class TestTraceWriterSafety:
     """Tests for error handling and redaction."""
 
@@ -310,16 +338,46 @@ class TestTraceWriterSafety:
         assert "sk-abc123" not in content
         assert "[REDACTED]" in content
 
-    def test_write_failure_does_not_raise(
+    def test_write_failure_raises_trace_write_error_by_default(
         self, storage: FilesystemStorage, context: QueryContext
     ) -> None:
-        """Write failures return None instead of raising."""
+        """Write failures raise TraceWriteError by default."""
         from shesha.rlm.trace_writer import TraceWriter
 
         trace = Trace()
         trace.add_step(StepType.CODE_GENERATED, "code", iteration=0)
 
         writer = TraceWriter(storage)
+
+        # Make traces dir read-only to force write failure
+        traces_dir = storage.get_traces_dir("test-project")
+        traces_dir.chmod(0o444)
+
+        try:
+            with pytest.raises(TraceWriteError):
+                writer.write_trace(
+                    project_id="test-project",
+                    trace=trace,
+                    context=context,
+                    answer="done",
+                    token_usage=TokenUsage(),
+                    execution_time=1.0,
+                    status="success",
+                )
+        finally:
+            # Restore permissions for cleanup
+            traces_dir.chmod(0o755)
+
+    def test_write_failure_returns_none_when_suppressed(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """Write failures return None when suppress_errors=True."""
+        from shesha.rlm.trace_writer import TraceWriter
+
+        trace = Trace()
+        trace.add_step(StepType.CODE_GENERATED, "code", iteration=0)
+
+        writer = TraceWriter(storage, suppress_errors=True)
 
         # Make traces dir read-only to force write failure
         traces_dir = storage.get_traces_dir("test-project")
@@ -516,3 +574,109 @@ class TestIncrementalTraceWriter:
             execution_time=0.0,
             status="error",
         )
+
+    def test_start_raises_by_default_on_failure(self, context: QueryContext) -> None:
+        """start() raises TraceWriteError by default on failure."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        mock_storage = MagicMock()
+        mock_storage.get_traces_dir.side_effect = OSError("no traces dir")
+
+        writer = IncrementalTraceWriter(mock_storage)
+        with pytest.raises(TraceWriteError):
+            writer.start("test-project", context)
+
+    def test_start_returns_none_when_suppressed(self, context: QueryContext) -> None:
+        """start() returns None when suppress_errors=True on failure."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        mock_storage = MagicMock()
+        mock_storage.get_traces_dir.side_effect = OSError("no traces dir")
+
+        writer = IncrementalTraceWriter(mock_storage, suppress_errors=True)
+        result = writer.start("test-project", context)
+        assert result is None
+
+    def test_write_step_raises_by_default_on_failure(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """write_step() raises TraceWriteError by default on failure."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(storage)
+        writer.start("test-project", context)
+
+        # Make file read-only to force write failure
+        writer.path.chmod(0o444)
+
+        step = Trace().add_step(StepType.CODE_GENERATED, "code", iteration=0)
+        try:
+            with pytest.raises(TraceWriteError):
+                writer.write_step(step)
+        finally:
+            writer.path.chmod(0o644)
+
+    def test_write_step_suppresses_when_configured(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """write_step() logs warning when suppress_errors=True on failure."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(storage, suppress_errors=True)
+        writer.start("test-project", context)
+
+        # Make file read-only to force write failure
+        writer.path.chmod(0o444)
+
+        step = Trace().add_step(StepType.CODE_GENERATED, "code", iteration=0)
+        try:
+            # Should not raise
+            writer.write_step(step)
+        finally:
+            writer.path.chmod(0o644)
+
+    def test_finalize_raises_by_default_on_failure(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """finalize() raises TraceWriteError by default on failure."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(storage)
+        writer.start("test-project", context)
+
+        # Make file read-only to force write failure
+        writer.path.chmod(0o444)
+
+        try:
+            with pytest.raises(TraceWriteError):
+                writer.finalize(
+                    answer="x",
+                    token_usage=TokenUsage(),
+                    execution_time=0.0,
+                    status="error",
+                )
+        finally:
+            writer.path.chmod(0o644)
+
+    def test_finalize_suppresses_when_configured(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """finalize() logs warning when suppress_errors=True on failure."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(storage, suppress_errors=True)
+        writer.start("test-project", context)
+
+        # Make file read-only to force write failure
+        writer.path.chmod(0o444)
+
+        try:
+            # Should not raise
+            writer.finalize(
+                answer="x",
+                token_usage=TokenUsage(),
+                execution_time=0.0,
+                status="error",
+            )
+        finally:
+            writer.path.chmod(0o644)

@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from shesha import Shesha
+from shesha.exceptions import ProjectExistsError, ProjectNotFoundError
 
 # Global Shesha instance
 shesha: Shesha | None = None
@@ -55,7 +56,7 @@ def create_project(project_id: str) -> dict[str, str]:
     try:
         shesha.create_project(project_id)
         return {"status": "created", "project_id": project_id}
-    except ValueError as e:
+    except ProjectExistsError as e:
         raise HTTPException(400, str(e))
 
 
@@ -80,7 +81,7 @@ def query_project(project_id: str, request: QueryRequest) -> QueryResponse:
             execution_time=result.execution_time,
             total_tokens=result.token_usage.total_tokens,
         )
-    except ValueError as e:
+    except ProjectNotFoundError as e:
         raise HTTPException(404, str(e))
 
 

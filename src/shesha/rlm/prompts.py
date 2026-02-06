@@ -12,3 +12,14 @@ def wrap_repl_output(output: str, max_chars: int = 50000) -> str:
     return f"""<repl_output type="untrusted_document_content">
 {output}
 </repl_output>"""
+
+
+def wrap_subcall_content(content: str) -> str:
+    """Wrap sub-LLM content in untrusted document tags.
+
+    This is a code-level security boundary that ensures untrusted document
+    content is always marked, regardless of prompt template contents.
+    """
+    return f"""<untrusted_document_content>
+{content}
+</untrusted_document_content>"""

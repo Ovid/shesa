@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from shesha.exceptions import EngineNotConfiguredError
 from shesha.models import ParsedDocument
 from shesha.project import Project
 from shesha.rlm.trace import StepType
@@ -73,6 +74,19 @@ class TestProject:
 
         mock_storage.delete_document.assert_called_with("test-project", "old.txt")
 
+    def test_query_without_engine_raises_engine_not_configured(
+        self, mock_storage: MagicMock, mock_registry: MagicMock
+    ):
+        """Query with no engine raises EngineNotConfiguredError."""
+        project = Project(
+            project_id="test-project",
+            storage=mock_storage,
+            parser_registry=mock_registry,
+        )
+
+        with pytest.raises(EngineNotConfiguredError):
+            project.query("test question")
+
     def test_query_passes_on_progress_to_engine(
         self, mock_storage: MagicMock, mock_registry: MagicMock
     ):
@@ -117,10 +131,63 @@ class TestProject:
         assert call_kwargs.get("doc_names") == ["doc.txt"]
         assert call_kwargs.get("question") == "test question"
 
-    def test_query_passes_none_storage_for_non_filesystem_backend(
+    def test_upload_directory_uses_relative_paths_for_doc_names(
+        self, mock_storage: MagicMock, tmp_path: Path
+    ):
+        """Upload directory sets doc.name to relative path, not basename."""
+        # Create nested files with same basename in different subdirectories
+        (tmp_path / "src" / "foo").mkdir(parents=True)
+        (tmp_path / "src" / "bar").mkdir(parents=True)
+        (tmp_path / "src" / "foo" / "main.py").write_text("# foo")
+        (tmp_path / "src" / "bar" / "main.py").write_text("# bar")
+
+        # Set up parser that returns basename as name (current behavior)
+        parser = MagicMock()
+        parser.parse.side_effect = lambda path, **kwargs: ParsedDocument(
+            name=path.name,
+            content=path.read_text(),
+            format="py",
+            metadata={},
+            char_count=5,
+            parse_warnings=[],
+        )
+        registry = MagicMock()
+        registry.find_parser.return_value = parser
+
+        project = Project(
+            project_id="test-project",
+            storage=mock_storage,
+            parser_registry=registry,
+        )
+        uploaded = project.upload(tmp_path, recursive=True)
+
+        # Both files should be stored with distinct relative paths
+        assert len(uploaded) == 2
+        stored_names = [call.args[1].name for call in mock_storage.store_document.call_args_list]
+        assert "src/foo/main.py" in stored_names
+        assert "src/bar/main.py" in stored_names
+
+    def test_upload_single_file_keeps_basename(
+        self, mock_storage: MagicMock, mock_registry: MagicMock, tmp_path: Path
+    ):
+        """Upload single file keeps basename as doc.name."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        project = Project(
+            project_id="test-project",
+            storage=mock_storage,
+            parser_registry=mock_registry,
+        )
+        project.upload(test_file)
+
+        stored_doc = mock_storage.store_document.call_args.args[1]
+        assert stored_doc.name == "test.txt"
+
+    def test_query_passes_storage_to_engine(
         self, mock_storage: MagicMock, mock_registry: MagicMock
     ):
-        """Query passes None for storage when backend is not FilesystemStorage."""
+        """Query always passes storage to engine regardless of backend type."""
         mock_engine = MagicMock()
         mock_engine.query.return_value = MagicMock(answer="test answer")
 
@@ -144,43 +211,6 @@ class TestProject:
 
         project.query("test question")
 
-        # Non-FilesystemStorage results in None being passed (tracing disabled)
         call_kwargs = mock_engine.query.call_args.kwargs
-        assert call_kwargs.get("storage") is None
-        assert call_kwargs.get("project_id") == "test-project"
-
-    def test_query_passes_filesystem_storage_for_tracing(self, mock_registry: MagicMock):
-        """Query passes FilesystemStorage to engine for trace writing."""
-        from unittest.mock import create_autospec
-
-        from shesha.storage.filesystem import FilesystemStorage
-
-        mock_engine = MagicMock()
-        mock_engine.query.return_value = MagicMock(answer="test answer")
-
-        # Use autospec to create a mock that passes isinstance check
-        fs_storage = create_autospec(FilesystemStorage, instance=True)
-        fs_storage.load_all_documents.return_value = [
-            ParsedDocument(
-                name="doc.txt",
-                content="doc content",
-                format="txt",
-                metadata={},
-                char_count=11,
-                parse_warnings=[],
-            )
-        ]
-
-        project = Project(
-            project_id="test-project",
-            storage=fs_storage,
-            parser_registry=mock_registry,
-            rlm_engine=mock_engine,
-        )
-
-        project.query("test question")
-
-        # FilesystemStorage should be passed for trace writing
-        call_kwargs = mock_engine.query.call_args.kwargs
-        assert call_kwargs.get("storage") is fs_storage
+        assert call_kwargs.get("storage") is mock_storage
         assert call_kwargs.get("project_id") == "test-project"

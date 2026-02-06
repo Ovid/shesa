@@ -83,7 +83,7 @@ from script_utils import (
 )
 
 from shesha import Shesha, SheshaConfig
-from shesha.exceptions import RepoIngestError
+from shesha.exceptions import ProjectNotFoundError, RepoIngestError
 from shesha.rlm.trace import StepType
 
 # Storage path for repo projects (not "repos" - that collides with RepoIngester's subdirectory)
@@ -314,7 +314,7 @@ def check_and_prompt_analysis(shesha: Shesha, project_id: str) -> None:
     """
     try:
         status = shesha.get_analysis_status(project_id)
-    except ValueError:
+    except ProjectNotFoundError:
         return  # Project may not exist yet; skip analysis check gracefully
 
     if status == "missing":

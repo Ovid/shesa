@@ -5,10 +5,11 @@ import json
 import logging
 from pathlib import Path
 
+from shesha.exceptions import TraceWriteError
 from shesha.models import QueryContext
 from shesha.rlm.trace import TokenUsage, Trace, TraceStep
 from shesha.security.redaction import redact
-from shesha.storage.filesystem import FilesystemStorage
+from shesha.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +17,10 @@ logger = logging.getLogger(__name__)
 class TraceWriter:
     """Writes query traces to JSONL files."""
 
-    def __init__(self, storage: FilesystemStorage) -> None:
+    def __init__(self, storage: StorageBackend, suppress_errors: bool = False) -> None:
         """Initialize with storage backend."""
         self.storage = storage
+        self.suppress_errors = suppress_errors
 
     def write_trace(
         self,
@@ -109,8 +111,10 @@ class TraceWriter:
             return path
 
         except Exception as e:
-            logger.warning(f"Failed to write trace for project {project_id}: {e}")
-            return None
+            if self.suppress_errors:
+                logger.warning(f"Failed to write trace for project {project_id}: {e}")
+                return None
+            raise TraceWriteError(f"Failed to write trace for project {project_id}: {e}") from e
 
     def cleanup_old_traces(self, project_id: str, max_count: int = 50) -> None:
         """Remove oldest traces if count exceeds max_count.
@@ -119,14 +123,20 @@ class TraceWriter:
             project_id: The project ID
             max_count: Maximum number of traces to keep
         """
-        traces = self.storage.list_traces(project_id)
-        if len(traces) <= max_count:
-            return
+        try:
+            traces = self.storage.list_traces(project_id)
+            if len(traces) <= max_count:
+                return
 
-        # Sorted oldest first, delete until under limit
-        to_delete = traces[: len(traces) - max_count]
-        for trace_path in to_delete:
-            trace_path.unlink()
+            # Sorted oldest first, delete until under limit
+            to_delete = traces[: len(traces) - max_count]
+            for trace_path in to_delete:
+                trace_path.unlink()
+        except Exception as e:
+            if self.suppress_errors:
+                logger.warning(f"Failed to clean up traces for project {project_id}: {e}")
+                return
+            raise TraceWriteError(f"Failed to clean up traces for project {project_id}: {e}") from e
 
 
 class IncrementalTraceWriter:
@@ -137,9 +147,10 @@ class IncrementalTraceWriter:
     partial traces are available even if the process is interrupted.
     """
 
-    def __init__(self, storage: FilesystemStorage) -> None:
+    def __init__(self, storage: StorageBackend, suppress_errors: bool = False) -> None:
         """Initialize with storage backend."""
         self.storage = storage
+        self.suppress_errors = suppress_errors
         self.path: Path | None = None
         self._max_iteration: int = 0
 
@@ -176,9 +187,13 @@ class IncrementalTraceWriter:
             return self.path
 
         except Exception as e:
-            logger.warning(f"Failed to start incremental trace for project {project_id}: {e}")
-            self.path = None
-            return None
+            if self.suppress_errors:
+                logger.warning(f"Failed to start incremental trace for project {project_id}: {e}")
+                self.path = None
+                return None
+            raise TraceWriteError(
+                f"Failed to start incremental trace for project {project_id}: {e}"
+            ) from e
 
     def write_step(self, step: TraceStep) -> None:
         """Append a single step to the trace file.
@@ -205,7 +220,10 @@ class IncrementalTraceWriter:
             with self.path.open("a") as f:
                 f.write(json.dumps(step_data) + "\n")
         except Exception as e:
-            logger.warning(f"Failed to write incremental trace step: {e}")
+            if self.suppress_errors:
+                logger.warning(f"Failed to write incremental trace step: {e}")
+                return
+            raise TraceWriteError(f"Failed to write incremental trace step: {e}") from e
 
     def finalize(
         self,
@@ -240,4 +258,7 @@ class IncrementalTraceWriter:
             with self.path.open("a") as f:
                 f.write(json.dumps(summary) + "\n")
         except Exception as e:
-            logger.warning(f"Failed to finalize incremental trace: {e}")
+            if self.suppress_errors:
+                logger.warning(f"Failed to finalize incremental trace: {e}")
+                return
+            raise TraceWriteError(f"Failed to finalize incremental trace: {e}") from e

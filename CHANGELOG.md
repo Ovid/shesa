@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `TraceWriteError` and `EngineNotConfiguredError` exception classes
+- `suppress_errors` parameter on `TraceWriter` and `IncrementalTraceWriter` for opt-in error suppression
+- Sandbox namespace `reset` action to clear state between queries
 - Experimental multi-repo PRD analysis (`shesha.experimental.multi_repo`)
   - `MultiRepoAnalyzer` for analyzing how PRDs impact multiple codebases
   - Four-phase workflow: recon, impact, synthesize, align
@@ -20,6 +23,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for alternate prompt directories via `SHESHA_PROMPTS_DIR` environment variable
 - `prompts/README.md` documenting prompt customization
 - Session write command (`write` or `write <filename>`) in example scripts (`repo.py`, `barsoom.py`) to save conversation transcripts as markdown files
+
+### Changed
+
+- `Shesha.__init__` now accepts optional DI parameters (`storage`, `engine`, `parser_registry`, `repo_ingester`) for testability and extensibility; defaults are backward-compatible
+- `Shesha()` no longer requires Docker at construction time; Docker check and container pool creation are deferred to `start()`, enabling ingest-only workflows without a Docker daemon
+- `Shesha.get_project`, `get_project_info`, `get_analysis_status`, `get_analysis`, `generate_analysis`, `check_repo_for_updates` now raise `ProjectNotFoundError` instead of `ValueError`
+- `Shesha.check_repo_for_updates` raises `RepoError` instead of `ValueError` when no repo URL is stored
+- `Shesha._ingest_repo` now catches only `ParseError`/`NoParserError` (expected) and propagates unexpected errors as `RepoIngestError`
+- `Project.query()` raises `EngineNotConfiguredError` instead of `RuntimeError`
+- `TraceWriter` and `IncrementalTraceWriter` raise `TraceWriteError` by default on failure instead of silently returning `None`
+- Engine passes `suppress_errors=True` to trace writers for best-effort tracing during queries
+- `TraceWriter` and `IncrementalTraceWriter` now accept `StorageBackend` protocol instead of `FilesystemStorage`
+- `RLMEngine.query()` accepts `StorageBackend` protocol instead of `FilesystemStorage`
+- `Project.query()` always passes storage to engine (removed `FilesystemStorage` special-casing)
+- `Shesha.__init__` now uses `SheshaConfig.load()` by default, honoring env vars and config files
+- `RLMEngine` now respects `max_traces_per_project` config setting for trace cleanup (previously hardcoded to 50)
+
+### Fixed
+
+- `Project.upload()` with directories now uses relative paths for document names, preventing silent overwrites when files in different subdirectories share the same basename (e.g., `src/foo/main.py` and `src/bar/main.py`)
+- RLM engine now uses the container pool for queries instead of creating throwaway containers, eliminating cold-start overhead and idle resource waste
+- Pool-backed executor cleanup no longer masks query results or leaks executors when `reset_namespace()` fails (e.g., after a protocol error closes the socket)
+
+### Removed
+
+- Removed unused `allowed_hosts` config field (containers have networking disabled; all LLM calls go through the host)
+
+### Security
+
+- `is_local_path` no longer uses `Path(url).exists()`; uses prefix-only matching to prevent misclassification
+- Git clone tokens are now passed via `GIT_ASKPASS` instead of being embedded in the clone URL, preventing exposure in process argument lists
+- Enforce `<untrusted_document_content>` wrapping in code (`wrap_subcall_content()`), not just in prompt template files, closing a prompt injection defense gap for sub-LLM calls
+- Validate that `subcall.md` template contains required security tags at load time
 
 ## [0.3.0] 2026-02-04
 
