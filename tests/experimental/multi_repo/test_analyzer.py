@@ -207,13 +207,18 @@ class TestMultiRepoAnalyzerImpact:
         mock_project = MagicMock()
         mock_project.project_id = "test-repo"
         mock_query_result = MagicMock()
-        mock_query_result.answer = json.dumps({
-            "affected": True,
-            "changes": ["Add new endpoint"],
-            "new_interfaces": ["GET /new"],
-            "modified_interfaces": ["POST /old"],
-            "discovered_dependencies": ["other-service"],
-        }) + "\n\nNeeds changes for OAuth."
+        mock_query_result.answer = (
+            json.dumps(
+                {
+                    "affected": True,
+                    "changes": ["Add new endpoint"],
+                    "new_interfaces": ["GET /new"],
+                    "modified_interfaces": ["POST /old"],
+                    "discovered_dependencies": ["other-service"],
+                }
+            )
+            + "\n\nNeeds changes for OAuth."
+        )
         mock_project.query.return_value = mock_query_result
         mock_shesha.get_project.return_value = mock_project
 
@@ -238,13 +243,18 @@ class TestMultiRepoAnalyzerImpact:
         mock_project = MagicMock()
         mock_project.project_id = "test-repo"
         mock_query_result = MagicMock()
-        mock_query_result.answer = json.dumps({
-            "affected": False,
-            "changes": [],
-            "new_interfaces": [],
-            "modified_interfaces": [],
-            "discovered_dependencies": [],
-        }) + "\n\nNo changes needed."
+        mock_query_result.answer = (
+            json.dumps(
+                {
+                    "affected": False,
+                    "changes": [],
+                    "new_interfaces": [],
+                    "modified_interfaces": [],
+                    "discovered_dependencies": [],
+                }
+            )
+            + "\n\nNo changes needed."
+        )
         mock_project.query.return_value = mock_query_result
         mock_shesha.get_project.return_value = mock_project
 
@@ -266,13 +276,18 @@ class TestMultiRepoAnalyzerSynthesize:
         mock_shesha = MagicMock()
         mock_project = MagicMock()
         mock_query_result = MagicMock()
-        mock_query_result.answer = json.dumps({
-            "component_changes": {"auth": ["Add OAuth"]},
-            "data_flow": "User -> Auth -> API",
-            "interface_contracts": ["OAuth callback"],
-            "implementation_sequence": ["1. Auth", "2. API"],
-            "open_questions": ["Provider?"],
-        }) + "\n\n# Full HLD\n\n## Changes\n..."
+        mock_query_result.answer = (
+            json.dumps(
+                {
+                    "component_changes": {"auth": ["Add OAuth"]},
+                    "data_flow": "User -> Auth -> API",
+                    "interface_contracts": ["OAuth callback"],
+                    "implementation_sequence": ["1. Auth", "2. API"],
+                    "open_questions": ["Provider?"],
+                }
+            )
+            + "\n\n# Full HLD\n\n## Changes\n..."
+        )
         mock_project.query.return_value = mock_query_result
         mock_shesha.get_project.return_value = mock_project
 
@@ -304,13 +319,18 @@ class TestMultiRepoAnalyzerAlign:
         mock_shesha = MagicMock()
         mock_project = MagicMock()
         mock_query_result = MagicMock()
-        mock_query_result.answer = json.dumps({
-            "covered": [{"requirement": "R1", "hld_section": "S1"}],
-            "gaps": [],
-            "scope_creep": [],
-            "alignment_score": 1.0,
-            "recommendation": "approved",
-        }) + "\n\nFully aligned."
+        mock_query_result.answer = (
+            json.dumps(
+                {
+                    "covered": [{"requirement": "R1", "hld_section": "S1"}],
+                    "gaps": [],
+                    "scope_creep": [],
+                    "alignment_score": 1.0,
+                    "recommendation": "approved",
+                }
+            )
+            + "\n\nFully aligned."
+        )
         mock_project.query.return_value = mock_query_result
         mock_shesha.get_project.return_value = mock_project
 
@@ -333,13 +353,18 @@ class TestMultiRepoAnalyzerAlign:
         mock_shesha = MagicMock()
         mock_project = MagicMock()
         mock_query_result = MagicMock()
-        mock_query_result.answer = json.dumps({
-            "covered": [],
-            "gaps": [{"requirement": "R1", "reason": "Not addressed"}],
-            "scope_creep": [],
-            "alignment_score": 0.5,
-            "recommendation": "revise",
-        }) + "\n\nNeeds revision."
+        mock_query_result.answer = (
+            json.dumps(
+                {
+                    "covered": [],
+                    "gaps": [{"requirement": "R1", "reason": "Not addressed"}],
+                    "scope_creep": [],
+                    "alignment_score": 0.5,
+                    "recommendation": "revise",
+                }
+            )
+            + "\n\nNeeds revision."
+        )
         mock_project.query.return_value = mock_query_result
         mock_shesha.get_project.return_value = mock_project
 
@@ -368,42 +393,53 @@ class TestMultiRepoAnalyzerAnalyze:
 
         # Recon response
         recon_result = MagicMock()
-        recon_result.answer = json.dumps({
-            "apis": ["GET /users"],
-            "models": ["User"],
-            "entry_points": ["main.py"],
-            "dependencies": [],
-        })
+        recon_result.answer = json.dumps(
+            {
+                "apis": ["GET /users"],
+                "models": ["User"],
+                "entry_points": ["main.py"],
+                "dependencies": [],
+            }
+        )
 
         # Impact response
         impact_result = MagicMock()
-        impact_result.answer = json.dumps({
-            "affected": True,
-            "changes": ["Add feature"],
-            "new_interfaces": [],
-            "modified_interfaces": [],
-            "discovered_dependencies": [],
-        })
+        impact_result.answer = json.dumps(
+            {
+                "affected": True,
+                "changes": ["Add feature"],
+                "new_interfaces": [],
+                "modified_interfaces": [],
+                "discovered_dependencies": [],
+            }
+        )
 
         # Synthesize response
         synth_result = MagicMock()
-        synth_result.answer = json.dumps({
-            "component_changes": {"test-repo": ["Add feature"]},
-            "data_flow": "A -> B",
-            "interface_contracts": [],
-            "implementation_sequence": ["1. Do thing"],
-            "open_questions": [],
-        }) + "\n\n# HLD"
+        synth_result.answer = (
+            json.dumps(
+                {
+                    "component_changes": {"test-repo": ["Add feature"]},
+                    "data_flow": "A -> B",
+                    "interface_contracts": [],
+                    "implementation_sequence": ["1. Do thing"],
+                    "open_questions": [],
+                }
+            )
+            + "\n\n# HLD"
+        )
 
         # Align response
         align_result = MagicMock()
-        align_result.answer = json.dumps({
-            "covered": [{"requirement": "R1", "hld_section": "S1"}],
-            "gaps": [],
-            "scope_creep": [],
-            "alignment_score": 1.0,
-            "recommendation": "approved",
-        })
+        align_result.answer = json.dumps(
+            {
+                "covered": [{"requirement": "R1", "hld_section": "S1"}],
+                "gaps": [],
+                "scope_creep": [],
+                "alignment_score": 1.0,
+                "recommendation": "approved",
+            }
+        )
 
         mock_project.query.side_effect = [
             recon_result,
@@ -430,42 +466,53 @@ class TestMultiRepoAnalyzerAnalyze:
 
         # Recon response
         recon_result = MagicMock()
-        recon_result.answer = json.dumps({
-            "apis": [],
-            "models": [],
-            "entry_points": [],
-            "dependencies": [],
-        })
+        recon_result.answer = json.dumps(
+            {
+                "apis": [],
+                "models": [],
+                "entry_points": [],
+                "dependencies": [],
+            }
+        )
 
         # Impact response with discovery
         impact_result = MagicMock()
-        impact_result.answer = json.dumps({
-            "affected": True,
-            "changes": [],
-            "new_interfaces": [],
-            "modified_interfaces": [],
-            "discovered_dependencies": ["other-service"],
-        })
+        impact_result.answer = json.dumps(
+            {
+                "affected": True,
+                "changes": [],
+                "new_interfaces": [],
+                "modified_interfaces": [],
+                "discovered_dependencies": ["other-service"],
+            }
+        )
 
         # Synthesize response
         synth_result = MagicMock()
-        synth_result.answer = json.dumps({
-            "component_changes": {},
-            "data_flow": "",
-            "interface_contracts": [],
-            "implementation_sequence": [],
-            "open_questions": [],
-        }) + "\n\n# HLD"
+        synth_result.answer = (
+            json.dumps(
+                {
+                    "component_changes": {},
+                    "data_flow": "",
+                    "interface_contracts": [],
+                    "implementation_sequence": [],
+                    "open_questions": [],
+                }
+            )
+            + "\n\n# HLD"
+        )
 
         # Align response
         align_result = MagicMock()
-        align_result.answer = json.dumps({
-            "covered": [],
-            "gaps": [],
-            "scope_creep": [],
-            "alignment_score": 1.0,
-            "recommendation": "approved",
-        })
+        align_result.answer = json.dumps(
+            {
+                "covered": [],
+                "gaps": [],
+                "scope_creep": [],
+                "alignment_score": 1.0,
+                "recommendation": "approved",
+            }
+        )
 
         mock_project.query.side_effect = [
             recon_result,
@@ -492,15 +539,29 @@ class TestMultiRepoAnalyzerAnalyze:
 
         # Simple responses for all phases
         simple_result = MagicMock()
-        simple_result.answer = json.dumps({
-            "apis": [], "models": [], "entry_points": [], "dependencies": [],
-            "affected": False, "changes": [], "new_interfaces": [],
-            "modified_interfaces": [], "discovered_dependencies": [],
-            "component_changes": {}, "data_flow": "", "interface_contracts": [],
-            "implementation_sequence": [], "open_questions": [],
-            "covered": [], "gaps": [], "scope_creep": [],
-            "alignment_score": 1.0, "recommendation": "approved",
-        })
+        simple_result.answer = json.dumps(
+            {
+                "apis": [],
+                "models": [],
+                "entry_points": [],
+                "dependencies": [],
+                "affected": False,
+                "changes": [],
+                "new_interfaces": [],
+                "modified_interfaces": [],
+                "discovered_dependencies": [],
+                "component_changes": {},
+                "data_flow": "",
+                "interface_contracts": [],
+                "implementation_sequence": [],
+                "open_questions": [],
+                "covered": [],
+                "gaps": [],
+                "scope_creep": [],
+                "alignment_score": 1.0,
+                "recommendation": "approved",
+            }
+        )
         mock_project.query.return_value = simple_result
         mock_shesha.get_project.return_value = mock_project
 
