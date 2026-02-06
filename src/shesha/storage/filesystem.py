@@ -9,7 +9,7 @@ from shesha.exceptions import (
     ProjectExistsError,
     ProjectNotFoundError,
 )
-from shesha.models import ParsedDocument
+from shesha.models import AnalysisComponent, AnalysisExternalDep, ParsedDocument, RepoAnalysis
 from shesha.security.paths import safe_path
 
 
@@ -142,3 +142,94 @@ class FilesystemStorage:
         traces_dir = self.get_traces_dir(project_id)
         traces = list(traces_dir.glob("*.jsonl"))
         return sorted(traces, key=lambda p: p.name)
+
+    def store_analysis(self, project_id: str, analysis: RepoAnalysis) -> None:
+        """Store a codebase analysis for a project."""
+        if not self.project_exists(project_id):
+            raise ProjectNotFoundError(project_id)
+        project_path = self._project_path(project_id)
+        analysis_path = project_path / "_analysis.json"
+        analysis_data = {
+            "version": analysis.version,
+            "generated_at": analysis.generated_at,
+            "head_sha": analysis.head_sha,
+            "overview": analysis.overview,
+            "caveats": analysis.caveats,
+            "components": [
+                {
+                    "name": c.name,
+                    "path": c.path,
+                    "description": c.description,
+                    "apis": c.apis,
+                    "models": c.models,
+                    "entry_points": c.entry_points,
+                    "internal_dependencies": c.internal_dependencies,
+                    "auth": c.auth,
+                    "data_persistence": c.data_persistence,
+                }
+                for c in analysis.components
+            ],
+            "external_dependencies": [
+                {
+                    "name": d.name,
+                    "type": d.type,
+                    "description": d.description,
+                    "used_by": d.used_by,
+                    "optional": d.optional,
+                }
+                for d in analysis.external_dependencies
+            ],
+        }
+        analysis_path.write_text(json.dumps(analysis_data, indent=2))
+
+    def load_analysis(self, project_id: str) -> RepoAnalysis | None:
+        """Load a codebase analysis for a project, or None if not present."""
+        if not self.project_exists(project_id):
+            raise ProjectNotFoundError(project_id)
+        project_path = self._project_path(project_id)
+        analysis_path = project_path / "_analysis.json"
+        if not analysis_path.exists():
+            return None
+        data = json.loads(analysis_path.read_text())
+        components = [
+            AnalysisComponent(
+                name=c["name"],
+                path=c["path"],
+                description=c["description"],
+                apis=c["apis"],
+                models=c["models"],
+                entry_points=c["entry_points"],
+                internal_dependencies=c["internal_dependencies"],
+                auth=c.get("auth"),
+                data_persistence=c.get("data_persistence"),
+            )
+            for c in data["components"]
+        ]
+        external_deps = [
+            AnalysisExternalDep(
+                name=d["name"],
+                type=d["type"],
+                description=d["description"],
+                used_by=d["used_by"],
+                optional=d.get("optional", False),
+            )
+            for d in data["external_dependencies"]
+        ]
+        return RepoAnalysis(
+            version=data["version"],
+            generated_at=data["generated_at"],
+            head_sha=data["head_sha"],
+            overview=data["overview"],
+            components=components,
+            external_dependencies=external_deps,
+            caveats=data.get("caveats", ""),
+        )
+
+    def delete_analysis(self, project_id: str) -> None:
+        """Delete the codebase analysis for a project."""
+        if not self.project_exists(project_id):
+            raise ProjectNotFoundError(project_id)
+        project_path = self._project_path(project_id)
+        analysis_path = project_path / "_analysis.json"
+        if analysis_path.exists():
+            analysis_path.unlink()

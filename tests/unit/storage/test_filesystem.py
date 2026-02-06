@@ -9,7 +9,12 @@ from shesha.exceptions import (
     ProjectExistsError,
     ProjectNotFoundError,
 )
-from shesha.models import ParsedDocument
+from shesha.models import (
+    AnalysisComponent,
+    AnalysisExternalDep,
+    ParsedDocument,
+    RepoAnalysis,
+)
 from shesha.security.paths import PathTraversalError
 from shesha.storage.filesystem import FilesystemStorage
 
@@ -241,3 +246,102 @@ class TestTraceOperations:
         assert len(traces) == 3
         assert traces[0].name == "2026-02-03T10-00-00-000_aaaa1111.jsonl"
         assert traces[2].name == "2026-02-03T10-00-02-000_cccc3333.jsonl"
+
+
+class TestAnalysisOperations:
+    """Tests for analysis CRUD operations."""
+
+    def test_store_and_load_analysis(self, storage: FilesystemStorage) -> None:
+        """Storing an analysis allows retrieval."""
+        storage.create_project("analysis-project")
+
+        comp = AnalysisComponent(
+            name="API",
+            path="api/",
+            description="REST API",
+            apis=[{"type": "rest", "endpoints": ["/health"]}],
+            models=["User"],
+            entry_points=["api/main.py"],
+            internal_dependencies=[],
+            auth="JWT",
+        )
+        dep = AnalysisExternalDep(
+            name="Redis",
+            type="database",
+            description="Cache",
+            used_by=["api"],
+            optional=True,
+        )
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123",
+            overview="A test application.",
+            components=[comp],
+            external_dependencies=[dep],
+        )
+
+        storage.store_analysis("analysis-project", analysis)
+        loaded = storage.load_analysis("analysis-project")
+
+        assert loaded is not None
+        assert loaded.version == "1"
+        assert loaded.head_sha == "abc123"
+        assert loaded.overview == "A test application."
+        assert len(loaded.components) == 1
+        assert loaded.components[0].name == "API"
+        assert loaded.components[0].auth == "JWT"
+        assert len(loaded.external_dependencies) == 1
+        assert loaded.external_dependencies[0].optional is True
+
+    def test_load_analysis_returns_none_when_missing(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """Loading analysis returns None when no analysis exists."""
+        storage.create_project("no-analysis")
+        loaded = storage.load_analysis("no-analysis")
+        assert loaded is None
+
+    def test_delete_analysis(self, storage: FilesystemStorage) -> None:
+        """Deleting an analysis removes it."""
+        storage.create_project("del-analysis")
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123",
+            overview="To delete",
+            components=[],
+            external_dependencies=[],
+        )
+        storage.store_analysis("del-analysis", analysis)
+        storage.delete_analysis("del-analysis")
+        assert storage.load_analysis("del-analysis") is None
+
+    def test_delete_analysis_nonexistent_is_noop(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """Deleting nonexistent analysis doesn't raise."""
+        storage.create_project("empty-analysis")
+        storage.delete_analysis("empty-analysis")  # Should not raise
+
+    def test_store_analysis_nonexistent_project_raises(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """Storing analysis to nonexistent project raises."""
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123",
+            overview="Orphan",
+            components=[],
+            external_dependencies=[],
+        )
+        with pytest.raises(ProjectNotFoundError):
+            storage.store_analysis("no-such-project", analysis)
+
+    def test_load_analysis_nonexistent_project_raises(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """Loading analysis from nonexistent project raises."""
+        with pytest.raises(ProjectNotFoundError):
+            storage.load_analysis("no-such-project")
