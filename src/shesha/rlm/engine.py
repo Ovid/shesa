@@ -51,6 +51,7 @@ class RLMEngine:
         max_subcall_content_chars: int = 500_000,
         prompts_dir: Path | None = None,
         pool: ContainerPool | None = None,
+        max_traces_per_project: int = 50,
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -61,6 +62,7 @@ class RLMEngine:
         self.max_subcall_content_chars = max_subcall_content_chars
         self.prompt_loader = PromptLoader(prompts_dir)
         self._pool = pool
+        self.max_traces_per_project = max_traces_per_project
 
     def _handle_llm_query(
         self,
@@ -197,7 +199,9 @@ class RLMEngine:
                 status=status,
             )
             if storage is not None and project_id is not None:
-                TraceWriter(storage, suppress_errors=True).cleanup_old_traces(project_id)
+                TraceWriter(storage, suppress_errors=True).cleanup_old_traces(
+                    project_id, max_count=self.max_traces_per_project
+                )
 
         # Initialize LLM client
         llm = LLMClient(model=self.model, system_prompt=system_prompt, api_key=self.api_key)

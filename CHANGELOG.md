@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Project.query()` raises `EngineNotConfiguredError` instead of `RuntimeError`
 - `TraceWriter` and `IncrementalTraceWriter` raise `TraceWriteError` by default on failure instead of silently returning `None`
 - Engine passes `suppress_errors=True` to trace writers for best-effort tracing during queries
+- `RLMEngine` now respects `max_traces_per_project` config setting for trace cleanup (previously hardcoded to 50)
 
 ### Added
 

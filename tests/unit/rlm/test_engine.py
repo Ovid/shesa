@@ -602,3 +602,55 @@ class TestEngineTraceWriting:
         summary = json.loads(lines[-1])
         assert summary["type"] == "summary"
         assert summary["status"] == "interrupted"
+
+
+class TestEngineMaxTracesConfig:
+    """Tests for max_traces_per_project plumbing."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_passes_max_traces_to_cleanup(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Engine passes max_traces_per_project to cleanup_old_traces."""
+        from shesha.storage.filesystem import FilesystemStorage
+
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("test-project")
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content="```repl\nFINAL('answer')\n```",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="answer",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        with patch("shesha.rlm.engine.TraceWriter") as mock_writer_cls:
+            mock_writer = MagicMock()
+            mock_writer_cls.return_value = mock_writer
+
+            engine = RLMEngine(model="test-model", max_traces_per_project=25)
+            engine.query(
+                documents=["doc content"],
+                question="What?",
+                storage=storage,
+                project_id="test-project",
+            )
+
+            mock_writer.cleanup_old_traces.assert_called_once_with(
+                "test-project", max_count=25
+            )
