@@ -99,6 +99,161 @@ class TestPoolExecutorErrorHandling:
         assert result.answer == "answer"
 
 
+class TestDeadExecutorRecovery:
+    """Tests for mid-loop dead executor recovery with pool."""
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_dead_executor_replaced_from_pool(
+        self,
+        mock_llm_cls: MagicMock,
+    ):
+        """Dead executor is replaced from pool and query succeeds on next iteration."""
+        from shesha.sandbox.executor import ExecutionResult
+
+        mock_pool = MagicMock(spec=ContainerPool)
+
+        # First executor: dies after protocol error (is_alive=False)
+        dead_executor = MagicMock()
+        dead_executor.is_alive = True  # starts alive
+        dead_executor.execute.return_value = ExecutionResult(
+            status="error",
+            stdout="",
+            stderr="",
+            return_value=None,
+            error="Protocol error: line too long",
+        )
+
+        # After execute, mark as dead (simulating stop() called by execute)
+        def kill_on_execute(code, timeout=30):
+            dead_executor.is_alive = False
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error="Protocol error: line too long",
+            )
+
+        dead_executor.execute.side_effect = kill_on_execute
+
+        # Fresh executor: works fine
+        fresh_executor = MagicMock()
+        fresh_executor.is_alive = True
+        fresh_executor.execute.return_value = ExecutionResult(
+            status="ok",
+            stdout="",
+            stderr="",
+            return_value=None,
+            error=None,
+            final_answer="recovered answer",
+        )
+
+        mock_pool.acquire.side_effect = [dead_executor, fresh_executor]
+
+        # LLM: first call produces code that triggers error, second call produces FINAL
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            MagicMock(
+                content='```repl\nprint("big output")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            MagicMock(
+                content='```repl\nFINAL("recovered answer")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        engine = RLMEngine(model="test-model", pool=mock_pool)
+        result = engine.query(documents=["doc"], question="Q?")
+
+        assert result.answer == "recovered answer"
+        # Pool should have been asked for a second executor
+        assert mock_pool.acquire.call_count == 2
+        mock_pool.discard.assert_called_once_with(dead_executor)
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_fresh_executor_gets_llm_query_handler(
+        self,
+        mock_llm_cls: MagicMock,
+    ):
+        """Fresh replacement executor gets llm_query_handler set."""
+        from shesha.sandbox.executor import ExecutionResult
+
+        mock_pool = MagicMock(spec=ContainerPool)
+
+        # Dead executor
+        dead_executor = MagicMock()
+        dead_executor.is_alive = True
+
+        def kill_on_execute(code, timeout=30):
+            dead_executor.is_alive = False
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error="Protocol error: overflow",
+            )
+
+        dead_executor.execute.side_effect = kill_on_execute
+
+        # Fresh executor
+        fresh_executor = MagicMock()
+        fresh_executor.is_alive = True
+        fresh_executor.execute.return_value = ExecutionResult(
+            status="ok",
+            stdout="",
+            stderr="",
+            return_value=None,
+            error=None,
+            final_answer="answer",
+        )
+
+        mock_pool.acquire.side_effect = [dead_executor, fresh_executor]
+
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            MagicMock(
+                content='```repl\nprint("boom")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            MagicMock(
+                content='```repl\nFINAL("answer")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        engine = RLMEngine(model="test-model", pool=mock_pool)
+
+        # Track llm_query_handler assignments on fresh_executor
+        handler_values: list[object] = []
+        original_setattr = type(fresh_executor).__setattr__
+
+        def track_handler(self, name, value):
+            if name == "llm_query_handler":
+                handler_values.append(value)
+            original_setattr(self, name, value)
+
+        with patch.object(type(fresh_executor), "__setattr__", track_handler):
+            engine.query(documents=["doc"], question="Q?")
+
+        # Handler should have been set (first set is callable, last is None from cleanup)
+        assert len(handler_values) >= 1
+        assert callable(handler_values[0])
+        # Fresh executor should have had setup_context called
+        fresh_executor.setup_context.assert_called_once_with(["doc"])
+
+
 class TestPoolDiscard:
     """Tests for ContainerPool.discard method."""
 

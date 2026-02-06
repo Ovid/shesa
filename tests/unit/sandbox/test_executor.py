@@ -773,6 +773,39 @@ class TestExecuteProtocolHandling:
         assert "stopped" in result.error.lower() or "socket" in result.error.lower()
 
 
+class TestIsAlive:
+    """Tests for is_alive property."""
+
+    def test_is_alive_true_when_socket_exists(self):
+        """is_alive returns True when socket is set."""
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        assert executor.is_alive is True
+
+    def test_is_alive_false_when_socket_is_none(self):
+        """is_alive returns False when socket is None."""
+        executor = ContainerExecutor()
+        executor._socket = None
+
+        assert executor.is_alive is False
+
+    def test_is_alive_false_after_protocol_error(self):
+        """is_alive returns False after ProtocolError kills executor."""
+        from shesha.sandbox.executor import ProtocolError
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        # Simulate protocol error during execute (which calls stop())
+        with patch.object(executor, "_read_line", side_effect=ProtocolError("overflow")):
+            with patch.object(executor, "_send_raw"):
+                executor.execute("print('hello')")
+
+        # stop() sets _socket = None
+        assert executor.is_alive is False
+
+
 class TestResetNamespace:
     """Tests for namespace reset in executor."""
 

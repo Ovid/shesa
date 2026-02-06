@@ -65,6 +65,11 @@ class ContainerExecutor:
         self._raw_buffer: bytes = b""  # Buffer for raw Docker stream (with headers)
         self._content_buffer: bytes = b""  # Buffer for demuxed content only
 
+    @property
+    def is_alive(self) -> bool:
+        """Whether the executor has an active socket connection."""
+        return self._socket is not None
+
     def start(self) -> None:
         """Start a container for execution."""
         self._raw_buffer = b""  # Clear raw stream buffer

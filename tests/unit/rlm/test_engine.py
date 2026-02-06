@@ -338,6 +338,93 @@ class TestRLMEngine:
         assert "Untrusted document data" in prompt_text
 
 
+class TestDeadExecutorNoPool:
+    """Tests for early exit when executor dies without pool."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_only_one_llm_call_when_executor_dies(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine makes only 1 LLM call, not 20, when executor dies without pool."""
+        from shesha.sandbox.executor import ExecutionResult
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nprint("big output")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+
+        def kill_on_execute(code, timeout=30):
+            mock_executor.is_alive = False
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error="Protocol error: line too long",
+            )
+
+        mock_executor.execute.side_effect = kill_on_execute
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=20)  # No pool
+        engine.query(documents=["doc"], question="Q?")
+
+        # Should have only called LLM once, not continued for 20 iterations
+        assert mock_llm.complete.call_count == 1
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_executor_died_answer_distinct_from_max_iterations(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Early exit answer is distinct from max iterations message."""
+        from shesha.sandbox.executor import ExecutionResult
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nprint("boom")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+
+        def kill_on_execute(code, timeout=30):
+            mock_executor.is_alive = False
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error="Protocol error: overflow",
+            )
+
+        mock_executor.execute.side_effect = kill_on_execute
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")  # No pool
+        result = engine.query(documents=["doc"], question="Q?")
+
+        # Answer should mention executor dying, not "max iterations"
+        assert "max iterations" not in result.answer.lower()
+        assert "executor" in result.answer.lower() or "died" in result.answer.lower()
+
+
 class TestEngineTraceWriterSuppression:
     """Tests for engine trace writer suppress_errors configuration."""
 

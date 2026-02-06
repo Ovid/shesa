@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ContainerExecutor.is_alive` property to check whether executor has an active socket connection
+
+### Fixed
+
+- RLM engine now recovers from dead executors mid-loop when a container pool is available, acquiring a fresh executor instead of wasting remaining iterations
+- RLM engine exits early with a clear error when executor dies and no pool is available, instead of running all remaining iterations against a dead executor
+
 ## [0.4.0] - 2026-02-06
 
 ### Added

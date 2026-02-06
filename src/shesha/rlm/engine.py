@@ -322,6 +322,23 @@ class RLMEngine:
                     _finalize_trace(final_answer, "success")
                     return query_result
 
+                # Recover from dead executor mid-loop
+                if not executor.is_alive and self._pool is not None:
+                    self._pool.discard(executor)
+                    executor = self._pool.acquire()
+                    executor.llm_query_handler = llm_query_callback
+                    executor.setup_context(documents)
+                elif not executor.is_alive:
+                    answer = "[Executor died — cannot continue]"
+                    query_result = QueryResult(
+                        answer=answer,
+                        trace=trace,
+                        token_usage=token_usage,
+                        execution_time=time.time() - start_time,
+                    )
+                    _finalize_trace(answer, "executor_died")
+                    return query_result
+
                 # Add output to conversation
                 combined_output = "\n\n".join(all_output)
                 wrapped_output = wrap_repl_output(combined_output, self.max_output_chars)
