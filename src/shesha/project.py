@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from shesha.exceptions import EngineNotConfiguredError
+from shesha.models import ParsedDocument
 from shesha.parser.registry import ParserRegistry
 from shesha.rlm.engine import ProgressCallback, QueryResult, RLMEngine
 from shesha.storage.base import StorageBackend
@@ -41,6 +42,16 @@ class Project:
                 continue  # Skip unsupported files
 
             doc = parser.parse(file_path)
+            if path.is_dir():
+                relative_name = file_path.relative_to(path).as_posix()
+                doc = ParsedDocument(
+                    name=relative_name,
+                    content=doc.content,
+                    format=doc.format,
+                    metadata=doc.metadata,
+                    char_count=doc.char_count,
+                    parse_warnings=doc.parse_warnings,
+                )
             self._storage.store_document(self.project_id, doc, raw_path=file_path)
             uploaded.append(doc.name)
 

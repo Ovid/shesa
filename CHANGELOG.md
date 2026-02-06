@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Project.upload()` with directories now uses relative paths for document names, preventing silent overwrites when files in different subdirectories share the same basename (e.g., `src/foo/main.py` and `src/bar/main.py`)
+
 ### Added
 
 - `TraceWriteError` and `EngineNotConfiguredError` exception classes

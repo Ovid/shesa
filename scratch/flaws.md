@@ -47,18 +47,8 @@
       - Provide `sandbox_enabled: bool` config; if false, allow non-query operations and raise a clear error only when query is attempted.
     - Provide a “NoSandboxEngine” or mock executor for tests.
 
-- **Extensibility gap: repo ingestion path produces `ParsedDocument.name` inconsistently**
-  - **Where:**
-    - In repo ingest: `ParsedDocument(name=file_path, ...)` in `Shesha._ingest_repo`, where `file_path` is relative path like `src/main.py`.
-    - Parser `CodeParser.parse` returns `name=path.name` (basename only) (and other parsers likely same pattern).
-  - **Why problematic (impact):**
-    - Document identity differs depending on ingestion path; collisions possible when uploading directories (`Project.upload`) because stored `doc.name` may be just basename (e.g., `main.py` from multiple dirs).
-    - Storage supports nested paths (`safe_path(docs_dir, f"{doc.name}.json")` + parent mkdir), but upload path may not supply nested names consistently.
-  - **Concrete mitigations:**
-    - Define a single canonical “document id” concept:
-      - For uploads, set `doc.name` to a project-relative path (posix style) when uploading directories.
-      - Update parsers to accept a `file_path` override (already present in `CodeParser.parse`) and use it consistently for `name`.
-    - In `Project.upload`, pass the relative path from the upload root into parser and storage.
+- **~~Extensibility gap: repo ingestion path produces `ParsedDocument.name` inconsistently~~** — RESOLVED
+  - `Project.upload()` now computes relative paths from the upload root directory when uploading directories, and overrides `doc.name` with the posix-style relative path (e.g., `src/foo/main.py`). This mirrors the existing pattern in `Shesha._ingest_repo`. Single-file uploads continue to use the basename. Storage already supports nested paths via `parent.mkdir(parents=True)`.
 
 ## 2) Additional notable doc/code discrepancies
 

@@ -131,6 +131,59 @@ class TestProject:
         assert call_kwargs.get("doc_names") == ["doc.txt"]
         assert call_kwargs.get("question") == "test question"
 
+    def test_upload_directory_uses_relative_paths_for_doc_names(
+        self, mock_storage: MagicMock, tmp_path: Path
+    ):
+        """Upload directory sets doc.name to relative path, not basename."""
+        # Create nested files with same basename in different subdirectories
+        (tmp_path / "src" / "foo").mkdir(parents=True)
+        (tmp_path / "src" / "bar").mkdir(parents=True)
+        (tmp_path / "src" / "foo" / "main.py").write_text("# foo")
+        (tmp_path / "src" / "bar" / "main.py").write_text("# bar")
+
+        # Set up parser that returns basename as name (current behavior)
+        parser = MagicMock()
+        parser.parse.side_effect = lambda path, **kwargs: ParsedDocument(
+            name=path.name,
+            content=path.read_text(),
+            format="py",
+            metadata={},
+            char_count=5,
+            parse_warnings=[],
+        )
+        registry = MagicMock()
+        registry.find_parser.return_value = parser
+
+        project = Project(
+            project_id="test-project",
+            storage=mock_storage,
+            parser_registry=registry,
+        )
+        uploaded = project.upload(tmp_path, recursive=True)
+
+        # Both files should be stored with distinct relative paths
+        assert len(uploaded) == 2
+        stored_names = [call.args[1].name for call in mock_storage.store_document.call_args_list]
+        assert "src/foo/main.py" in stored_names
+        assert "src/bar/main.py" in stored_names
+
+    def test_upload_single_file_keeps_basename(
+        self, mock_storage: MagicMock, mock_registry: MagicMock, tmp_path: Path
+    ):
+        """Upload single file keeps basename as doc.name."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("content")
+
+        project = Project(
+            project_id="test-project",
+            storage=mock_storage,
+            parser_registry=mock_registry,
+        )
+        project.upload(test_file)
+
+        stored_doc = mock_storage.store_document.call_args.args[1]
+        assert stored_doc.name == "test.txt"
+
     def test_query_passes_storage_to_engine(
         self, mock_storage: MagicMock, mock_registry: MagicMock
     ):
