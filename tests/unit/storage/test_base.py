@@ -32,3 +32,11 @@ class TestStorageBackendProtocol:
     def test_protocol_has_delete_analysis_method(self):
         """StorageBackend protocol includes delete_analysis method."""
         assert hasattr(StorageBackend, "delete_analysis")
+
+    def test_protocol_has_get_traces_dir_method(self):
+        """StorageBackend protocol includes get_traces_dir method."""
+        assert hasattr(StorageBackend, "get_traces_dir")
+
+    def test_protocol_has_list_traces_method(self):
+        """StorageBackend protocol includes list_traces method."""
+        assert hasattr(StorageBackend, "list_traces")
