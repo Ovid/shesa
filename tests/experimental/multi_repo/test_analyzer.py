@@ -942,7 +942,7 @@ class TestMultiRepoAnalyzerRevisionLoop:
         analyzer = MultiRepoAnalyzer(mock_shesha)
         analyzer._repos = ["test-repo"]
 
-        hld, alignment = analyzer.analyze("PRD", on_alignment_issue=alignment_callback)
+        _, alignment = analyzer.analyze("PRD", on_alignment_issue=alignment_callback)
 
         # Only 4 queries - no revision loop
         assert mock_project.query.call_count == 4
@@ -1019,12 +1019,14 @@ class TestMultiRepoAnalyzerRevisionLoop:
         analyzer = MultiRepoAnalyzer(mock_shesha, max_revision_rounds=2)
         analyzer._repos = ["test-repo"]
 
-        hld, alignment = analyzer.analyze("PRD", on_alignment_issue=alignment_callback)
+        _, alignment = analyzer.analyze("PRD", on_alignment_issue=alignment_callback)
 
         # 8 queries: recon + impact + synth + align + synth + align + synth + align
         assert mock_project.query.call_count == 8
         # Callback called twice (once per revision round)
         assert alignment_callback.call_count == 2
+        # Final alignment still recommends revise (max rounds hit)
+        assert alignment.recommendation == "revise"
 
 
 class TestMultiRepoAnalyzerErrorHandling:
