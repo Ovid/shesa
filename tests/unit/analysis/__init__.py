@@ -1,1 +1,1 @@
-# Analysis tests package
+"""Tests for analysis package."""
