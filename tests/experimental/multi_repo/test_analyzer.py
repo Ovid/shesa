@@ -355,3 +355,165 @@ class TestMultiRepoAnalyzerAlign:
         assert report.alignment_score == 0.5
         assert report.recommendation == "revise"
         assert len(report.gaps) == 1
+
+
+class TestMultiRepoAnalyzerAnalyze:
+    """Tests for main analyze method."""
+
+    def test_analyze_runs_all_phases(self):
+        """analyze() runs all four phases."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_project.project_id = "test-repo"
+
+        # Recon response
+        recon_result = MagicMock()
+        recon_result.answer = json.dumps({
+            "apis": ["GET /users"],
+            "models": ["User"],
+            "entry_points": ["main.py"],
+            "dependencies": [],
+        })
+
+        # Impact response
+        impact_result = MagicMock()
+        impact_result.answer = json.dumps({
+            "affected": True,
+            "changes": ["Add feature"],
+            "new_interfaces": [],
+            "modified_interfaces": [],
+            "discovered_dependencies": [],
+        })
+
+        # Synthesize response
+        synth_result = MagicMock()
+        synth_result.answer = json.dumps({
+            "component_changes": {"test-repo": ["Add feature"]},
+            "data_flow": "A -> B",
+            "interface_contracts": [],
+            "implementation_sequence": ["1. Do thing"],
+            "open_questions": [],
+        }) + "\n\n# HLD"
+
+        # Align response
+        align_result = MagicMock()
+        align_result.answer = json.dumps({
+            "covered": [{"requirement": "R1", "hld_section": "S1"}],
+            "gaps": [],
+            "scope_creep": [],
+            "alignment_score": 1.0,
+            "recommendation": "approved",
+        })
+
+        mock_project.query.side_effect = [
+            recon_result,
+            impact_result,
+            synth_result,
+            align_result,
+        ]
+        mock_shesha.get_project.return_value = mock_project
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        analyzer._repos = ["test-repo"]
+
+        hld, alignment = analyzer.analyze("Add a feature")
+
+        assert mock_project.query.call_count == 4
+        assert alignment.recommendation == "approved"
+        assert "test-repo" in hld.component_changes
+
+    def test_analyze_calls_discovery_callback(self):
+        """analyze() invokes on_discovery when deps found."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_project.project_id = "test-repo"
+
+        # Recon response
+        recon_result = MagicMock()
+        recon_result.answer = json.dumps({
+            "apis": [],
+            "models": [],
+            "entry_points": [],
+            "dependencies": [],
+        })
+
+        # Impact response with discovery
+        impact_result = MagicMock()
+        impact_result.answer = json.dumps({
+            "affected": True,
+            "changes": [],
+            "new_interfaces": [],
+            "modified_interfaces": [],
+            "discovered_dependencies": ["other-service"],
+        })
+
+        # Synthesize response
+        synth_result = MagicMock()
+        synth_result.answer = json.dumps({
+            "component_changes": {},
+            "data_flow": "",
+            "interface_contracts": [],
+            "implementation_sequence": [],
+            "open_questions": [],
+        }) + "\n\n# HLD"
+
+        # Align response
+        align_result = MagicMock()
+        align_result.answer = json.dumps({
+            "covered": [],
+            "gaps": [],
+            "scope_creep": [],
+            "alignment_score": 1.0,
+            "recommendation": "approved",
+        })
+
+        mock_project.query.side_effect = [
+            recon_result,
+            impact_result,
+            synth_result,
+            align_result,
+        ]
+        mock_shesha.get_project.return_value = mock_project
+
+        discovery_callback = MagicMock(return_value=False)
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        analyzer._repos = ["test-repo"]
+
+        analyzer.analyze("PRD", on_discovery=discovery_callback)
+
+        discovery_callback.assert_called_once_with("other-service")
+
+    def test_analyze_calls_progress_callback(self):
+        """analyze() invokes on_progress during phases."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_project.project_id = "test-repo"
+
+        # Simple responses for all phases
+        simple_result = MagicMock()
+        simple_result.answer = json.dumps({
+            "apis": [], "models": [], "entry_points": [], "dependencies": [],
+            "affected": False, "changes": [], "new_interfaces": [],
+            "modified_interfaces": [], "discovered_dependencies": [],
+            "component_changes": {}, "data_flow": "", "interface_contracts": [],
+            "implementation_sequence": [], "open_questions": [],
+            "covered": [], "gaps": [], "scope_creep": [],
+            "alignment_score": 1.0, "recommendation": "approved",
+        })
+        mock_project.query.return_value = simple_result
+        mock_shesha.get_project.return_value = mock_project
+
+        progress_callback = MagicMock()
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        analyzer._repos = ["test-repo"]
+
+        analyzer.analyze("PRD", on_progress=progress_callback)
+
+        # Should have progress calls for each phase
+        phases_reported = [call[0][0] for call in progress_callback.call_args_list]
+        assert "recon" in phases_reported
+        assert "impact" in phases_reported
+        assert "synthesize" in phases_reported
+        assert "align" in phases_reported

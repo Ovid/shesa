@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -258,3 +259,110 @@ class MultiRepoAnalyzer:
             recommendation="revise",
             raw_analysis=answer,
         )
+
+    def analyze(
+        self,
+        prd: str,
+        on_discovery: Callable[[str], bool] | None = None,
+        on_alignment_issue: Callable[[AlignmentReport], str] | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
+    ) -> tuple[HLDDraft, AlignmentReport]:
+        """Run the four-phase analysis.
+
+        Args:
+            prd: The PRD text (pasted inline).
+            on_discovery: Called when new repo discovered.
+                Receives repo hint, returns True to add it.
+                If None, discoveries are ignored.
+            on_alignment_issue: Called if alignment finds problems.
+                Receives report, returns "revise" | "accept" | "abort".
+                If None, accepts as-is.
+            on_progress: Called with (phase, message) updates.
+
+        Returns:
+            Tuple of (final HLD, alignment report).
+
+        Raises:
+            ValueError: If no repos have been added.
+        """
+        if not self._repos:
+            raise ValueError("No repos added. Call add_repo() first.")
+
+        # Phase 1: Recon
+        if on_progress:
+            on_progress("recon", f"Starting recon on {len(self._repos)} repos")
+
+        for project_id in self._repos:
+            if on_progress:
+                on_progress("recon", f"Analyzing {project_id}")
+            self._summaries[project_id] = self._run_recon(project_id)
+
+        # Phase 2: Impact
+        if on_progress:
+            on_progress("impact", "Starting impact analysis")
+
+        discovered: set[str] = set()
+        discovery_round = 0
+
+        while discovery_round < self._max_discovery_rounds:
+            for project_id in self._repos:
+                if project_id in self._impacts:
+                    continue  # Already analyzed
+
+                if on_progress:
+                    on_progress("impact", f"Analyzing {project_id}")
+
+                summary = self._summaries[project_id]
+                report = self._run_impact(project_id, prd, summary)
+                self._impacts[project_id] = report
+
+                # Check for discoveries
+                for dep in report.discovered_dependencies:
+                    if dep not in self._repos and dep not in discovered:
+                        discovered.add(dep)
+                        if on_discovery and on_discovery(dep):
+                            # User wants to add this repo
+                            # Note: In real usage, they'd provide URL
+                            # For now, just track it was discovered
+                            pass
+
+            discovery_round += 1
+            if not discovered:
+                break
+
+        # Phase 3: Synthesize
+        if on_progress:
+            on_progress("synthesize", "Generating HLD")
+
+        hld = self._run_synthesize(prd, self._impacts)
+
+        # Phase 4: Align
+        if on_progress:
+            on_progress("align", "Verifying alignment")
+
+        alignment = self._run_align(prd, hld)
+
+        # Handle alignment issues
+        revision_round = 0
+        while alignment.recommendation == "revise" and revision_round < self._max_revision_rounds:
+            if on_alignment_issue:
+                action = on_alignment_issue(alignment)
+                if action == "accept":
+                    break
+                if action == "abort":
+                    break
+                # action == "revise" - continue loop
+            else:
+                break  # No callback, accept as-is
+
+            revision_round += 1
+            if on_progress:
+                on_progress("synthesize", f"Revision round {revision_round}")
+
+            hld = self._run_synthesize(prd, self._impacts)
+
+            if on_progress:
+                on_progress("align", "Re-verifying alignment")
+            alignment = self._run_align(prd, hld)
+
+        return hld, alignment
