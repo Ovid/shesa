@@ -252,8 +252,6 @@ class TestProjectInfoAnalysisStatus:
 
     def test_project_info_with_analysis_status(self):
         """ProjectInfo can include analysis_status."""
-        from shesha.models import ProjectInfo
-
         info = ProjectInfo(
             project_id="my-project",
             source_url="https://github.com/org/repo",
@@ -266,8 +264,6 @@ class TestProjectInfoAnalysisStatus:
 
     def test_project_info_analysis_status_defaults_none(self):
         """ProjectInfo.analysis_status defaults to None."""
-        from shesha.models import ProjectInfo
-
         info = ProjectInfo(
             project_id="my-project",
             source_url=None,

@@ -629,6 +629,28 @@ class TestGetProjectInfoWithAnalysis:
 
         assert info.analysis_status == "current"
 
+    def test_get_project_info_analysis_status_stale(self, shesha_instance):
+        """get_project_info shows 'stale' when analysis SHA differs from current."""
+        from shesha.models import RepoAnalysis
+
+        shesha_instance.create_project("info-stale")
+        shesha_instance._repo_ingester.save_sha("info-stale", "new_sha")
+        shesha_instance._repo_ingester.save_source_url("info-stale", "/fake")
+
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="old_sha",  # Different from saved SHA
+            overview="Test",
+            components=[],
+            external_dependencies=[],
+        )
+        shesha_instance._storage.store_analysis("info-stale", analysis)
+
+        info = shesha_instance.get_project_info("info-stale")
+
+        assert info.analysis_status == "stale"
+
 
 class TestAnalysisStatus:
     """Tests for analysis status checking."""
