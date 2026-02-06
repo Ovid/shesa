@@ -347,10 +347,12 @@ class MultiRepoAnalyzer:
         if on_progress:
             on_progress("impact", "Starting impact analysis")
 
-        discovered: set[str] = set()
+        all_discovered: set[str] = set()  # Track all discoveries to avoid asking twice
         discovery_round = 0
 
         while discovery_round < self._max_discovery_rounds:
+            repos_added_this_round = 0
+
             for project_id in self._repos:
                 if project_id in self._impacts:
                     continue  # Already analyzed
@@ -364,8 +366,8 @@ class MultiRepoAnalyzer:
 
                 # Check for discoveries
                 for dep in report.discovered_dependencies:
-                    if dep not in self._repos and dep not in discovered:
-                        discovered.add(dep)
+                    if dep not in self._repos and dep not in all_discovered:
+                        all_discovered.add(dep)
                         if on_discovery:
                             url = on_discovery(dep)
                             if url:
@@ -378,9 +380,11 @@ class MultiRepoAnalyzer:
                                     self._summaries[new_project_id] = self._run_recon(
                                         new_project_id
                                     )
+                                    repos_added_this_round += 1
 
             discovery_round += 1
-            if not discovered:
+            # Only continue if new repos were added this round
+            if repos_added_this_round == 0:
                 break
 
         # Check context size before synthesis
