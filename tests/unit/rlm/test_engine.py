@@ -785,3 +785,187 @@ class TestEngineMaxTracesConfig:
             )
 
             mock_writer.cleanup_old_traces.assert_called_once_with("test-project", max_count=25)
+
+
+class TestEngineVerification:
+    """Tests for post-FINAL citation verification."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_runs_verification_after_final(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """Engine runs verification after FINAL and populates result.verification."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Doc 0 says something")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        verification_json = json.dumps({
+            "citations": [{"doc_id": 0, "found": True}],
+            "quotes": [],
+        })
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # First call: the FINAL answer execution
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="Doc 0 says something",
+            ),
+            # Second call: verification code execution
+            MagicMock(
+                status="ok",
+                stdout=verification_json,
+                stderr="",
+                error=None,
+                final_answer=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify_citations=True)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        assert result.answer == "Doc 0 says something"
+        assert result.verification is not None
+        assert len(result.verification.citations) == 1
+        assert result.verification.citations[0].found is True
+        assert mock_executor.execute.call_count == 2
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_skips_verification_when_disabled(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """Engine skips verification when verify_citations=False."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Doc 0 says something")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="Doc 0 says something",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify_citations=False)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        assert result.answer == "Doc 0 says something"
+        assert result.verification is None
+        assert mock_executor.execute.call_count == 1
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_handles_verification_failure_gracefully(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """Verification failure doesn't affect answer delivery."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Doc 0 answer")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # First call: FINAL answer
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="Doc 0 answer",
+            ),
+            # Second call: verification fails
+            MagicMock(
+                status="error",
+                stdout="",
+                stderr="Traceback: something broke",
+                error="execution error",
+                final_answer=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify_citations=True)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        assert result.answer == "Doc 0 answer"
+        assert result.verification is None
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_adds_verification_trace_step(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """VERIFICATION step appears in trace after successful verification."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Doc 0 says something")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        verification_json = json.dumps({
+            "citations": [{"doc_id": 0, "found": True}],
+            "quotes": [],
+        })
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="Doc 0 says something",
+            ),
+            MagicMock(
+                status="ok",
+                stdout=verification_json,
+                stderr="",
+                error=None,
+                final_answer=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify_citations=True)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        step_types = [s.type for s in result.trace.steps]
+        assert StepType.VERIFICATION in step_types

@@ -12,7 +12,11 @@ from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
 from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output, wrap_subcall_content
 from shesha.rlm.trace import StepType, TokenUsage, Trace, TraceStep
-from shesha.rlm.verification import VerificationResult
+from shesha.rlm.verification import (
+    VerificationResult,
+    build_verification_code,
+    parse_verification_output,
+)
 from shesha.rlm.trace_writer import IncrementalTraceWriter, TraceWriter
 from shesha.sandbox.executor import ContainerExecutor, SubcallContentError
 from shesha.sandbox.pool import ContainerPool
@@ -317,11 +321,34 @@ class RLMEngine:
                         break
 
                 if final_answer:
+                    verification = None
+                    if self.verify_citations and executor.is_alive:
+                        try:
+                            code = build_verification_code(final_answer)
+                            vresult = executor.execute(
+                                code, timeout=self.execution_timeout
+                            )
+                            if vresult.status == "ok" and vresult.stdout:
+                                verification = parse_verification_output(vresult.stdout)
+                                step = trace.add_step(
+                                    type=StepType.VERIFICATION,
+                                    content=vresult.stdout,
+                                    iteration=iteration,
+                                )
+                                _write_step(step)
+                                if on_progress:
+                                    on_progress(
+                                        StepType.VERIFICATION, iteration, vresult.stdout
+                                    )
+                        except Exception:
+                            pass  # Verification failure doesn't affect answer delivery
+
                     query_result = QueryResult(
                         answer=final_answer,
                         trace=trace,
                         token_usage=token_usage,
                         execution_time=time.time() - start_time,
+                        verification=verification,
                     )
                     _finalize_trace(final_answer, "success")
                     return query_result
