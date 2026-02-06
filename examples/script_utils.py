@@ -107,16 +107,14 @@ def is_exit_command(user_input: str) -> bool:
     return user_input.lower() in ("quit", "exit")
 
 
-def is_analysis_command(text: str) -> bool:
-    """Check if text is a command to show analysis."""
-    lower = text.lower().strip()
-    return lower in ("analysis", "show analysis")
+def is_analysis_command(user_input: str) -> bool:
+    """Check if user input is a command to show analysis."""
+    return user_input.lower() in ("analysis", "show analysis")
 
 
-def is_regenerate_command(text: str) -> bool:
-    """Check if text is a command to regenerate analysis."""
-    lower = text.lower().strip()
-    return lower in ("analyze", "regenerate analysis")
+def is_regenerate_command(user_input: str) -> bool:
+    """Check if user input is a command to regenerate analysis."""
+    return user_input.lower() in ("analyze", "regenerate analysis")
 
 
 def is_help_command(user_input: str) -> bool:
