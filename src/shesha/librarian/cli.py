@@ -112,30 +112,34 @@ def _sandbox_source_dir() -> Path | None:
 def _ensure_sandbox_image(image: str) -> tuple[bool, str]:
     """Ensure the sandbox Docker image exists, building it if missing.
     
-    Uses context manager to guarantee Docker client cleanup.
+    Uses try/finally to guarantee Docker client cleanup.
     """
+    client = None
     try:
-        with docker.from_env() as client:
-            try:
-                client.images.get(image)
-                return True, "sandbox_image: present"
-            except ImageNotFound:
-                sandbox_dir = _sandbox_source_dir()
-                if sandbox_dir is None:
-                    return False, "Sandbox Dockerfile not found; cannot build image automatically."
+        client = docker.from_env()
+        try:
+            client.images.get(image)
+            return True, "sandbox_image: present"
+        except ImageNotFound:
+            sandbox_dir = _sandbox_source_dir()
+            if sandbox_dir is None:
+                return False, "Sandbox Dockerfile not found; cannot build image automatically."
 
-                try:
-                    client.images.build(
-                        path=str(sandbox_dir),
-                        dockerfile="Dockerfile",
-                        tag=image,
-                        rm=True,
-                    )
-                except Exception as e:  # noqa: BLE001 - surfaced to operator
-                    return False, f"Failed to build sandbox image '{image}': {e}"
-                return True, "sandbox_image: built"
+            try:
+                client.images.build(
+                    path=str(sandbox_dir),
+                    dockerfile="Dockerfile",
+                    tag=image,
+                    rm=True,
+                )
+            except Exception as e:  # noqa: BLE001 - surfaced to operator
+                return False, f"Failed to build sandbox image '{image}': {e}"
+            return True, "sandbox_image: built"
     except DockerException as e:
         return False, f"Docker unavailable: {e}"
+    finally:
+        if client:
+            client.close()
 
 
 def _write_readme(*, path: Path, storage_path: Path, logs_path: Path, manifest_path: Path) -> None:
