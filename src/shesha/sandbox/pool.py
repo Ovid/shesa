@@ -70,6 +70,14 @@ class ContainerPool:
                 self._in_use.remove(executor)
                 self._available.append(executor)
 
+    def discard(self, executor: ContainerExecutor) -> None:
+        """Remove an executor from _in_use without returning it to _available.
+
+        Use this for broken executors that should not be reused.
+        """
+        with self._lock:
+            self._in_use.discard(executor)
+
     def __enter__(self) -> "ContainerPool":
         """Context manager entry."""
         self.start()

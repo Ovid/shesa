@@ -346,5 +346,12 @@ class RLMEngine:
                 executor.stop()
             else:
                 executor.llm_query_handler = None
-                executor.reset_namespace()
-                self._pool.release(executor)  # type: ignore[union-attr]
+                try:
+                    executor.reset_namespace()
+                except Exception:
+                    # Executor is broken (e.g., socket closed after protocol error).
+                    # Stop it and discard from pool — don't return a broken executor.
+                    executor.stop()
+                    self._pool.discard(executor)  # type: ignore[union-attr]
+                else:
+                    self._pool.release(executor)  # type: ignore[union-attr]
