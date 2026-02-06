@@ -197,6 +197,23 @@ class TestRepoIngesterInjection:
         mock_ingester.get_saved_sha.assert_called_once_with("some-proj")
 
 
+class TestVerifyCitationsWiring:
+    """Tests that verify_citations config is passed to RLMEngine."""
+
+    def test_verify_citations_passed_to_engine(self, tmp_path: Path):
+        """Shesha passes verify_citations=False from config to engine."""
+        from shesha.config import SheshaConfig
+
+        config = SheshaConfig(model="test-model", verify_citations=False, storage_path=str(tmp_path))
+        shesha = Shesha(config=config)
+        assert shesha._rlm_engine.verify_citations is False
+
+    def test_verify_citations_default_true(self, tmp_path: Path):
+        """Shesha passes verify_citations=True (default) to engine."""
+        shesha = Shesha(model="test-model", storage_path=tmp_path)
+        assert shesha._rlm_engine.verify_citations is True
+
+
 class TestDefaultBehaviorUnchanged:
     """Tests that default behavior works when no DI params are provided."""
 
