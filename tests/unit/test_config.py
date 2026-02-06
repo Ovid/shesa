@@ -75,3 +75,9 @@ class TestMaxTracesConfig:
         monkeypatch.setenv("SHESHA_MAX_TRACES_PER_PROJECT", "100")
         config = SheshaConfig.load()
         assert config.max_traces_per_project == 100
+
+
+def test_config_has_no_allowed_hosts():
+    """allowed_hosts was removed — config must not have it."""
+    config = SheshaConfig()
+    assert not hasattr(config, "allowed_hosts")

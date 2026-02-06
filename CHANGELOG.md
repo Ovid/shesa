@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Sandbox namespace `reset` action to clear state between queries
 - Experimental multi-repo PRD analysis (`shesha.experimental.multi_repo`)
   - `MultiRepoAnalyzer` for analyzing how PRDs impact multiple codebases
   - Four-phase workflow: recon, impact, synthesize, align
@@ -20,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for alternate prompt directories via `SHESHA_PROMPTS_DIR` environment variable
 - `prompts/README.md` documenting prompt customization
 - Session write command (`write` or `write <filename>`) in example scripts (`repo.py`, `barsoom.py`) to save conversation transcripts as markdown files
+
+### Removed
+
+- Removed unused `allowed_hosts` config field (containers have networking disabled; all LLM calls go through the host)
+
+### Security
+
+- `is_local_path` no longer uses `Path(url).exists()`; uses prefix-only matching to prevent misclassification
+- Git clone tokens are now passed via `http.extraHeader` instead of being embedded in the clone URL
 
 ## [0.3.0] 2026-02-04
 

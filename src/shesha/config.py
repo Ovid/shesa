@@ -2,7 +2,7 @@
 
 import json
 import os
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -33,15 +33,6 @@ class SheshaConfig:
 
     # Trace logging
     max_traces_per_project: int = 50
-
-    # Network whitelist for containers
-    allowed_hosts: list[str] = field(
-        default_factory=lambda: [
-            "api.anthropic.com",
-            "api.openai.com",
-            "generativelanguage.googleapis.com",
-        ]
-    )
 
     @classmethod
     def from_env(cls) -> "SheshaConfig":
