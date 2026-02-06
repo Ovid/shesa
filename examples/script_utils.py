@@ -13,6 +13,8 @@ from shesha.rlm.trace import StepType, TokenUsage, Trace
 if TYPE_CHECKING:
     from sys import UnraisableHookArgs
 
+    from shesha.models import RepoAnalysis
+
 # Constants for history size warnings
 HISTORY_WARN_CHARS = 50_000
 HISTORY_WARN_EXCHANGES = 10
@@ -258,3 +260,61 @@ def write_session(
     filepath.write_text(content)
 
     return str(filepath)
+
+
+def format_analysis_for_display(analysis: "RepoAnalysis") -> str:
+    """Format a RepoAnalysis for terminal display.
+
+    Args:
+        analysis: The analysis to format.
+
+    Returns:
+        Formatted string suitable for terminal output.
+    """
+    lines: list[str] = []
+
+    # Header
+    date = analysis.generated_at[:10]
+    sha = analysis.head_sha[:8] if analysis.head_sha else "unknown"
+    lines.append(f"=== Codebase Analysis (generated {date}) ===")
+    lines.append(f"Git SHA: {sha}")
+    lines.append("")
+
+    # Overview
+    lines.append("## Overview")
+    lines.append(analysis.overview)
+    lines.append("")
+
+    # Components
+    if analysis.components:
+        lines.append("## Components")
+        for comp in analysis.components:
+            lines.append(f"\n### {comp.name} ({comp.path})")
+            lines.append(comp.description)
+            if comp.apis:
+                api_strs = []
+                for api in comp.apis:
+                    api_type = api.get("type", "unknown")
+                    endpoints = api.get(
+                        "endpoints", api.get("operations", api.get("commands", []))
+                    )
+                    if endpoints:
+                        api_strs.append(f"{api_type}: {', '.join(endpoints[:3])}")
+                if api_strs:
+                    lines.append(f"  APIs: {'; '.join(api_strs)}")
+            if comp.models:
+                lines.append(f"  Models: {', '.join(comp.models)}")
+            if comp.entry_points:
+                lines.append(f"  Entry points: {', '.join(comp.entry_points)}")
+
+    # External dependencies
+    if analysis.external_dependencies:
+        lines.append("\n## External Dependencies")
+        for dep in analysis.external_dependencies:
+            opt = " (optional)" if dep.optional else ""
+            lines.append(f"  - {dep.name}{opt}: {dep.description}")
+
+    # Caveat
+    lines.append(f"\n  {analysis.caveats}")
+
+    return "\n".join(lines)

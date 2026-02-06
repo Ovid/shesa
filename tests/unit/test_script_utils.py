@@ -476,3 +476,94 @@ class TestRegenerateCommands:
 
         assert is_regenerate_command("analysis") is False
         assert is_regenerate_command("help") is False
+
+
+class TestFormatAnalysisForDisplay:
+    """Tests for analysis display formatting."""
+
+    def test_format_analysis_includes_header(self) -> None:
+        """Formatted analysis includes header with date."""
+        from examples.script_utils import format_analysis_for_display
+        from shesha.models import RepoAnalysis
+
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123def456",
+            overview="A test application.",
+            components=[],
+            external_dependencies=[],
+        )
+
+        output = format_analysis_for_display(analysis)
+
+        assert "2026-02-06" in output
+        assert "abc123de" in output  # First 8 chars of SHA
+
+    def test_format_analysis_includes_overview(self) -> None:
+        """Formatted analysis includes overview section."""
+        from examples.script_utils import format_analysis_for_display
+        from shesha.models import RepoAnalysis
+
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123",
+            overview="This is a complex microservices application.",
+            components=[],
+            external_dependencies=[],
+        )
+
+        output = format_analysis_for_display(analysis)
+
+        assert "Overview" in output
+        assert "This is a complex microservices application." in output
+
+    def test_format_analysis_includes_components(self) -> None:
+        """Formatted analysis includes components."""
+        from examples.script_utils import format_analysis_for_display
+        from shesha.models import AnalysisComponent, RepoAnalysis
+
+        comp = AnalysisComponent(
+            name="API Server",
+            path="api/",
+            description="REST API for user management",
+            apis=[{"type": "rest", "endpoints": ["/users", "/auth"]}],
+            models=["User", "Session"],
+            entry_points=["api/main.py"],
+            internal_dependencies=[],
+        )
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123",
+            overview="Test",
+            components=[comp],
+            external_dependencies=[],
+        )
+
+        output = format_analysis_for_display(analysis)
+
+        assert "API Server" in output
+        assert "api/" in output
+        assert "REST API for user management" in output
+        assert "User" in output
+
+    def test_format_analysis_includes_caveats(self) -> None:
+        """Formatted analysis includes caveats warning."""
+        from examples.script_utils import format_analysis_for_display
+        from shesha.models import RepoAnalysis
+
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123",
+            overview="Test",
+            components=[],
+            external_dependencies=[],
+            caveats="This may be wrong.",
+        )
+
+        output = format_analysis_for_display(analysis)
+
+        assert "This may be wrong." in output
