@@ -69,6 +69,27 @@ def read_multiline_input() -> str:
     return "\n".join(lines)
 
 
+def read_prd(prd_path: str | None) -> str:
+    """Read PRD from file or stdin.
+
+    Args:
+        prd_path: Path to PRD file, or None to read from stdin.
+
+    Returns:
+        PRD text content.
+    """
+    if prd_path is not None:
+        path = Path(prd_path)
+        if not path.is_file():
+            print(f"Error: PRD file not found: {prd_path}")
+            sys.exit(1)
+        return path.read_text()
+
+    print()
+    print("Paste PRD (Ctrl+D or blank line to finish):")
+    return read_multiline_input()
+
+
 def main() -> None:
     """Main entry point."""
     args = parse_args()
@@ -107,9 +128,7 @@ def main() -> None:
         print(f"\nNote: {failed} repo(s) failed, continuing with {succeeded}.")
 
     # Get PRD
-    print()
-    print("Paste PRD (Ctrl+D or blank line to finish):")
-    prd = read_multiline_input()
+    prd = read_prd(args.prd)
 
     if not prd.strip():
         print("No PRD provided. Exiting.")

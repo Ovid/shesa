@@ -63,3 +63,31 @@ class TestParseArgs:
 
         args = parse_args(["--verbose"])
         assert args.verbose
+
+
+class TestReadPrd:
+    """Tests for PRD reading logic."""
+
+    def test_read_prd_from_file(self, tmp_path: Path) -> None:
+        """--prd reads content from file."""
+        from multi_repo import read_prd
+
+        prd_file = tmp_path / "spec.md"
+        prd_file.write_text("# Requirements\n\nDo the thing.")
+        result = read_prd(str(prd_file))
+        assert result == "# Requirements\n\nDo the thing."
+
+    def test_read_prd_file_not_found(self) -> None:
+        """--prd with non-existent file raises SystemExit."""
+        from multi_repo import read_prd
+
+        with pytest.raises(SystemExit):
+            read_prd("/nonexistent/path.md")
+
+    def test_read_prd_none_falls_back_to_stdin(self) -> None:
+        """No --prd prompts for stdin input."""
+        from multi_repo import read_prd
+
+        with patch("multi_repo.read_multiline_input", return_value="PRD from stdin"):
+            result = read_prd(None)
+        assert result == "PRD from stdin"
