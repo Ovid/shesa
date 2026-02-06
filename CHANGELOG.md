@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `Project.upload()` with directories now uses relative paths for document names, preventing silent overwrites when files in different subdirectories share the same basename (e.g., `src/foo/main.py` and `src/bar/main.py`)
 
+### Changed
+
+- `Shesha()` no longer requires Docker at construction time; Docker check and container pool creation are deferred to `start()`, enabling ingest-only workflows without a Docker daemon
+
 ### Added
 
 - `TraceWriteError` and `EngineNotConfiguredError` exception classes

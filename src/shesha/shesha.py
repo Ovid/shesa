@@ -42,10 +42,12 @@ class Shesha:
         pool_size: int | None = None,
         config: SheshaConfig | None = None,
     ) -> None:
-        """Initialize Shesha."""
-        # Verify Docker is available before proceeding
-        self._check_docker_available()
+        """Initialize Shesha.
 
+        Does not require Docker. Docker availability is checked lazily
+        when start() is called, allowing ingest-only workflows without
+        a Docker daemon.
+        """
         # Use provided config or create from args
         if config is None:
             config = SheshaConfig.load()
@@ -66,20 +68,17 @@ class Shesha:
             keep_raw_files=config.keep_raw_files,
         )
         self._parser_registry = create_default_registry()
-        self._pool = ContainerPool(
-            size=config.pool_size,
-            image=config.sandbox_image,
-            memory_limit=f"{config.container_memory_mb}m",
-        )
 
-        # Create RLM engine
+        # Pool is created lazily in start()
+        self._pool: ContainerPool | None = None
+
+        # Create RLM engine (pool set later in start())
         self._rlm_engine = RLMEngine(
             model=config.model,
             api_key=config.api_key,
             max_iterations=config.max_iterations,
             max_output_chars=config.max_output_chars,
             execution_timeout=config.execution_timeout_sec,
-            pool=self._pool,
             max_traces_per_project=config.max_traces_per_project,
         )
 
@@ -315,8 +314,15 @@ class Shesha:
         self._parser_registry.register(parser)
 
     def start(self) -> None:
-        """Start the container pool."""
+        """Check Docker availability, create the container pool, and start it."""
+        self._check_docker_available()
         self._stopped = False
+        self._pool = ContainerPool(
+            size=self._config.pool_size,
+            image=self._config.sandbox_image,
+            memory_limit=f"{self._config.container_memory_mb}m",
+        )
+        self._rlm_engine._pool = self._pool
         self._pool.start()
 
     def stop(self) -> None:
@@ -324,7 +330,8 @@ class Shesha:
         if self._stopped:
             return
         self._stopped = True
-        self._pool.stop()
+        if self._pool is not None:
+            self._pool.stop()
 
     def __enter__(self) -> "Shesha":
         """Context manager entry."""

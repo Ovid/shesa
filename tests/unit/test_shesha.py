@@ -12,57 +12,110 @@ from shesha.models import RepoProjectResult
 
 @pytest.fixture
 def shesha_instance(tmp_path: Path) -> Shesha:
-    """Create a Shesha instance with mocked Docker for testing."""
-    with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
-        shesha = Shesha(model="test-model", storage_path=tmp_path)
-        return shesha
+    """Create a Shesha instance for testing (no Docker needed at init)."""
+    return Shesha(model="test-model", storage_path=tmp_path)
 
 
 class TestDockerAvailability:
-    """Tests for Docker availability check at startup."""
+    """Tests for Docker availability check at start() time."""
 
-    def test_raises_clear_error_when_docker_not_running(self, tmp_path: Path):
-        """Shesha raises clear error at init when Docker is not running.
+    def test_init_does_not_check_docker(self, tmp_path: Path):
+        """Shesha.__init__ does not check Docker availability.
 
-        Users should get a helpful error message immediately at startup,
-        not when they first try to run a query.
+        Construction should succeed without Docker for ingest-only workflows.
         """
         from docker.errors import DockerException
 
         with patch("shesha.shesha.docker") as mock_docker:
+            mock_docker.from_env.side_effect = DockerException("Connection refused")
+
+            # Should NOT raise — Docker check is deferred to start()
+            shesha = Shesha(model="test-model", storage_path=tmp_path)
+            assert shesha is not None
+
+    def test_init_does_not_create_container_pool(self, tmp_path: Path):
+        """Shesha.__init__ defers ContainerPool creation to start()."""
+        with patch("shesha.shesha.ContainerPool") as mock_pool_cls:
+            Shesha(model="test-model", storage_path=tmp_path)
+            mock_pool_cls.assert_not_called()
+
+    def test_start_checks_docker_and_creates_pool(self, tmp_path: Path):
+        """start() checks Docker and creates the container pool."""
+        mock_pool = MagicMock()
+        with (
+            patch("shesha.shesha.docker") as mock_docker,
+            patch("shesha.shesha.ContainerPool", return_value=mock_pool) as mock_pool_cls,
+        ):
+            shesha = Shesha(model="test-model", storage_path=tmp_path)
+
+            # Before start: no Docker check, no pool
+            mock_docker.from_env.assert_not_called()
+            mock_pool_cls.assert_not_called()
+
+            shesha.start()
+
+            # After start: Docker checked, pool created and started
+            mock_docker.from_env.assert_called_once()
+            mock_pool_cls.assert_called_once()
+            mock_pool.start.assert_called_once()
+
+    def test_start_raises_clear_error_when_docker_not_running(self, tmp_path: Path):
+        """start() raises clear error when Docker is not running."""
+        from docker.errors import DockerException
+
+        with patch("shesha.shesha.docker") as mock_docker:
+            shesha = Shesha(model="test-model", storage_path=tmp_path)
+
             mock_docker.from_env.side_effect = DockerException(
                 "Error while fetching server API version: "
                 "('Connection aborted.', ConnectionRefusedError(61, 'Connection refused'))"
             )
 
             with pytest.raises(RuntimeError) as exc_info:
-                Shesha(model="test-model", storage_path=tmp_path)
+                shesha.start()
 
             error_msg = str(exc_info.value)
             assert "Docker" in error_msg
             assert "not running" in error_msg or "start" in error_msg.lower()
 
-    def test_raises_helpful_error_when_socket_not_found(self, tmp_path: Path):
-        """Shesha raises helpful error mentioning Podman when socket not found.
-
-        Podman users get FileNotFoundError when DOCKER_HOST isn't set. The error
-        message should guide them to set DOCKER_HOST.
-        """
+    def test_start_raises_helpful_error_when_socket_not_found(self, tmp_path: Path):
+        """start() raises helpful error mentioning Podman when socket not found."""
         from docker.errors import DockerException
 
         with patch("shesha.shesha.docker") as mock_docker:
-            # This is the exact error pattern Podman users see
+            shesha = Shesha(model="test-model", storage_path=tmp_path)
+
             mock_docker.from_env.side_effect = DockerException(
                 "Error while fetching server API version: "
                 "('Connection aborted.', FileNotFoundError(2, 'No such file or directory'))"
             )
 
             with pytest.raises(RuntimeError) as exc_info:
-                Shesha(model="test-model", storage_path=tmp_path)
+                shesha.start()
 
             error_msg = str(exc_info.value)
             assert "DOCKER_HOST" in error_msg
             assert "Podman" in error_msg or "podman" in error_msg
+
+    def test_stop_without_start_is_safe(self, tmp_path: Path):
+        """stop() works safely even if start() was never called (no pool)."""
+        shesha = Shesha(model="test-model", storage_path=tmp_path)
+        # Should not raise
+        shesha.stop()
+
+    def test_start_sets_pool_on_engine(self, tmp_path: Path):
+        """start() sets the pool on the RLM engine."""
+        mock_pool = MagicMock()
+        with (
+            patch("shesha.shesha.docker"),
+            patch("shesha.shesha.ContainerPool", return_value=mock_pool),
+        ):
+            shesha = Shesha(model="test-model", storage_path=tmp_path)
+            assert shesha._rlm_engine._pool is None
+
+            shesha.start()
+
+            assert shesha._rlm_engine._pool is mock_pool
 
 
 class TestShesha:
@@ -70,57 +123,49 @@ class TestShesha:
 
     def test_create_project(self, tmp_path: Path):
         """Creating a project returns a Project instance."""
-        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
-            shesha = Shesha(
-                model="test-model",
-                storage_path=tmp_path,
-            )
-            project = shesha.create_project("my-project")
+        shesha = Shesha(model="test-model", storage_path=tmp_path)
+        project = shesha.create_project("my-project")
 
-            assert project.project_id == "my-project"
+        assert project.project_id == "my-project"
 
     def test_list_projects(self, tmp_path: Path):
         """List projects returns project IDs."""
-        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
-            shesha = Shesha(model="test-model", storage_path=tmp_path)
-            shesha.create_project("project-a")
-            shesha.create_project("project-b")
+        shesha = Shesha(model="test-model", storage_path=tmp_path)
+        shesha.create_project("project-a")
+        shesha.create_project("project-b")
 
-            projects = shesha.list_projects()
-            assert "project-a" in projects
-            assert "project-b" in projects
+        projects = shesha.list_projects()
+        assert "project-a" in projects
+        assert "project-b" in projects
 
     def test_get_project(self, tmp_path: Path):
         """Get project returns existing project."""
-        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
-            shesha = Shesha(model="test-model", storage_path=tmp_path)
-            shesha.create_project("existing")
+        shesha = Shesha(model="test-model", storage_path=tmp_path)
+        shesha.create_project("existing")
 
-            project = shesha.get_project("existing")
-            assert project.project_id == "existing"
+        project = shesha.get_project("existing")
+        assert project.project_id == "existing"
 
     def test_delete_project(self, tmp_path: Path):
         """Delete project removes it."""
-        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
-            shesha = Shesha(model="test-model", storage_path=tmp_path)
-            shesha.create_project("to-delete")
-            shesha.delete_project("to-delete")
+        shesha = Shesha(model="test-model", storage_path=tmp_path)
+        shesha.create_project("to-delete")
+        shesha.delete_project("to-delete")
 
-            assert "to-delete" not in shesha.list_projects()
+        assert "to-delete" not in shesha.list_projects()
 
     def test_register_parser(self, tmp_path: Path):
         """Register custom parser adds it to the registry."""
-        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
-            shesha = Shesha(model="test-model", storage_path=tmp_path)
+        shesha = Shesha(model="test-model", storage_path=tmp_path)
 
-            # Create a mock custom parser
-            mock_parser = MagicMock()
-            mock_parser.can_parse.return_value = True
+        # Create a mock custom parser
+        mock_parser = MagicMock()
+        mock_parser.can_parse.return_value = True
 
-            shesha.register_parser(mock_parser)
+        shesha.register_parser(mock_parser)
 
-            # The parser should now be in the registry
-            assert mock_parser in shesha._parser_registry._parsers
+        # The parser should now be in the registry
+        assert mock_parser in shesha._parser_registry._parsers
 
     def test_stop_after_restart_stops_pool(self, tmp_path: Path):
         """Stop after start-stop-start cycle should stop the pool."""
@@ -146,31 +191,29 @@ class TestShesha:
 
             mock_pool.stop.assert_called_once()
 
-    def test_shesha_passes_pool_to_engine(self, tmp_path: Path):
-        """Shesha passes pool to RLMEngine constructor."""
+    def test_shesha_passes_pool_to_engine_on_start(self, tmp_path: Path):
+        """Shesha passes pool to RLMEngine when start() is called."""
         mock_pool = MagicMock()
         with (
             patch("shesha.shesha.docker"),
             patch("shesha.shesha.ContainerPool", return_value=mock_pool),
-            patch("shesha.shesha.RLMEngine") as mock_engine_cls,
         ):
-            Shesha(model="test-model", storage_path=tmp_path)
+            shesha = Shesha(model="test-model", storage_path=tmp_path)
 
-            # Verify RLMEngine was created with pool parameter
-            mock_engine_cls.assert_called_once()
-            call_kwargs = mock_engine_cls.call_args[1]
-            assert call_kwargs.get("pool") is mock_pool
+            # Before start: engine has no pool
+            assert shesha._rlm_engine._pool is None
+
+            shesha.start()
+
+            # After start: engine has the pool
+            assert shesha._rlm_engine._pool is mock_pool
 
     def test_shesha_uses_config_load_by_default(self, tmp_path: Path):
         """Shesha uses SheshaConfig.load() by default, picking up env vars."""
         import os
         from unittest.mock import patch as mock_patch
 
-        with (
-            mock_patch("shesha.shesha.docker"),
-            mock_patch("shesha.shesha.ContainerPool"),
-            mock_patch.dict(os.environ, {"SHESHA_MAX_ITERATIONS": "99"}),
-        ):
+        with mock_patch.dict(os.environ, {"SHESHA_MAX_ITERATIONS": "99"}):
             shesha = Shesha(storage_path=tmp_path)
             assert shesha._config.max_iterations == 99
 
