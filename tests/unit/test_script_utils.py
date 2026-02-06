@@ -417,3 +417,62 @@ class TestWriteSession:
         result = write_session(history, "project", str(filepath))
 
         assert result == str(filepath)
+
+
+class TestAnalysisCommands:
+    """Tests for analysis command detection."""
+
+    def test_is_analysis_command_analysis(self) -> None:
+        """'analysis' is recognized as analysis command."""
+        from examples.script_utils import is_analysis_command
+
+        assert is_analysis_command("analysis") is True
+
+    def test_is_analysis_command_show_analysis(self) -> None:
+        """'show analysis' is recognized as analysis command."""
+        from examples.script_utils import is_analysis_command
+
+        assert is_analysis_command("show analysis") is True
+
+    def test_is_analysis_command_case_insensitive(self) -> None:
+        """Analysis command is case insensitive."""
+        from examples.script_utils import is_analysis_command
+
+        assert is_analysis_command("ANALYSIS") is True
+        assert is_analysis_command("Analysis") is True
+
+    def test_is_analysis_command_other(self) -> None:
+        """Other commands are not analysis commands."""
+        from examples.script_utils import is_analysis_command
+
+        assert is_analysis_command("help") is False
+        assert is_analysis_command("quit") is False
+
+
+class TestRegenerateCommands:
+    """Tests for regenerate command detection."""
+
+    def test_is_regenerate_command_analyze(self) -> None:
+        """'analyze' is recognized as regenerate command."""
+        from examples.script_utils import is_regenerate_command
+
+        assert is_regenerate_command("analyze") is True
+
+    def test_is_regenerate_command_regenerate(self) -> None:
+        """'regenerate analysis' is recognized as regenerate command."""
+        from examples.script_utils import is_regenerate_command
+
+        assert is_regenerate_command("regenerate analysis") is True
+
+    def test_is_regenerate_command_case_insensitive(self) -> None:
+        """Regenerate command is case insensitive."""
+        from examples.script_utils import is_regenerate_command
+
+        assert is_regenerate_command("ANALYZE") is True
+
+    def test_is_regenerate_command_other(self) -> None:
+        """Other commands are not regenerate commands."""
+        from examples.script_utils import is_regenerate_command
+
+        assert is_regenerate_command("analysis") is False
+        assert is_regenerate_command("help") is False
