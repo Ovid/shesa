@@ -700,6 +700,103 @@ class TestMultiRepoAnalyzerRevisionLoop:
         assert "HLD v2" in hld.raw_hld
         alignment_callback.assert_called_once()
 
+    def test_revision_loop_passes_alignment_feedback(self):
+        """Revision loop passes alignment gaps to synthesis prompt."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_project.project_id = "test-repo"
+
+        recon_result = MagicMock()
+        recon_result.answer = json.dumps(
+            {"apis": [], "models": [], "entry_points": [], "dependencies": []}
+        )
+
+        impact_result = MagicMock()
+        impact_result.answer = json.dumps(
+            {
+                "affected": True,
+                "changes": [],
+                "new_interfaces": [],
+                "modified_interfaces": [],
+                "discovered_dependencies": [],
+            }
+        )
+
+        synth_result_1 = MagicMock()
+        synth_result_1.answer = (
+            json.dumps(
+                {
+                    "component_changes": {},
+                    "data_flow": "",
+                    "interface_contracts": [],
+                    "implementation_sequence": [],
+                    "open_questions": [],
+                }
+            )
+            + "\n# HLD v1"
+        )
+
+        # Align finds gaps
+        align_result_1 = MagicMock()
+        align_result_1.answer = json.dumps(
+            {
+                "covered": [],
+                "gaps": [{"requirement": "Auth flow", "reason": "Not addressed"}],
+                "scope_creep": [{"item": "Caching", "reason": "Not in PRD"}],
+                "alignment_score": 0.5,
+                "recommendation": "revise",
+            }
+        )
+
+        synth_result_2 = MagicMock()
+        synth_result_2.answer = (
+            json.dumps(
+                {
+                    "component_changes": {"auth": ["Added"]},
+                    "data_flow": "",
+                    "interface_contracts": [],
+                    "implementation_sequence": [],
+                    "open_questions": [],
+                }
+            )
+            + "\n# HLD v2"
+        )
+
+        align_result_2 = MagicMock()
+        align_result_2.answer = json.dumps(
+            {
+                "covered": [{"requirement": "Auth flow", "hld_section": "auth"}],
+                "gaps": [],
+                "scope_creep": [],
+                "alignment_score": 1.0,
+                "recommendation": "approved",
+            }
+        )
+
+        mock_project.query.side_effect = [
+            recon_result,
+            impact_result,
+            synth_result_1,
+            align_result_1,
+            synth_result_2,
+            align_result_2,
+        ]
+        mock_shesha.get_project.return_value = mock_project
+
+        alignment_callback = MagicMock(return_value="revise")
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        analyzer._repos = ["test-repo"]
+
+        analyzer.analyze("PRD", on_alignment_issue=alignment_callback)
+
+        # Check that the second synthesize call included alignment feedback
+        calls = mock_project.query.call_args_list
+        # Call 4 (index 4) is the second synthesize call
+        second_synth_prompt = calls[4][0][0]
+        assert "Auth flow" in second_synth_prompt, "Gaps should be in revision prompt"
+        assert "Caching" in second_synth_prompt, "Scope creep should be in revision prompt"
+
     def test_revision_loop_stops_on_accept(self):
         """Revision loop stops immediately when callback returns 'accept'."""
         mock_shesha = MagicMock()

@@ -208,8 +208,17 @@ class MultiRepoAnalyzer:
         self,
         prd: str,
         impacts: dict[str, ImpactReport],
+        alignment_feedback: AlignmentReport | None = None,
     ) -> HLDDraft:
-        """Run Phase 3 HLD synthesis."""
+        """Run Phase 3 HLD synthesis.
+
+        Args:
+            prd: The PRD text.
+            impacts: Impact reports from Phase 2.
+            alignment_feedback: Optional alignment report from previous iteration.
+                If provided, the synthesis will be guided to address gaps and
+                remove scope creep identified in the alignment.
+        """
         project = self._shesha.get_project(self._repos[0])
         prompt_template = self._load_prompt("synthesize")
 
@@ -219,6 +228,29 @@ class MultiRepoAnalyzer:
 
         prompt = prompt_template.replace("{prd}", prd)
         prompt = prompt.replace("{impact_reports}", impact_text)
+
+        # Add alignment feedback for revision iterations
+        if alignment_feedback is not None:
+            feedback_sections = []
+
+            if alignment_feedback.gaps:
+                gaps_text = "\n".join(
+                    f"- {g.get('requirement', 'Unknown')}: {g.get('reason', 'No reason')}"
+                    for g in alignment_feedback.gaps
+                )
+                feedback_sections.append(f"**Gaps to address:**\n{gaps_text}")
+
+            if alignment_feedback.scope_creep:
+                creep_text = "\n".join(
+                    f"- {s.get('item', 'Unknown')}: {s.get('reason', 'No reason')}"
+                    for s in alignment_feedback.scope_creep
+                )
+                feedback_sections.append(f"**Scope creep to remove:**\n{creep_text}")
+
+            if feedback_sections:
+                prompt += "\n\n## Alignment Feedback (from previous review)\n\n"
+                prompt += "\n\n".join(feedback_sections)
+                prompt += "\n\nPlease revise the HLD to address these issues."
 
         result = project.query(prompt)
         answer = result.answer
@@ -379,7 +411,7 @@ class MultiRepoAnalyzer:
             if on_progress:
                 on_progress("synthesize", f"Revision round {revision_round}")
 
-            hld = self._run_synthesize(prd, self._impacts)
+            hld = self._run_synthesize(prd, self._impacts, alignment_feedback=alignment)
 
             if on_progress:
                 on_progress("align", "Re-verifying alignment")
