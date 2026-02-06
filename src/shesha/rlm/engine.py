@@ -10,7 +10,7 @@ from pathlib import Path
 from shesha.llm.client import LLMClient
 from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
-from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output
+from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output, wrap_subcall_content
 from shesha.rlm.trace import StepType, TokenUsage, Trace, TraceStep
 from shesha.rlm.trace_writer import IncrementalTraceWriter, TraceWriter
 from shesha.sandbox.executor import ContainerExecutor
@@ -100,8 +100,11 @@ class RLMEngine:
                 on_progress(StepType.SUBCALL_RESPONSE, iteration, error_msg)
             return error_msg
 
+        # Wrap content in untrusted tags (code-level security boundary)
+        wrapped_content = wrap_subcall_content(content)
+
         # Build prompt and call LLM
-        prompt = self.prompt_loader.render_subcall_prompt(instruction, content)
+        prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
         sub_llm = LLMClient(model=self.model, api_key=self.api_key)
         response = sub_llm.complete(messages=[{"role": "user", "content": prompt}])
 

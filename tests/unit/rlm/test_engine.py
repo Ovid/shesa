@@ -199,6 +199,42 @@ class TestRLMEngine:
         mock_llm_cls.assert_called_once()  # Sub-LLM was called
 
 
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_wraps_subcall_content_in_untrusted_tags(
+        self,
+        mock_llm_cls: MagicMock,
+    ):
+        """_handle_llm_query wraps content in untrusted tags before calling LLM."""
+        mock_sub_llm = MagicMock()
+        mock_sub_llm.complete.return_value = MagicMock(
+            content="Summary result",
+            prompt_tokens=50,
+            completion_tokens=25,
+            total_tokens=75,
+        )
+        mock_llm_cls.return_value = mock_sub_llm
+
+        engine = RLMEngine(model="test-model", max_subcall_content_chars=10000)
+        trace = Trace()
+        token_usage = TokenUsage()
+
+        engine._handle_llm_query(
+            instruction="Summarize this",
+            content="Untrusted document data",
+            trace=trace,
+            token_usage=token_usage,
+            iteration=0,
+        )
+
+        # Verify the prompt sent to LLM contains the wrapping tags
+        call_args = mock_sub_llm.complete.call_args
+        messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
+        prompt_text = messages[0]["content"]
+        assert "<untrusted_document_content>" in prompt_text
+        assert "</untrusted_document_content>" in prompt_text
+        assert "Untrusted document data" in prompt_text
+
+
 class TestEngineTraceWriting:
     """Tests for trace writing integration."""
 
