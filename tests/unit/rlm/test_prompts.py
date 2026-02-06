@@ -297,3 +297,73 @@ def test_wrap_subcall_content_preserves_full_content():
 
     assert large_content in wrapped
     assert "truncated" not in wrapped.lower()
+
+
+def _render_default_prompt() -> str:
+    """Helper to render a system prompt with default test values."""
+    loader = PromptLoader()
+    doc_sizes_list = _build_doc_sizes_list(
+        [
+            ("a.txt", "3,000 chars"),
+            ("b.txt", "3,500 chars"),
+            ("c.txt", "3,500 chars"),
+        ]
+    )
+    return loader.render_system_prompt(
+        doc_count=3,
+        total_chars=10000,
+        doc_sizes_list=doc_sizes_list,
+        max_subcall_chars=MAX_SUBCALL_CHARS,
+    )
+
+
+def test_system_prompt_contains_multi_phase_guidance():
+    """System prompt describes scout, search, and analyze phases."""
+    prompt = _render_default_prompt()
+    prompt_lower = prompt.lower()
+
+    # Must mention all three phases
+    assert "scout" in prompt_lower
+    assert "search" in prompt_lower
+    assert "analyze" in prompt_lower
+
+
+def test_system_prompt_contains_keyword_expansion_guidance():
+    """System prompt guides LLM to brainstorm additional search terms."""
+    prompt = _render_default_prompt()
+    prompt_lower = prompt.lower()
+
+    # Must mention expanding or brainstorming keywords/terms
+    assert "brainstorm" in prompt_lower or "expand" in prompt_lower
+    # Must give examples of informal/alternative search terms
+    assert "hack" in prompt_lower or "workaround" in prompt_lower or "todo" in prompt_lower
+
+
+def test_system_prompt_contains_coverage_verification():
+    """System prompt instructs LLM to check how many documents matched."""
+    prompt = _render_default_prompt()
+    prompt_lower = prompt.lower()
+
+    # Must instruct to check match count or fraction/percentage
+    assert "fraction" in prompt_lower or "percent" in prompt_lower or "coverage" in prompt_lower
+
+
+def test_system_prompt_error_handling_uses_try_except():
+    """Error handling section uses try/except, not string-check pattern."""
+    prompt = _render_default_prompt()
+
+    # Must use try/except pattern
+    assert "try:" in prompt
+    assert "except ValueError" in prompt or "except ValueError:" in prompt
+    # Must NOT use the old string-check pattern
+    assert '"exceeds" in result' not in prompt
+
+
+def test_system_prompt_subcall_limit_is_1_to_3():
+    """System prompt recommends 1-3 subcalls, not 3-5."""
+    prompt = _render_default_prompt()
+
+    # Must mention 1-3
+    assert "1-3" in prompt
+    # Must NOT mention 3-5 as a target
+    assert "3-5" not in prompt
