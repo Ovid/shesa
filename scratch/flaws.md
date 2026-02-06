@@ -14,32 +14,14 @@
 - **~~Container pool is created but not actually used by queries (design/code discrepancy)~~** — RESOLVED
   - `RLMEngine` now accepts optional `pool: ContainerPool` parameter. When provided, `query()` calls `pool.acquire()` instead of creating a throwaway executor. After each query, namespace is reset and executor is released back to the pool. `Shesha.__init__` passes its pool to the engine. Backward-compatible: without pool, engine falls back to creating/stopping its own executor.
 
-- **Layering violation: `Project.query()` special-cases `FilesystemStorage`**
-  - **Where:** `src/shesha/project.py` lines ~66–76 (casts storage to `FilesystemStorage` to enable tracing)
-  - **Why problematic (impact):**
-    - Breaks storage abstraction (`StorageBackend` protocol). Any alternative storage can’t support traces without modifying `Project`.
-    - Makes testing/mocking harder and undermines extensibility (“pluggable storage” isn’t truly pluggable).
-  - **Concrete mitigations:**
-    - Extend storage abstraction with an optional tracing capability:
-      - Add `TraceStorage` protocol with `get_traces_dir()/list_traces()` or more general `write_trace(project_id, data)` methods.
-      - Engine (or TraceWriter) should depend on that protocol, not concrete FS storage.
-    - Alternatively, move trace writing behind an injected `TraceSink` interface with a filesystem implementation.
+- **~~Layering violation: `Project.query()` special-cases `FilesystemStorage`~~** — RESOLVED
+  - Added `get_traces_dir()` and `list_traces()` to `StorageBackend` protocol. Changed `TraceWriter` and `IncrementalTraceWriter` to accept `StorageBackend` instead of `FilesystemStorage`. Changed `RLMEngine.query()` to accept `StorageBackend`. Removed `isinstance(self._storage, FilesystemStorage)` check from `Project.query()` — storage is now always passed directly to the engine.
 
 - **~~Error-handling is inconsistent and bypasses the project's own exception hierarchy~~** — RESOLVED
   - Replaced all `ValueError` raises in `Shesha` API with `ProjectNotFoundError` / `RepoError`. Narrowed `_ingest_repo` broad `except Exception` to catch only `ParseError`/`NoParserError` (expected), propagating unexpected errors as `RepoIngestError`. Replaced `RuntimeError` in `Project.query()` with `EngineNotConfiguredError`. `TraceWriter` and `IncrementalTraceWriter` now raise `TraceWriteError` by default, with opt-in `suppress_errors=True` (used by engine for best-effort tracing). `executor.py` returning `ExecutionResult(status="error")` left as-is (by-design protocol boundary).
 
-- **Configuration layering exists but isn’t used consistently; some config values are unused**
-  - **Where:**
-    - `src/shesha/config.py` provides `load()` hierarchy.
-    - `src/shesha/shesha.py` ignores `SheshaConfig.load()` and manually mutates defaults; also `allowed_hosts` is never used.
-    - `TraceWriter.cleanup_old_traces(..., max_count=50)` ignores `SheshaConfig.max_traces_per_project`.
-  - **Why problematic (impact):**
-    - Users can’t rely on documented configuration precedence.
-    - Security-relevant config (`allowed_hosts`) becomes “paper security”—documented but not enforced.
-  - **Concrete mitigations:**
-    - Make `Shesha.__init__` accept `config: SheshaConfig = SheshaConfig.load()` by default, and stop mutating `config` in-place (prefer constructing via `load(..., overrides)`).
-    - Plumb `max_traces_per_project` into `TraceWriter.cleanup_old_traces(project_id, max_count=config.max_traces_per_project)`.
-    - Either implement `allowed_hosts` enforcement (see next item) or remove it from config until supported.
+- **~~Configuration layering exists but isn't used consistently; some config values are unused~~** — RESOLVED
+  - `Shesha.__init__` now uses `SheshaConfig.load()` by default, honoring the full hierarchy (defaults < file < env < kwargs). `max_traces_per_project` is plumbed from config through `RLMEngine` to `cleanup_old_traces`. `allowed_hosts` was already removed in a prior fix.
 
 - **~~Sandbox network whitelisting is documented/configured but not enforced in code~~** — RESOLVED
   - `allowed_hosts` removed from `SheshaConfig`. SECURITY.md updated to reflect that containers have networking disabled and all LLM calls go through the host.
