@@ -11,19 +11,8 @@
       - Move Docker availability checks into sandbox layer (or a `SandboxManager`) and only run them when sandbox is actually used (lazy-start).
     - Split repo features into a separate service/module: `shesha.repo.service.RepoProjectService` used by `Shesha` rather than implemented in it.
 
-- **Container pool is created but not actually used by queries (design/code discrepancy)**
-  - **Where (code truth):**
-    - `src/shesha/shesha.py` creates `ContainerPool` and starts/stops it.
-    - `src/shesha/rlm/engine.py` uses `ContainerExecutor(...)` directly (`executor = ContainerExecutor(...); executor.start()`), ignoring pool.
-  - **Docs disagree:** design docs describe “warm pool” used for each query (DOC 75, DOC 6), but engine bypasses pool.
-  - **Why problematic (impact):**
-    - Users pay cost/complexity of pool lifecycle but get no performance benefit.
-    - Risk of resource leaks/misleading API semantics (calling `Shesha.start()` implies “warm pool ready” but engine doesn’t use it).
-  - **Concrete mitigations:**
-    - Option A (recommended): make `RLMEngine` depend on an `ExecutorProvider`:
-      - `RLMEngine(..., executor_provider: ExecutorProvider)` where provider has `acquire()/release()`; default provider wraps `ContainerPool`.
-      - In `query()`, `executor = provider.acquire()` and `provider.release(executor)` in `finally`.
-    - Option B: remove `ContainerPool` entirely from `Shesha` until integrated (simplify API).
+- **~~Container pool is created but not actually used by queries (design/code discrepancy)~~** — RESOLVED
+  - `RLMEngine` now accepts optional `pool: ContainerPool` parameter. When provided, `query()` calls `pool.acquire()` instead of creating a throwaway executor. After each query, namespace is reset and executor is released back to the pool. `Shesha.__init__` passes its pool to the engine. Backward-compatible: without pool, engine falls back to creating/stopping its own executor.
 
 - **Layering violation: `Project.query()` special-cases `FilesystemStorage`**
   - **Where:** `src/shesha/project.py` lines ~66–76 (casts storage to `FilesystemStorage` to enable tracing)
@@ -108,4 +97,4 @@
 - **~~Docs claim sub-LLM content is wrapped in `<untrusted_document_content>` tags~~** — RESOLVED
   - Added `wrap_subcall_content()` in `src/shesha/rlm/prompts.py` for code-level enforcement. `_handle_llm_query` now wraps content before passing to template. Validator rejects `subcall.md` templates missing the security tags. Content is double-wrapped (code + template) for defense-in-depth.
 
-- **Docs describe container pool acquiring/releasing per query**; code does not (as noted above).
+- **~~Docs describe container pool acquiring/releasing per query~~** — RESOLVED (see above).

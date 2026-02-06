@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `prompts/README.md` documenting prompt customization
 - Session write command (`write` or `write <filename>`) in example scripts (`repo.py`, `barsoom.py`) to save conversation transcripts as markdown files
 
+### Fixed
+
+- RLM engine now uses the container pool for queries instead of creating throwaway containers, eliminating cold-start overhead and idle resource waste
+
 ### Removed
 
 - Removed unused `allowed_hosts` config field (containers have networking disabled; all LLM calls go through the host)
