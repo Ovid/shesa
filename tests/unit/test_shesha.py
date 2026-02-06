@@ -145,6 +145,21 @@ class TestShesha:
 
             mock_pool.stop.assert_called_once()
 
+    def test_shesha_passes_pool_to_engine(self, tmp_path: Path):
+        """Shesha passes pool to RLMEngine constructor."""
+        mock_pool = MagicMock()
+        with (
+            patch("shesha.shesha.docker"),
+            patch("shesha.shesha.ContainerPool", return_value=mock_pool),
+            patch("shesha.shesha.RLMEngine") as mock_engine_cls,
+        ):
+            Shesha(model="test-model", storage_path=tmp_path)
+
+            # Verify RLMEngine was created with pool parameter
+            mock_engine_cls.assert_called_once()
+            call_kwargs = mock_engine_cls.call_args[1]
+            assert call_kwargs.get("pool") is mock_pool
+
     def test_delete_project_cleans_up_remote_repo(self, tmp_path: Path):
         """delete_project removes cloned repo for remote projects by default."""
         with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):

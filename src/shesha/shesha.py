@@ -73,6 +73,7 @@ class Shesha:
             max_iterations=config.max_iterations,
             max_output_chars=config.max_output_chars,
             execution_timeout=config.execution_timeout_sec,
+            pool=self._pool,
         )
 
         # Initialize repo ingester
