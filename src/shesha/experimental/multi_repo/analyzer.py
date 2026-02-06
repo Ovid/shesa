@@ -465,7 +465,7 @@ class MultiRepoAnalyzer:
 
         # Handle alignment issues
         revision_round = 0
-        while alignment.recommendation == "revise" and revision_round < self._max_revision_rounds:
+        while alignment.recommendation != "approved" and revision_round < self._max_revision_rounds:
             if on_alignment_issue:
                 action = on_alignment_issue(alignment)
                 if action == "accept":

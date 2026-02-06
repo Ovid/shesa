@@ -1028,6 +1028,75 @@ class TestMultiRepoAnalyzerRevisionLoop:
         assert alignment.recommendation == "revise"
 
 
+    def test_major_gaps_triggers_alignment_callback(self):
+        """Alignment callback fires for 'major_gaps', not just 'revise'."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_project.project_id = "test-repo"
+
+        recon_result = MagicMock()
+        recon_result.answer = json.dumps(
+            {"apis": [], "models": [], "entry_points": [], "dependencies": []}
+        )
+
+        impact_result = MagicMock()
+        impact_result.answer = json.dumps(
+            {
+                "affected": True,
+                "changes": [],
+                "new_interfaces": [],
+                "modified_interfaces": [],
+                "discovered_dependencies": [],
+            }
+        )
+
+        synth_result = MagicMock()
+        synth_result.answer = (
+            json.dumps(
+                {
+                    "component_changes": {},
+                    "data_flow": "",
+                    "interface_contracts": [],
+                    "implementation_sequence": [],
+                    "open_questions": [],
+                }
+            )
+            + "\n# HLD"
+        )
+
+        # Align returns major_gaps (not just "revise")
+        align_result = MagicMock()
+        align_result.answer = json.dumps(
+            {
+                "covered": [],
+                "gaps": [{"requirement": "R1", "reason": "Not addressed"}],
+                "scope_creep": [],
+                "alignment_score": 0.0,
+                "recommendation": "major_gaps",
+            }
+        )
+
+        mock_project.query.side_effect = [
+            recon_result,
+            impact_result,
+            synth_result,
+            align_result,
+        ]
+        mock_shesha.get_project.return_value = mock_project
+
+        # Callback returns "accept" — user sees the issue, accepts as-is
+        alignment_callback = MagicMock(return_value="accept")
+
+        analyzer = MultiRepoAnalyzer(mock_shesha)
+        analyzer._repos = ["test-repo"]
+
+        _, alignment = analyzer.analyze("PRD", on_alignment_issue=alignment_callback)
+
+        # Callback MUST be called for major_gaps
+        alignment_callback.assert_called_once()
+        assert alignment.recommendation == "major_gaps"
+
+
 class TestMultiRepoAnalyzerErrorHandling:
     """Tests for error handling."""
 

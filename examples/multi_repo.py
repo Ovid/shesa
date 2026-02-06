@@ -33,6 +33,10 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+
+from script_utils import install_urllib3_cleanup_hook
+
 from shesha import Shesha, SheshaConfig
 from shesha.experimental.multi_repo import AlignmentReport, MultiRepoAnalyzer
 
@@ -197,6 +201,7 @@ def show_multi_picker(
 
 def main() -> None:
     """Main entry point."""
+    install_urllib3_cleanup_hook()
     args = parse_args()
 
     if not os.environ.get("SHESHA_API_KEY"):
