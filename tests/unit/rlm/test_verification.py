@@ -1,6 +1,6 @@
 """Tests for citation verification module."""
 
-from shesha.rlm.verification import Citation, Quote, VerificationResult
+from shesha.rlm.verification import Citation, Quote, VerificationResult, extract_citations
 
 
 class TestDataclasses:
@@ -55,3 +55,47 @@ class TestDataclasses:
         """Empty verification result is valid."""
         result = VerificationResult(citations=[], quotes=[])
         assert result.all_valid is True
+
+
+class TestExtractCitations:
+    """Tests for extract_citations()."""
+
+    def test_doc_n_pattern(self) -> None:
+        """Extracts 'Doc N' references."""
+        ids = extract_citations("See Doc 5 and Doc 12 for details.")
+        assert ids == [5, 12]
+
+    def test_doc_bold_n_pattern(self) -> None:
+        """Extracts 'Doc **N**' markdown bold references."""
+        ids = extract_citations("Found in Doc **3** and Doc **17**.")
+        assert ids == [3, 17]
+
+    def test_standalone_bold_n_pattern(self) -> None:
+        """Extracts standalone **N** references (common in summaries)."""
+        ids = extract_citations("Evidence from **7** supports this.")
+        assert ids == [7]
+
+    def test_context_bracket_pattern(self) -> None:
+        """Extracts context[N] references."""
+        ids = extract_citations("I checked context[0] and context[42].")
+        assert ids == [0, 42]
+
+    def test_mixed_patterns(self) -> None:
+        """Extracts from mixed patterns without duplicates."""
+        ids = extract_citations("Doc 5 is cited. Also **5** again. And context[5].")
+        assert ids == [5]
+
+    def test_empty_input(self) -> None:
+        """Returns empty list for text with no citations."""
+        ids = extract_citations("No document references here.")
+        assert ids == []
+
+    def test_deduplication(self) -> None:
+        """Duplicate doc IDs are deduplicated."""
+        ids = extract_citations("Doc 3 and Doc 3 again.")
+        assert ids == [3]
+
+    def test_preserves_order(self) -> None:
+        """Doc IDs are returned in order of first appearance."""
+        ids = extract_citations("Doc 10, then Doc 2, then Doc 10 again.")
+        assert ids == [10, 2]
