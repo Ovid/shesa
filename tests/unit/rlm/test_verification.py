@@ -191,7 +191,13 @@ class TestParseVerificationOutput:
 
     def test_valid_json(self) -> None:
         """Parses valid JSON verification output."""
-        stdout = '{"citations": [{"doc_id": 3, "found": true}], "quotes": [{"text": "some text here", "doc_id": 3, "found": true}]}'
+        import json
+
+        data = {
+            "citations": [{"doc_id": 3, "found": True}],
+            "quotes": [{"text": "some text here", "doc_id": 3, "found": True}],
+        }
+        stdout = json.dumps(data)
         result = parse_verification_output(stdout)
         assert len(result.citations) == 1
         assert result.citations[0].doc_id == 3
@@ -201,7 +207,13 @@ class TestParseVerificationOutput:
 
     def test_failed_quote(self) -> None:
         """Parses output with a failed quote."""
-        stdout = '{"citations": [{"doc_id": 0, "found": true}], "quotes": [{"text": "fabricated text", "doc_id": -1, "found": false}]}'
+        import json
+
+        data = {
+            "citations": [{"doc_id": 0, "found": True}],
+            "quotes": [{"text": "fabricated text", "doc_id": -1, "found": False}],
+        }
+        stdout = json.dumps(data)
         result = parse_verification_output(stdout)
         assert result.quotes[0].found is False
         assert result.all_valid is False
@@ -221,7 +233,11 @@ class TestParseVerificationOutput:
 
     def test_json_mixed_with_other_stdout(self) -> None:
         """Extracts JSON line even when mixed with other output."""
-        stdout = 'Some debug output\n{"citations": [{"doc_id": 1, "found": true}], "quotes": []}\nMore output'
+        import json
+
+        data = {"citations": [{"doc_id": 1, "found": True}], "quotes": []}
+        json_line = json.dumps(data)
+        stdout = f"Some debug output\n{json_line}\nMore output"
         result = parse_verification_output(stdout)
         assert len(result.citations) == 1
         assert result.citations[0].doc_id == 1

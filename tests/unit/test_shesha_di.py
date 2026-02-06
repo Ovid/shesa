@@ -204,7 +204,9 @@ class TestVerifyCitationsWiring:
         """Shesha passes verify_citations=False from config to engine."""
         from shesha.config import SheshaConfig
 
-        config = SheshaConfig(model="test-model", verify_citations=False, storage_path=str(tmp_path))
+        config = SheshaConfig(
+            model="test-model", verify_citations=False, storage_path=str(tmp_path)
+        )
         shesha = Shesha(config=config)
         assert shesha._rlm_engine.verify_citations is False
 

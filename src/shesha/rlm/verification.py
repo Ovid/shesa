@@ -104,33 +104,31 @@ def build_verification_code(answer: str) -> str:
 
     # Check each cited doc ID exists
     for doc_id in doc_ids:
-        lines.append(f"try:")
+        lines.append("try:")
         lines.append(f"    _ = context[{doc_id}]")
         lines.append(f"    citations.append({{'doc_id': {doc_id}, 'found': True}})")
-        lines.append(f"except (IndexError, NameError):")
+        lines.append("except (IndexError, NameError):")
         lines.append(f"    citations.append({{'doc_id': {doc_id}, 'found': False}})")
 
     # Check each quote as substring in all cited docs
     for quote_text in truncated_quotes:
         safe_quote = json.dumps(quote_text)
         lines.append(f"_q = {safe_quote}.lower()")
-        lines.append(f"_found = False")
-        lines.append(f"_found_in = -1")
+        lines.append("_found = False")
+        lines.append("_found_in = -1")
         for doc_id in doc_ids:
-            lines.append(f"try:")
+            lines.append("try:")
             lines.append(f"    if _q in context[{doc_id}].lower():")
-            lines.append(f"        _found = True")
+            lines.append("        _found = True")
             lines.append(f"        _found_in = {doc_id}")
-            lines.append(f"except (IndexError, NameError):")
-            lines.append(f"    pass")
+            lines.append("except (IndexError, NameError):")
+            lines.append("    pass")
         lines.append(
             f"quotes.append({{'text': {safe_quote}, 'doc_id': _found_in, 'found': _found}})"
         )
 
     lines.append("")
-    lines.append(
-        "print(json.dumps({'citations': citations, 'quotes': quotes}))"
-    )
+    lines.append("print(json.dumps({'citations': citations, 'quotes': quotes}))")
 
     return "\n".join(lines)
 
@@ -152,8 +150,7 @@ def parse_verification_output(stdout: str) -> VerificationResult:
         if "citations" in data and "quotes" in data:
             citations = [Citation(doc_id=c["doc_id"], found=c["found"]) for c in data["citations"]]
             quotes = [
-                Quote(text=q["text"], doc_id=q["doc_id"], found=q["found"])
-                for q in data["quotes"]
+                Quote(text=q["text"], doc_id=q["doc_id"], found=q["found"]) for q in data["quotes"]
             ]
             return VerificationResult(citations=citations, quotes=quotes)
 
