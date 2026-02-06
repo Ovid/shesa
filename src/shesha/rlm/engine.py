@@ -14,6 +14,7 @@ from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output, wrap_subcall
 from shesha.rlm.trace import StepType, TokenUsage, Trace, TraceStep
 from shesha.rlm.trace_writer import IncrementalTraceWriter, TraceWriter
 from shesha.sandbox.executor import ContainerExecutor
+from shesha.sandbox.pool import ContainerPool
 from shesha.storage.filesystem import FilesystemStorage
 
 # Callback type for progress notifications
@@ -49,6 +50,7 @@ class RLMEngine:
         execution_timeout: int = 30,
         max_subcall_content_chars: int = 500_000,
         prompts_dir: Path | None = None,
+        pool: ContainerPool | None = None,
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -58,6 +60,7 @@ class RLMEngine:
         self.execution_timeout = execution_timeout
         self.max_subcall_content_chars = max_subcall_content_chars
         self.prompt_loader = PromptLoader(prompts_dir)
+        self._pool = pool
 
     def _handle_llm_query(
         self,
@@ -215,8 +218,15 @@ class RLMEngine:
                 on_step=_write_step,
             )
 
-        executor = ContainerExecutor(llm_query_handler=llm_query_callback)
-        executor.start()
+        # Acquire executor from pool or create standalone
+        if self._pool is not None:
+            executor = self._pool.acquire()
+            executor.llm_query_handler = llm_query_callback
+            owns_executor = False
+        else:
+            executor = ContainerExecutor(llm_query_handler=llm_query_callback)
+            executor.start()
+            owns_executor = True
 
         try:
             # Set up context in sandbox
@@ -326,4 +336,9 @@ class RLMEngine:
 
         finally:
             _finalize_trace("[interrupted]", "interrupted")
-            executor.stop()
+            if owns_executor:
+                executor.stop()
+            else:
+                executor.llm_query_handler = None
+                executor.reset_namespace()
+                self._pool.release(executor)  # type: ignore[union-attr]

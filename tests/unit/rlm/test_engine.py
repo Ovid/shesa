@@ -135,6 +135,110 @@ class TestRLMEngine:
         assert StepType.FINAL_ANSWER in step_types
 
     @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_acquires_executor_from_pool(
+        self,
+        mock_llm_cls: MagicMock,
+    ):
+        """When pool is provided, engine acquires executor from pool instead of creating one."""
+        from shesha.sandbox.pool import ContainerPool
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("answer")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_pool = MagicMock(spec=ContainerPool)
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="answer",
+        )
+        mock_pool.acquire.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", pool=mock_pool)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        assert result.answer == "answer"
+        mock_pool.acquire.assert_called_once()
+        mock_pool.release.assert_called_once_with(mock_executor)
+        mock_executor.stop.assert_not_called()
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_resets_namespace_before_release(
+        self,
+        mock_llm_cls: MagicMock,
+    ):
+        """Engine resets executor namespace before releasing back to pool."""
+        from shesha.sandbox.pool import ContainerPool
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("done")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_pool = MagicMock(spec=ContainerPool)
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="done",
+        )
+        mock_pool.acquire.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", pool=mock_pool)
+        engine.query(documents=["doc"], question="Q?")
+
+        mock_executor.reset_namespace.assert_called_once()
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_creates_executor_without_pool(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Without pool, engine creates and stops its own executor (backward compat)."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("answer")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="answer",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")  # No pool
+        result = engine.query(documents=["doc"], question="Q?")
+
+        assert result.answer == "answer"
+        mock_executor_cls.assert_called_once()
+        mock_executor.start.assert_called_once()
+        mock_executor.stop.assert_called_once()
+
+    @patch("shesha.rlm.engine.LLMClient")
     def test_engine_returns_error_for_oversized_subcall_content(
         self,
         mock_llm_cls: MagicMock,
@@ -197,7 +301,6 @@ class TestRLMEngine:
         # Should return LLM response
         assert result == "Analysis result"
         mock_llm_cls.assert_called_once()  # Sub-LLM was called
-
 
     @patch("shesha.rlm.engine.LLMClient")
     def test_engine_wraps_subcall_content_in_untrusted_tags(
