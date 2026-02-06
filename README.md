@@ -296,7 +296,7 @@ python examples/repo.py https://github.com/org/repo --update --verbose
 
 ## DeepWiki
 
-We love DeepWiki. Amazaing tool. DeepWiki can provide much of what we do, but there are some issues:
+We love DeepWiki. Amazing tool. DeepWiki can provide much of what we do, but there are some issues:
 
 1. Free plan means you can only update your code once a week. Shesha allows you to update your code when it's updated.
 2. You get to choose your model, including local ones, meaning *you* have control.
