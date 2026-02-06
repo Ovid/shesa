@@ -17,6 +17,7 @@ class SelfTestStatus:
     ok: bool
     timestamp: str
     details: str
+    docker_available: bool = True
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class LibrarianManifest:
     supported_modes: list[str]
     env_vars: list[str]
     self_test: SelfTestStatus | None = None
+    docker_available: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -40,6 +42,7 @@ class LibrarianManifest:
             "modes": list(self.supported_modes),
             "env": list(self.env_vars),
             "self_test": asdict(self.self_test) if self.self_test is not None else None,
+            "infra": {"docker_available": self.docker_available},
         }
 
     def write(self, path: Path) -> None:
@@ -70,7 +73,11 @@ class LibrarianManifest:
                 ok=bool(self_test_raw.get("ok")),
                 timestamp=str(self_test_raw.get("timestamp", "")),
                 details=str(self_test_raw.get("details", "")),
+                docker_available=bool(self_test_raw.get("docker_available", True)),
             )
+
+        infra = data.get("infra") or {}
+        docker_available = bool(infra.get("docker_available", True))
 
         return cls(
             package_name=str(package.get("name", "")),
@@ -82,4 +89,5 @@ class LibrarianManifest:
             supported_modes=list(data.get("modes") or []),
             env_vars=list(data.get("env") or []),
             self_test=self_test,
+            docker_available=docker_available,
         )

@@ -12,33 +12,27 @@ from shesha.models import RepoProjectResult
 class TestDockerAvailability:
     """Tests for Docker availability check at startup."""
 
-    def test_raises_clear_error_when_docker_not_running(self, tmp_path: Path):
-        """Shesha raises clear error at init when Docker is not running.
-
-        Users should get a helpful error message immediately at startup,
-        not when they first try to run a query.
-        """
+    def test_init_no_longer_raises_when_docker_not_running(self, tmp_path: Path):
+        """Shesha no longer raises at init when Docker is not running."""
         from docker.errors import DockerException
 
         with patch("shesha.shesha.docker") as mock_docker:
-            mock_docker.from_env.side_effect = DockerException(
-                "Error while fetching server API version: "
-                "('Connection aborted.', ConnectionRefusedError(61, 'Connection refused'))"
-            )
+            mock_docker.from_env.side_effect = DockerException("Connection refused")
 
+            # This should SUCCEED now
+            shesha = Shesha(model="test-model", storage_path=tmp_path)
+            assert shesha._docker_available is False
+
+            # But explicit check should still fail with helpful message
             with pytest.raises(RuntimeError) as exc_info:
-                Shesha(model="test-model", storage_path=tmp_path)
+                shesha._check_docker_available()
 
             error_msg = str(exc_info.value)
             assert "Docker" in error_msg
             assert "not running" in error_msg or "start" in error_msg.lower()
 
-    def test_raises_helpful_error_when_socket_not_found(self, tmp_path: Path):
-        """Shesha raises helpful error mentioning Podman when socket not found.
-
-        Podman users get FileNotFoundError when DOCKER_HOST isn't set. The error
-        message should guide them to set DOCKER_HOST.
-        """
+    def test_check_raises_helpful_error_when_socket_not_found(self, tmp_path: Path):
+        """Shesha._check_docker_available raises helpful error mentioning Podman."""
         from docker.errors import DockerException
 
         with patch("shesha.shesha.docker") as mock_docker:
@@ -48,8 +42,10 @@ class TestDockerAvailability:
                 "('Connection aborted.', FileNotFoundError(2, 'No such file or directory'))"
             )
 
+            shesha = Shesha(model="test-model", storage_path=tmp_path)
+
             with pytest.raises(RuntimeError) as exc_info:
-                Shesha(model="test-model", storage_path=tmp_path)
+                shesha._check_docker_available()
 
             error_msg = str(exc_info.value)
             assert "DOCKER_HOST" in error_msg

@@ -79,13 +79,14 @@ Any persistent state created by the tool lives on the user’s system and remain
 
 ---
 
-### 6. Installation Verifies Success
+### 6. Installation Verifies Success and Guides Missing Dependencies
 **Guarantee:**  
-The user can tell whether the tool works immediately after installing it.
+The user can tell whether the tool works immediately after installing it, and receives guided help for missing infrastructure dependencies.
 
 **Observable signals:**
 - Installation performs a basic self-test
-- The result of the test is clearly reported
+- Missing Docker triggers an interactive guide with platform-specific instructions
+- The result of the test is clearly reported and recorded in the manifest
 - The tool shuts down cleanly after verification
 
 ---

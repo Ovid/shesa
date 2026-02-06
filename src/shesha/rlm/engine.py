@@ -49,6 +49,7 @@ class RLMEngine:
         execution_timeout: int = 30,
         max_subcall_content_chars: int = 500_000,
         prompts_dir: Path | None = None,
+        docker_available: bool = True,
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -58,6 +59,7 @@ class RLMEngine:
         self.execution_timeout = execution_timeout
         self.max_subcall_content_chars = max_subcall_content_chars
         self.prompt_loader = PromptLoader(prompts_dir)
+        self._docker_available = docker_available
 
     def _handle_llm_query(
         self,
@@ -126,6 +128,12 @@ class RLMEngine:
         project_id: str | None = None,
     ) -> QueryResult:
         """Run an RLM query against documents."""
+        if not self._docker_available:
+            raise RuntimeError(
+                "Docker is required for queries. "
+                "Please start Docker Desktop and ensure it is available to the system."
+            )
+
         start_time = time.time()
         trace = Trace()
         token_usage = TokenUsage()

@@ -73,11 +73,23 @@ User Query → RLM Core Loop → Docker Sandbox
 - **Storage** (`src/shesha/storage/`): Abstraction for document persistence.
 - **Librarian** (`src/shesha/librarian/`): CLI and MCP server wrapper for tool interoperability.
 
-### key Design Decisions
+### Key Design Decisions
 - **Sub-LLM Depth = 1**: To ensure predictable costs and latency, recursion is limited to one level deep (plain LLM call, not full RLM recursion).
 - **Max Iterations = 20**: Hard limit to prevent infinite loops (configurable).
 - **Hot Container Pool**: Maintains 3 warm containers to eliminate startup overhead during the core loop.
 - **Project-Based Organization**: Documents are grouped into named projects for logical separation.
+- **Graceful Docker Degradation**: Shesha initializes successfully even if Docker is unavailable. Query functionality is disabled until Docker is present, with clear error messages guiding users.
+
+### Docker Availability Handling
+**Design Philosophy**: Docker is an infrastructure dependency, not a fatal requirement at startup.
+
+- **Detection**: `Shesha._is_docker_available()` checks Docker availability without raising errors.
+- **Conditional Initialization**: The `ContainerPool` is only created if Docker is detected.
+- **Clear Feedback**: When queries are attempted without Docker, users receive actionable error messages.
+- **Interactive Setup**: The Librarian CLI installer (`librarian install`) detects missing Docker and provides:
+  - Platform-specific installation guides (Docker Desktop, Homebrew, Colima)
+  - Options to skip Docker (queries disabled) or abort installation
+  - Manifest tracking of Docker status for operational transparency
 
 ---
 

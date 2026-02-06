@@ -19,7 +19,7 @@ So far it seems to work, but it's only been tested with .txt documents and the O
 ## Prerequisites
 
 - Python 3.11+
-- Docker (for sandbox execution)
+- Docker (required for code execution; optional for indexing/management)
 - An LLM API key (or local Ollama installation)
 
 ## Supported LLM Providers
@@ -93,8 +93,9 @@ python -m pip install . && python -m shesha.librarian install
 This will:
 
 - create persistent state dirs (storage + logs) with safe defaults
-- build/verify the sandbox Docker image and run a minimal self-test (MCP health + Docker/sandbox validation)
-- write a local manifest at `.librarian/manifest.json`
+- build/verify the sandbox Docker image and run a minimal self-test (MCP health + Docker/sandbox validation).
+- **Interactive Docker Setup**: If Docker is missing, Librarian will provide a guided prompt with installation instructions and options to proceed without it.
+- write a local manifest at `.librarian/manifest.json` recording the system status.
 - generate `mcp-server-readme.md` with the exact next commands
 
 Override state locations with:

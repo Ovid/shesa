@@ -191,6 +191,7 @@ def _write_install_artifacts(
     storage_path: Path,
     logs_path: Path,
     self_test: SelfTestStatus,
+    docker_available: bool = True,
 ) -> None:
     entrypoints, commands = _resolve_manifest_invocation()
     LibrarianManifest(
@@ -203,6 +204,7 @@ def _write_install_artifacts(
         supported_modes=SUPPORTED_MODES,
         env_vars=SUPPORTED_ENV_VARS,
         self_test=self_test,
+        docker_available=docker_available,
     ).write(manifest_path)
     _write_readme(
         path=readme_path,
@@ -210,6 +212,68 @@ def _write_install_artifacts(
         logs_path=logs_path,
         manifest_path=manifest_path,
     )
+
+
+def _prompt_docker_options() -> str:
+    """Prompt user for Docker installation options if in a TTY."""
+    if not sys.stdin.isatty():
+        return "fail"
+
+    print("\n" + "=" * 60)
+    print("DOCKER NOT DETECTED".center(60))
+    print("=" * 60)
+    print("Shesha requires Docker to run code in a secure sandbox.")
+    print("Without Docker, you can still manage projects and index files,")
+    print("but you will NOT be able to run queries.\n")
+
+    if sys.platform == "darwin":
+        print("Suggested for macOS: Install via Homebrew")
+        print("  brew install --cask docker\n")
+
+    print("How would you like to proceed?")
+    print("  1) [Guide] Show me how to install Docker")
+    print("  2) [Skip] Proceed without Docker (queries will be disabled)")
+    print("  3) [Abort] Stop installation")
+
+    while True:
+        try:
+            choice = input("\nChoice [1-3]: ").strip()
+            if choice == "1":
+                return "guide"
+            if choice == "2":
+                return "skip"
+            if choice in ("3", "q", "quit"):
+                return "abort"
+        except (KeyboardInterrupt, EOFError):
+            return "abort"
+
+
+def _show_docker_install_guide() -> None:
+    """Display platform-specific Docker installation instructions."""
+    print("\n" + "-" * 60)
+    print("DOCKER INSTALLATION GUIDE".center(60))
+    print("-" * 60)
+
+    if sys.platform == "darwin":
+        print("Option A: Docker Desktop (Recommended)")
+        print("  Download from: https://www.docker.com/products/docker-desktop\n")
+        print("Option B: Homebrew")
+        print("  brew install --cask docker\n")
+        print("Option C: Colima (Lightweight)")
+        print("  brew install colima")
+        print("  colima start\n")
+    elif sys.platform == "linux":
+        print("Follow the official guide for your distribution:")
+        print("  https://docs.docker.com/engine/install/\n")
+        print("Quick install script:")
+        print("  curl -fsSL https://get.docker.com -o get-docker.sh")
+        print("  sudo sh get-docker.sh\n")
+    else:
+        print("Download Docker Desktop for Windows:")
+        print("  https://www.docker.com/products/docker-desktop\n")
+
+    print("-" * 60)
+    input("Press Enter once Docker is installed and running, or to continue...")
 
 
 def _self_test_mcp_server(*, storage_path: Path) -> tuple[bool, str]:
@@ -350,53 +414,83 @@ def run_install(
     print(f"  {mcp_details}")
 
     # 2) Docker/sandbox validation (required for queries).
+    docker_available = False
     if not skip_docker:
         print("Self-test: Docker daemon…")
-        try:
-            from shesha.shesha import Shesha as SheshaClass
+        from shesha.shesha import Shesha as SheshaClass
 
-            SheshaClass._check_docker_available()
-        except Exception as e:  # noqa: BLE001 - returned as failure
-            status = SelfTestStatus(
-                ok=False, timestamp=_utc_now_iso(), details=f"Docker check failed: {e}"
-            )
-            _write_install_artifacts(
-                manifest_path=manifest_path,
-                readme_path=readme_path,
-                storage_path=paths.storage,
-                logs_path=paths.logs,
-                self_test=status,
-            )
-            return InstallResult(ok=False, details=status.details)
-        print("  docker: ok")
+        if SheshaClass._is_docker_available():
+            docker_available = True
+            print("  docker: ok")
+        else:
+            choice = _prompt_docker_options()
+            if choice == "guide":
+                _show_docker_install_guide()
+                # Re-check after guide
+                if SheshaClass._is_docker_available():
+                    docker_available = True
+                    print("  docker: ok (after install)")
+                else:
+                    print("  docker: still not detected. Proceeding with Docker disabled.")
+            elif choice == "abort":
+                return InstallResult(ok=False, details="Installation aborted by user (Docker missing)")
+            elif choice == "skip":
+                print("  docker: skipped by user")
+            else:
+                # Non-interactive or fallback
+                msg = "Docker is not running. Please start Docker and try again."
+                status = SelfTestStatus(
+                    ok=False,
+                    timestamp=_utc_now_iso(),
+                    details=f"Docker check failed: {msg}",
+                    docker_available=False,
+                )
+                _write_install_artifacts(
+                    manifest_path=manifest_path,
+                    readme_path=readme_path,
+                    storage_path=paths.storage,
+                    logs_path=paths.logs,
+                    self_test=status,
+                    docker_available=False,
+                )
+                return InstallResult(ok=False, details=status.details)
     else:
         print("Self-test: Docker daemon… skipped")
 
-    if not skip_sandbox:
+    if docker_available and not skip_sandbox:
         print("Self-test: sandbox image + ping…")
         sandbox_ok, sandbox_details = _self_test_sandbox()
         if not sandbox_ok:
-            status = SelfTestStatus(ok=False, timestamp=_utc_now_iso(), details=sandbox_details)
+            status = SelfTestStatus(
+                ok=False,
+                timestamp=_utc_now_iso(),
+                details=sandbox_details,
+                docker_available=True,
+            )
             _write_install_artifacts(
                 manifest_path=manifest_path,
                 readme_path=readme_path,
                 storage_path=paths.storage,
                 logs_path=paths.logs,
                 self_test=status,
+                docker_available=True,
             )
             return InstallResult(ok=False, details=status.details)
         print("  sandbox: ok")
+    elif not skip_sandbox:
+        print("Self-test: sandbox image + ping… skipped (no Docker)")
     else:
         print("Self-test: sandbox image + ping… skipped")
 
     # 3) Write manifest + readme.
-    docker_status = "docker: skipped" if skip_docker else "docker: ok"
-    sandbox_status = "sandbox: skipped" if skip_sandbox else "sandbox: ok"
+    docker_status = "docker: skip" if not docker_available else "docker: ok"
+    sandbox_status = "sandbox: skipped" if not docker_available or skip_sandbox else "sandbox: ok"
     details = "; ".join([mcp_details, docker_status, sandbox_status])
     status = SelfTestStatus(
         ok=True,
         timestamp=_utc_now_iso(),
         details=details,
+        docker_available=docker_available,
     )
     _write_install_artifacts(
         manifest_path=manifest_path,
@@ -404,6 +498,7 @@ def run_install(
         storage_path=paths.storage,
         logs_path=paths.logs,
         self_test=status,
+        docker_available=docker_available,
     )
 
     return InstallResult(ok=True, details=status.details)
