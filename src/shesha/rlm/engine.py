@@ -11,8 +11,8 @@ from shesha.llm.client import LLMClient
 from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
 from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output
-from shesha.rlm.trace import StepType, TokenUsage, Trace
-from shesha.rlm.trace_writer import TraceWriter
+from shesha.rlm.trace import StepType, TokenUsage, Trace, TraceStep
+from shesha.rlm.trace_writer import IncrementalTraceWriter, TraceWriter
 from shesha.sandbox.executor import ContainerExecutor
 from shesha.storage.filesystem import FilesystemStorage
 
@@ -67,15 +67,18 @@ class RLMEngine:
         token_usage: TokenUsage,
         iteration: int,
         on_progress: ProgressCallback | None = None,
+        on_step: Callable[[TraceStep], None] | None = None,
     ) -> str:
         """Handle a sub-LLM query from the sandbox."""
         # Record the request
         step_content = f"instruction: {instruction}\ncontent: [{len(content)} chars]"
-        trace.add_step(
+        step = trace.add_step(
             type=StepType.SUBCALL_REQUEST,
             content=step_content,
             iteration=iteration,
         )
+        if on_step:
+            on_step(step)
         if on_progress:
             on_progress(StepType.SUBCALL_REQUEST, iteration, step_content)
 
@@ -86,11 +89,13 @@ class RLMEngine:
                 f"of {self.max_subcall_content_chars:,} chars. Please chunk the content "
                 f"into smaller pieces and make multiple llm_query calls."
             )
-            trace.add_step(
+            step = trace.add_step(
                 type=StepType.SUBCALL_RESPONSE,
                 content=error_msg,
                 iteration=iteration,
             )
+            if on_step:
+                on_step(step)
             if on_progress:
                 on_progress(StepType.SUBCALL_RESPONSE, iteration, error_msg)
             return error_msg
@@ -105,12 +110,14 @@ class RLMEngine:
         token_usage.completion_tokens += response.completion_tokens
 
         # Record the response
-        trace.add_step(
+        step = trace.add_step(
             type=StepType.SUBCALL_RESPONSE,
             content=response.content,
             iteration=iteration,
             tokens_used=response.total_tokens,
         )
+        if on_step:
+            on_step(step)
         if on_progress:
             on_progress(StepType.SUBCALL_RESPONSE, iteration, response.content)
 
@@ -151,29 +158,38 @@ class RLMEngine:
             max_subcall_chars=MAX_SUBCALL_CHARS,
         )
 
-        # Helper to write trace
-        def _write_trace(result: QueryResult, status: str) -> None:
+        # Set up incremental trace writer
+        inc_writer = IncrementalTraceWriter(storage) if storage is not None else None
+        trace_finalized = False
+        if inc_writer is not None and project_id is not None:
+            trace_id = str(uuid.uuid4())
+            context = QueryContext(
+                trace_id=trace_id,
+                question=question,
+                document_ids=doc_names or [f"doc_{i}" for i in range(len(documents))],
+                model=self.model,
+                system_prompt=system_prompt,
+                subcall_prompt=self.prompt_loader.get_raw_template("subcall.md"),
+            )
+            inc_writer.start(project_id, context)
+
+        def _write_step(step: TraceStep) -> None:
+            if inc_writer is not None:
+                inc_writer.write_step(step)
+
+        def _finalize_trace(answer: str, status: str) -> None:
+            nonlocal trace_finalized
+            if trace_finalized or inc_writer is None:
+                return
+            trace_finalized = True
+            inc_writer.finalize(
+                answer=answer,
+                token_usage=token_usage,
+                execution_time=time.time() - start_time,
+                status=status,
+            )
             if storage is not None and project_id is not None:
-                trace_id = str(uuid.uuid4())
-                context = QueryContext(
-                    trace_id=trace_id,
-                    question=question,
-                    document_ids=doc_names or [f"doc_{i}" for i in range(len(documents))],
-                    model=self.model,
-                    system_prompt=system_prompt,
-                    subcall_prompt=self.prompt_loader.get_raw_template("subcall.md"),
-                )
-                writer = TraceWriter(storage)
-                writer.write_trace(
-                    project_id=project_id,
-                    trace=result.trace,
-                    context=context,
-                    answer=result.answer,
-                    token_usage=result.token_usage,
-                    execution_time=result.execution_time,
-                    status=status,
-                )
-                writer.cleanup_old_traces(project_id)
+                TraceWriter(storage).cleanup_old_traces(project_id)
 
         # Initialize LLM client
         llm = LLMClient(model=self.model, system_prompt=system_prompt, api_key=self.api_key)
@@ -187,7 +203,13 @@ class RLMEngine:
         # Create executor with callback for llm_query
         def llm_query_callback(instruction: str, content: str) -> str:
             return self._handle_llm_query(
-                instruction, content, trace, token_usage, current_iteration, on_progress
+                instruction,
+                content,
+                trace,
+                token_usage,
+                current_iteration,
+                on_progress,
+                on_step=_write_step,
             )
 
         executor = ContainerExecutor(llm_query_handler=llm_query_callback)
@@ -204,12 +226,13 @@ class RLMEngine:
                 token_usage.prompt_tokens += response.prompt_tokens
                 token_usage.completion_tokens += response.completion_tokens
 
-                trace.add_step(
+                step = trace.add_step(
                     type=StepType.CODE_GENERATED,
                     content=response.content,
                     iteration=iteration,
                     tokens_used=response.total_tokens,
                 )
+                _write_step(step)
                 if on_progress:
                     on_progress(StepType.CODE_GENERATED, iteration, response.content)
 
@@ -245,12 +268,13 @@ class RLMEngine:
 
                     output = "\n".join(output_parts) if output_parts else "(no output)"
 
-                    trace.add_step(
+                    step = trace.add_step(
                         type=StepType.CODE_OUTPUT,
                         content=output,
                         iteration=iteration,
                         duration_ms=exec_duration,
                     )
+                    _write_step(step)
                     if on_progress:
                         on_progress(StepType.CODE_OUTPUT, iteration, output)
 
@@ -259,11 +283,12 @@ class RLMEngine:
                     # Check for final answer
                     if result.final_answer:
                         final_answer = result.final_answer
-                        trace.add_step(
+                        step = trace.add_step(
                             type=StepType.FINAL_ANSWER,
                             content=final_answer,
                             iteration=iteration,
                         )
+                        _write_step(step)
                         if on_progress:
                             on_progress(StepType.FINAL_ANSWER, iteration, final_answer)
                         break
@@ -275,7 +300,7 @@ class RLMEngine:
                         token_usage=token_usage,
                         execution_time=time.time() - start_time,
                     )
-                    _write_trace(query_result, "success")
+                    _finalize_trace(final_answer, "success")
                     return query_result
 
                 # Add output to conversation
@@ -286,14 +311,16 @@ class RLMEngine:
                 messages.append({"role": "user", "content": wrapped_output})
 
             # Max iterations reached
+            answer = "[Max iterations reached without final answer]"
             query_result = QueryResult(
-                answer="[Max iterations reached without final answer]",
+                answer=answer,
                 trace=trace,
                 token_usage=token_usage,
                 execution_time=time.time() - start_time,
             )
-            _write_trace(query_result, "max_iterations")
+            _finalize_trace(answer, "max_iterations")
             return query_result
 
         finally:
+            _finalize_trace("[interrupted]", "interrupted")
             executor.stop()

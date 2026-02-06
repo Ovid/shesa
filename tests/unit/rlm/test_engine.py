@@ -1,5 +1,6 @@
 """Tests for RLM engine."""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -244,3 +245,126 @@ class TestEngineTraceWriting:
 
         traces = storage.list_traces("test-project")
         assert len(traces) == 1
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_query_writes_trace_incrementally(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Query writes trace steps incrementally, not just at the end."""
+        from shesha.storage.filesystem import FilesystemStorage
+
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("test-project")
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content="```repl\nFINAL('done')\n```",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="done",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")
+        engine.query(
+            documents=["doc content"],
+            question="What?",
+            storage=storage,
+            project_id="test-project",
+        )
+
+        traces = storage.list_traces("test-project")
+        assert len(traces) == 1
+
+        # Verify JSONL has header, steps, and summary
+        lines = traces[0].read_text().strip().split("\n")
+        assert len(lines) >= 3  # header + at least one step + summary
+
+        header = json.loads(lines[0])
+        assert header["type"] == "header"
+        assert header["question"] == "What?"
+
+        summary = json.loads(lines[-1])
+        assert summary["type"] == "summary"
+        assert summary["status"] == "success"
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_query_writes_partial_trace_on_exception(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """If query is interrupted by exception, partial trace is still written."""
+        from shesha.storage.filesystem import FilesystemStorage
+
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("test-project")
+
+        # LLM returns code, then raises on second call
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            MagicMock(
+                content="```repl\nprint('hello')\n```",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            KeyboardInterrupt(),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            stdout="hello",
+            stderr="",
+            error=None,
+            final_answer=None,  # No final answer, loop continues
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")
+        try:
+            engine.query(
+                documents=["doc content"],
+                question="What?",
+                storage=storage,
+                project_id="test-project",
+            )
+        except KeyboardInterrupt:
+            pass  # Expected
+
+        # Partial trace should still exist
+        traces = storage.list_traces("test-project")
+        assert len(traces) == 1
+
+        lines = traces[0].read_text().strip().split("\n")
+
+        # Should have header
+        header = json.loads(lines[0])
+        assert header["type"] == "header"
+
+        # Should have at least the steps from iteration 0
+        step_lines = [
+            json.loads(line) for line in lines[1:] if json.loads(line)["type"] == "step"
+        ]
+        assert len(step_lines) >= 1
+
+        # Should have summary with interrupted status
+        summary = json.loads(lines[-1])
+        assert summary["type"] == "summary"
+        assert summary["status"] == "interrupted"

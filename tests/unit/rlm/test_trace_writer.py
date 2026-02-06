@@ -3,7 +3,7 @@
 import datetime
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -340,3 +340,181 @@ class TestTraceWriterSafety:
         finally:
             # Restore permissions for cleanup
             traces_dir.chmod(0o755)
+
+
+class TestIncrementalTraceWriter:
+    """Tests for IncrementalTraceWriter."""
+
+    @pytest.fixture
+    def storage(self, tmp_path: Path) -> FilesystemStorage:
+        """Create a temporary storage backend."""
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("test-project")
+        return storage
+
+    @pytest.fixture
+    def context(self) -> QueryContext:
+        """Create a sample query context."""
+        return QueryContext(
+            trace_id="abcd1234-5678-90ab-cdef-1234567890ab",
+            question="What is the answer?",
+            document_ids=["doc1", "doc2"],
+            model="claude-sonnet-4-20250514",
+            system_prompt="You are an assistant...",
+            subcall_prompt="Analyze this...",
+        )
+
+    def test_start_creates_file_with_header(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """start() creates a JSONL file with header as first line."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(storage)
+        path = writer.start("test-project", context)
+
+        assert path is not None
+        assert path.exists()
+        assert path.suffix == ".jsonl"
+
+        lines = path.read_text().strip().split("\n")
+        assert len(lines) == 1
+        header = json.loads(lines[0])
+        assert header["type"] == "header"
+        assert header["question"] == "What is the answer?"
+        assert header["trace_id"] == "abcd1234-5678-90ab-cdef-1234567890ab"
+
+    def test_write_step_appends_to_file(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """write_step() appends a step line after the header."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(storage)
+        writer.start("test-project", context)
+
+        step = Trace().add_step(StepType.CODE_GENERATED, "print('hi')", iteration=0, tokens_used=50)
+        writer.write_step(step)
+
+        lines = writer.path.read_text().strip().split("\n")
+        assert len(lines) == 2  # header + 1 step
+
+        step_data = json.loads(lines[1])
+        assert step_data["type"] == "step"
+        assert step_data["step_type"] == "code_generated"
+        assert step_data["content"] == "print('hi')"
+        assert step_data["tokens_used"] == 50
+
+    def test_multiple_steps_appended_in_order(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """Multiple write_step() calls append in order."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(storage)
+        writer.start("test-project", context)
+
+        trace = Trace()
+        step1 = trace.add_step(StepType.CODE_GENERATED, "code1", iteration=0)
+        writer.write_step(step1)
+        step2 = trace.add_step(StepType.CODE_OUTPUT, "output1", iteration=0)
+        writer.write_step(step2)
+        step3 = trace.add_step(StepType.SUBCALL_REQUEST, "request", iteration=0)
+        writer.write_step(step3)
+
+        lines = writer.path.read_text().strip().split("\n")
+        assert len(lines) == 4  # header + 3 steps
+
+        assert json.loads(lines[1])["step_type"] == "code_generated"
+        assert json.loads(lines[2])["step_type"] == "code_output"
+        assert json.loads(lines[3])["step_type"] == "subcall_request"
+
+    def test_finalize_appends_summary(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """finalize() appends summary as last line."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(storage)
+        writer.start("test-project", context)
+
+        step = Trace().add_step(StepType.CODE_GENERATED, "code", iteration=0)
+        writer.write_step(step)
+
+        writer.finalize(
+            answer="42",
+            token_usage=TokenUsage(prompt_tokens=100, completion_tokens=50),
+            execution_time=1.5,
+            status="success",
+        )
+
+        lines = writer.path.read_text().strip().split("\n")
+        summary = json.loads(lines[-1])
+        assert summary["type"] == "summary"
+        assert summary["answer"] == "42"
+        assert summary["status"] == "success"
+        assert summary["total_tokens"] == {"prompt": 100, "completion": 50}
+        assert summary["total_duration_ms"] == 1500
+
+    def test_finalize_without_steps_writes_interrupted_summary(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """finalize() works even with no steps (e.g., early interruption)."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(storage)
+        writer.start("test-project", context)
+
+        writer.finalize(
+            answer="[interrupted]",
+            token_usage=TokenUsage(),
+            execution_time=0.5,
+            status="interrupted",
+        )
+
+        lines = writer.path.read_text().strip().split("\n")
+        assert len(lines) == 2  # header + summary
+        summary = json.loads(lines[-1])
+        assert summary["status"] == "interrupted"
+
+    def test_steps_are_redacted(
+        self, storage: FilesystemStorage, context: QueryContext
+    ) -> None:
+        """Secrets in step content are redacted before writing."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(storage)
+        writer.start("test-project", context)
+
+        step = Trace().add_step(
+            StepType.CODE_OUTPUT,
+            "API key: sk-abc123def456ghi789jkl012mno345pqr678",
+            iteration=0,
+        )
+        writer.write_step(step)
+
+        content = writer.path.read_text()
+        assert "sk-abc123" not in content
+        assert "[REDACTED]" in content
+
+    def test_write_step_noop_when_not_started(self) -> None:
+        """write_step() is a no-op if start() was never called."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(MagicMock())
+        step = Trace().add_step(StepType.CODE_GENERATED, "code", iteration=0)
+        # Should not raise
+        writer.write_step(step)
+
+    def test_finalize_noop_when_not_started(self) -> None:
+        """finalize() is a no-op if start() was never called."""
+        from shesha.rlm.trace_writer import IncrementalTraceWriter
+
+        writer = IncrementalTraceWriter(MagicMock())
+        # Should not raise
+        writer.finalize(
+            answer="x",
+            token_usage=TokenUsage(),
+            execution_time=0.0,
+            status="error",
+        )

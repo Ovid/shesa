@@ -6,7 +6,8 @@ import logging
 from pathlib import Path
 
 from shesha.models import QueryContext
-from shesha.rlm.trace import TokenUsage, Trace
+from shesha.rlm.trace import TokenUsage, Trace, TraceStep
+from shesha.security.redaction import redact
 from shesha.storage.filesystem import FilesystemStorage
 
 logger = logging.getLogger(__name__)
@@ -126,3 +127,117 @@ class TraceWriter:
         to_delete = traces[: len(traces) - max_count]
         for trace_path in to_delete:
             trace_path.unlink()
+
+
+class IncrementalTraceWriter:
+    """Writes trace data incrementally as steps happen.
+
+    Unlike TraceWriter which writes the entire trace at the end,
+    this writer appends each step to disk as it occurs. This ensures
+    partial traces are available even if the process is interrupted.
+    """
+
+    def __init__(self, storage: FilesystemStorage) -> None:
+        """Initialize with storage backend."""
+        self.storage = storage
+        self.path: Path | None = None
+        self._max_iteration: int = 0
+
+    def start(self, project_id: str, context: QueryContext) -> Path | None:
+        """Create trace file and write the header line.
+
+        Args:
+            project_id: The project ID.
+            context: Query metadata.
+
+        Returns:
+            Path to the created file, or None if creation failed.
+        """
+        try:
+            traces_dir = self.storage.get_traces_dir(project_id)
+            now = datetime.datetime.now(datetime.UTC)
+            timestamp = now.strftime("%Y-%m-%dT%H-%M-%S") + f"-{now.microsecond // 1000:03d}"
+            short_id = context.trace_id[:8]
+            filename = f"{timestamp}_{short_id}.jsonl"
+
+            self.path = traces_dir / filename
+
+            header = {
+                "type": "header",
+                "trace_id": context.trace_id,
+                "timestamp": now.isoformat(),
+                "question": context.question,
+                "document_ids": context.document_ids,
+                "model": context.model,
+                "system_prompt": context.system_prompt,
+                "subcall_prompt": context.subcall_prompt,
+            }
+            self.path.write_text(json.dumps(header) + "\n")
+            return self.path
+
+        except Exception as e:
+            logger.warning(f"Failed to start incremental trace for project {project_id}: {e}")
+            self.path = None
+            return None
+
+    def write_step(self, step: TraceStep) -> None:
+        """Append a single step to the trace file.
+
+        Args:
+            step: The trace step to write.
+        """
+        if self.path is None:
+            return
+
+        try:
+            self._max_iteration = max(self._max_iteration, step.iteration)
+            step_data = {
+                "type": "step",
+                "step_type": step.type.value,
+                "iteration": step.iteration,
+                "timestamp": datetime.datetime.fromtimestamp(
+                    step.timestamp, tz=datetime.UTC
+                ).isoformat(),
+                "content": redact(step.content),
+                "tokens_used": step.tokens_used,
+                "duration_ms": step.duration_ms,
+            }
+            with self.path.open("a") as f:
+                f.write(json.dumps(step_data) + "\n")
+        except Exception as e:
+            logger.warning(f"Failed to write incremental trace step: {e}")
+
+    def finalize(
+        self,
+        answer: str,
+        token_usage: TokenUsage,
+        execution_time: float,
+        status: str,
+    ) -> None:
+        """Append summary line to the trace file.
+
+        Args:
+            answer: The final answer (or partial state).
+            token_usage: Token usage statistics.
+            execution_time: Total execution time in seconds.
+            status: Query status (success, max_iterations, interrupted).
+        """
+        if self.path is None:
+            return
+
+        try:
+            summary = {
+                "type": "summary",
+                "answer": answer,
+                "total_iterations": self._max_iteration + 1,
+                "total_tokens": {
+                    "prompt": token_usage.prompt_tokens,
+                    "completion": token_usage.completion_tokens,
+                },
+                "total_duration_ms": int(execution_time * 1000),
+                "status": status,
+            }
+            with self.path.open("a") as f:
+                f.write(json.dumps(summary) + "\n")
+        except Exception as e:
+            logger.warning(f"Failed to finalize incremental trace: {e}")
