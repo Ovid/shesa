@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `is_local_path` no longer uses `Path(url).exists()`; uses prefix-only matching to prevent misclassification
 - Git clone tokens are now passed via `http.extraHeader` instead of being embedded in the clone URL
+- Enforce `<untrusted_document_content>` wrapping in code (`wrap_subcall_content()`), not just in prompt template files, closing a prompt injection defense gap for sub-LLM calls
+- Validate that `subcall.md` template contains required security tags at load time
 
 ## [0.3.0] 2026-02-04
 

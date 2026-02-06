@@ -105,8 +105,7 @@
 
 ## 2) Additional notable doc/code discrepancies
 
-- **Docs claim sub-LLM content is wrapped in `<untrusted_document_content>` tags** (DOC 75), and that REPL output is wrapped similarly.
-  - **Code reality:** wrapping for REPL output happens via `wrap_repl_output` (`src/shesha/rlm/engine.py` imports from `shesha.rlm.prompts`). Subcall prompt wrapping depends on `PromptLoader.render_subcall_prompt()` templates (`src/shesha/prompts/loader.py`), not shown here; engine does not itself enforce tags beyond trusting the prompt template.
-  - **Mitigation:** enforce wrapping in code (not only in external prompt files): in `_handle_llm_query`, wrap `content` with fixed tags before passing to template, or validate that the loaded template contains required tags/placeholders.
+- **~~Docs claim sub-LLM content is wrapped in `<untrusted_document_content>` tags~~** — RESOLVED
+  - Added `wrap_subcall_content()` in `src/shesha/rlm/prompts.py` for code-level enforcement. `_handle_llm_query` now wraps content before passing to template. Validator rejects `subcall.md` templates missing the security tags. Content is double-wrapped (code + template) for defense-in-depth.
 
 - **Docs describe container pool acquiring/releasing per query**; code does not (as noted above).
