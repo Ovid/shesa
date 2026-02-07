@@ -216,6 +216,26 @@ class TestVerifyCitationsWiring:
         assert shesha._rlm_engine.verify_citations is True
 
 
+class TestVerifyWiring:
+    """Tests for verify config wiring."""
+
+    def test_verify_passed_to_engine(self, tmp_path: Path) -> None:
+        """verify config is passed to RLMEngine."""
+        from shesha.config import SheshaConfig
+
+        config = SheshaConfig(model="test-model", verify=True)
+        shesha = Shesha(config=config, storage=_make_mock_storage())
+        assert shesha._rlm_engine.verify is True
+
+    def test_verify_default_false(self, tmp_path: Path) -> None:
+        """verify defaults to False in RLMEngine."""
+        from shesha.config import SheshaConfig
+
+        config = SheshaConfig(model="test-model")
+        shesha = Shesha(config=config, storage=_make_mock_storage())
+        assert shesha._rlm_engine.verify is False
+
+
 class TestDefaultBehaviorUnchanged:
     """Tests that default behavior works when no DI params are provided."""
 
