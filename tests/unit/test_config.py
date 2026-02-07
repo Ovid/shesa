@@ -109,6 +109,12 @@ class TestVerifyCitationsConfig:
         config = SheshaConfig.load(verify_citations=False)
         assert config.verify_citations is False
 
+    def test_verify_citations_from_env_method(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """from_env() respects SHESHA_VERIFY_CITATIONS."""
+        monkeypatch.setenv("SHESHA_VERIFY_CITATIONS", "false")
+        config = SheshaConfig.from_env()
+        assert config.verify_citations is False
+
 
 def test_config_has_no_allowed_hosts():
     """allowed_hosts was removed — config must not have it."""

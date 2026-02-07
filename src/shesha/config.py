@@ -40,12 +40,19 @@ class SheshaConfig:
     @classmethod
     def from_env(cls) -> "SheshaConfig":
         """Create config from environment variables."""
+        verify_env = os.environ.get("SHESHA_VERIFY_CITATIONS")
+        verify = (
+            verify_env.lower() in {"true", "1", "yes"}
+            if verify_env is not None
+            else cls.verify_citations
+        )
         return cls(
             model=os.environ.get("SHESHA_MODEL", cls.model),
             api_key=os.environ.get("SHESHA_API_KEY"),
             storage_path=os.environ.get("SHESHA_STORAGE_PATH", cls.storage_path),
             pool_size=int(os.environ.get("SHESHA_POOL_SIZE", str(cls.pool_size))),
             max_iterations=int(os.environ.get("SHESHA_MAX_ITERATIONS", str(cls.max_iterations))),
+            verify_citations=verify,
         )
 
     @classmethod
