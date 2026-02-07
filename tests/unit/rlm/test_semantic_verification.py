@@ -228,6 +228,25 @@ class TestGatherCitedDocuments:
         assert "Second doc" in result
         assert "### Document 1 (second.py)" in result
 
+    def test_doc_names_shorter_than_documents_uses_fallback(self) -> None:
+        """When doc_names is shorter than documents, uses fallback name."""
+        answer = "See Doc 0 and Doc 1 for details."
+        documents = ["Content zero", "Content one"]
+        doc_names = ["only_one.py"]
+        result = gather_cited_documents(answer, documents, doc_names)
+        assert "### Document 0 (only_one.py)" in result
+        assert "### Document 1 (doc_1)" in result
+        assert "Content one" in result
+
+    def test_empty_doc_names_uses_fallback(self) -> None:
+        """When doc_names is empty, uses fallback names for all docs."""
+        answer = "Doc 0 is relevant."
+        documents = ["Content zero"]
+        doc_names: list[str] = []
+        result = gather_cited_documents(answer, documents, doc_names)
+        assert "### Document 0 (doc_0)" in result
+        assert "Content zero" in result
+
 
 class TestParseVerificationResponse:
     """Tests for parse_verification_response()."""

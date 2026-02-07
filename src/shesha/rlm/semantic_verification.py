@@ -113,7 +113,8 @@ def gather_cited_documents(answer: str, documents: list[str], doc_names: list[st
     sections: list[str] = []
     for doc_id in cited_ids:
         if 0 <= doc_id < len(documents):
-            header = f"### Document {doc_id} ({doc_names[doc_id]})"
+            name = doc_names[doc_id] if doc_id < len(doc_names) else f"doc_{doc_id}"
+            header = f"### Document {doc_id} ({name})"
             sections.append(f"{header}\n\n{documents[doc_id]}")
     return "\n\n---\n\n".join(sections)
 
