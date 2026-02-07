@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from shesha.rlm.semantic_verification import SemanticVerificationReport
 from shesha.rlm.trace import StepType, TokenUsage, Trace
 
 if TYPE_CHECKING:
@@ -61,6 +62,8 @@ def format_progress(
         StepType.SUBCALL_RESPONSE: "Sub-LLM response",
         StepType.FINAL_ANSWER: "Final answer",
         StepType.ERROR: "Error",
+        StepType.VERIFICATION: "Verification",
+        StepType.SEMANTIC_VERIFICATION: "Semantic verification",
     }
     step_name = step_names.get(step_type, step_type.value)
     if elapsed_seconds is not None:
@@ -296,6 +299,69 @@ def format_analysis_as_context(analysis: "RepoAnalysis") -> str:
             lines.append(f"- {dep.name} ({dep.type}): {dep.description}")
 
     lines.append("===")
+    return "\n".join(lines)
+
+
+def format_verified_output(
+    original_answer: str,
+    report: SemanticVerificationReport,
+) -> str:
+    """Format analysis output with verification summary and appendix.
+
+    Args:
+        original_answer: The original FINAL answer from the RLM.
+        report: Semantic verification report.
+
+    Returns:
+        Formatted string with verified findings summary and appendix.
+    """
+    high = report.high_confidence
+    low = report.low_confidence
+    total = len(report.findings)
+
+    lines: list[str] = []
+
+    # Section A: Verified Summary
+    lines.append(
+        f"## Verified Findings ({len(high)} of {total}"
+        f" -- High/Medium confidence)\n"
+    )
+
+    if high:
+        for f in high:
+            flags_str = f"  Flags: {', '.join(f.flags)}\n" if f.flags else ""
+            lines.append(
+                f"### {f.finding_id}: {f.original_claim} "
+                f"({f.confidence.capitalize()} confidence)\n"
+                f"  {f.reason}\n"
+                f"{flags_str}"
+            )
+    else:
+        lines.append("No findings met the high/medium confidence threshold.\n")
+
+    lines.append("---\n")
+
+    # Section B: Appendix
+    lines.append(
+        f"## Verification Appendix ({len(low)} findings filtered)\n"
+    )
+
+    if low:
+        for f in low:
+            flags_str = f"  Flags: {', '.join(f.flags)}" if f.flags else ""
+            lines.append(
+                f"{f.finding_id}: {f.original_claim} -- LOW CONFIDENCE\n"
+                f"  Reason: {f.reason}\n"
+                f"{flags_str}\n"
+            )
+    else:
+        lines.append("No findings were filtered.\n")
+
+    # Include original answer below for reference
+    lines.append("---\n")
+    lines.append("## Original Analysis\n")
+    lines.append(original_answer)
+
     return "\n".join(lines)
 
 

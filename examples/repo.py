@@ -71,6 +71,7 @@ from script_utils import (
     format_progress,
     format_stats,
     format_thought_time,
+    format_verified_output,
     install_urllib3_cleanup_hook,
     is_analysis_command,
     is_exit_command,
@@ -161,6 +162,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--pristine",
         action="store_true",
         help="Skip using pre-computed analysis as query context",
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help=(
+            "Run post-analysis semantic verification. Produces higher-accuracy "
+            "results by adversarially reviewing all findings. Note: this can "
+            "significantly increase analysis time and token count "
+            "(typically 1-2 additional LLM calls)."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -468,7 +479,10 @@ def run_interactive_loop(
 
             elapsed = time.time() - query_start_time
             print(format_thought_time(elapsed))
-            print(result.answer)
+            if result.semantic_verification is not None:
+                print(format_verified_output(result.answer, result.semantic_verification))
+            else:
+                print(result.answer)
             print()
 
             stats = format_stats(result.execution_time, result.token_usage, result.trace)
@@ -515,7 +529,7 @@ def main() -> None:
         print("The provider is auto-detected from the model name via LiteLLM.")
         sys.exit(1)
 
-    config = SheshaConfig.load(storage_path=STORAGE_PATH)
+    config = SheshaConfig.load(storage_path=STORAGE_PATH, verify=args.verify)
     try:
         shesha = Shesha(config=config)
     except RuntimeError as e:
