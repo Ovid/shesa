@@ -102,7 +102,7 @@ class ContainerExecutor:
 
     def stop(self) -> None:
         """Stop and remove the container."""
-        if self._socket:
+        if self._socket is not None:
             self._socket.close()
             self._socket = None
         if self._container:
@@ -251,7 +251,7 @@ class ContainerExecutor:
 
     def _send_raw(self, data: str) -> None:
         """Send raw data to container stdin."""
-        if self._socket:
+        if self._socket is not None:
             self._socket._sock.sendall(data.encode())
 
     def _read_line(self, timeout: int = 30) -> str:
@@ -266,7 +266,7 @@ class ContainerExecutor:
         - 3 bytes: padding (zeros)
         - 4 bytes: payload length (big-endian)
         """
-        if not self._socket:
+        if self._socket is None:
             raise RuntimeError("No socket connection")
 
         self._socket._sock.settimeout(timeout)
