@@ -153,12 +153,12 @@ class ContainerExecutor:
                 # Check if this is an llm_query request
                 if result.get("action") == "llm_query":
                     if self.llm_query_handler is None:
-                        # No handler - send error back
+                        # No handler — signal error so sandbox raises ValueError
                         self._send_raw(
                             json.dumps(
                                 {
                                     "action": "llm_response",
-                                    "result": "ERROR: No LLM query handler configured",
+                                    "error": "No LLM query handler configured",
                                 }
                             )
                             + "\n"

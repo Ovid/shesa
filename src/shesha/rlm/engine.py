@@ -12,12 +12,12 @@ from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
 from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output, wrap_subcall_content
 from shesha.rlm.trace import StepType, TokenUsage, Trace, TraceStep
+from shesha.rlm.trace_writer import IncrementalTraceWriter, TraceWriter
 from shesha.rlm.verification import (
     VerificationResult,
     build_verification_code,
     parse_verification_output,
 )
-from shesha.rlm.trace_writer import IncrementalTraceWriter, TraceWriter
 from shesha.sandbox.executor import ContainerExecutor, SubcallContentError
 from shesha.sandbox.pool import ContainerPool
 from shesha.storage.base import StorageBackend
@@ -325,9 +325,7 @@ class RLMEngine:
                     if self.verify_citations and executor.is_alive:
                         try:
                             code = build_verification_code(final_answer)
-                            vresult = executor.execute(
-                                code, timeout=self.execution_timeout
-                            )
+                            vresult = executor.execute(code, timeout=self.execution_timeout)
                             if vresult.status == "ok" and vresult.stdout:
                                 verification = parse_verification_output(vresult.stdout)
                                 step = trace.add_step(
@@ -337,9 +335,7 @@ class RLMEngine:
                                 )
                                 _write_step(step)
                                 if on_progress:
-                                    on_progress(
-                                        StepType.VERIFICATION, iteration, vresult.stdout
-                                    )
+                                    on_progress(StepType.VERIFICATION, iteration, vresult.stdout)
                         except Exception:
                             pass  # Verification failure doesn't affect answer delivery
 
@@ -355,6 +351,7 @@ class RLMEngine:
 
                 # Recover from dead executor mid-loop
                 if not executor.is_alive and self._pool is not None:
+                    executor.stop()
                     self._pool.discard(executor)
                     executor = self._pool.acquire()
                     executor.llm_query_handler = llm_query_callback

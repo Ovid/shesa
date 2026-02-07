@@ -873,6 +873,45 @@ class TestSubcallContentErrorHandling:
         mock_stop.assert_not_called()
 
 
+class TestNoHandlerErrorProtocol:
+    """Tests for llm_query when no handler is configured."""
+
+    def test_no_handler_sends_error_field_not_result(self):
+        """When llm_query_handler is None, executor sends error field to sandbox."""
+        import json
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+        executor.llm_query_handler = None
+
+        llm_query_msg = json.dumps(
+            {"action": "llm_query", "instruction": "summarize", "content": "data"}
+        )
+        exec_result_msg = json.dumps(
+            {
+                "status": "error",
+                "stdout": "",
+                "stderr": "",
+                "return_value": None,
+                "error": "ValueError: No LLM query handler configured",
+            }
+        )
+
+        read_responses = iter([llm_query_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(executor, "_send_raw", side_effect=lambda d: sent_data.append(d)):
+                executor.execute("llm_query('summarize', 'data')")
+
+        # Second _send_raw should be the llm_response with error field
+        assert len(sent_data) == 2
+        error_response = json.loads(sent_data[1].strip())
+        assert error_response["action"] == "llm_response"
+        assert "error" in error_response
+        assert "result" not in error_response
+
+
 class TestIsAlive:
     """Tests for is_alive property."""
 

@@ -471,6 +471,79 @@ class TestDeadExecutorNoPool:
         assert "executor" in result.answer.lower() or "died" in result.answer.lower()
 
 
+class TestDeadExecutorWithPool:
+    """Tests for dead executor recovery when pool is available."""
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_dead_executor_stopped_before_discard(
+        self,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """Dead executor is stopped before being discarded from pool."""
+        from shesha.sandbox.executor import ExecutionResult
+        from shesha.sandbox.pool import ContainerPool
+
+        mock_llm = MagicMock()
+        call_count = 0
+
+        def llm_side_effect(messages):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MagicMock(
+                    content='```repl\nprint("boom")\n```',
+                    prompt_tokens=100,
+                    completion_tokens=50,
+                    total_tokens=150,
+                )
+            return MagicMock(
+                content='```repl\nFINAL("recovered")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            )
+
+        mock_llm.complete.side_effect = llm_side_effect
+        mock_llm_cls.return_value = mock_llm
+
+        # First executor: dies on execute
+        dead_executor = MagicMock()
+        dead_executor.is_alive = True
+
+        def kill_on_execute(code, timeout=30):
+            dead_executor.is_alive = False
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error="Protocol error",
+            )
+
+        dead_executor.execute.side_effect = kill_on_execute
+
+        # Second executor: works fine
+        fresh_executor = MagicMock()
+        fresh_executor.is_alive = True
+        fresh_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="recovered",
+        )
+
+        mock_pool = MagicMock(spec=ContainerPool)
+        mock_pool.acquire.side_effect = [dead_executor, fresh_executor]
+
+        engine = RLMEngine(model="test-model", pool=mock_pool)
+        result = engine.query(documents=["doc"], question="Q?")
+
+        assert result.answer == "recovered"
+        dead_executor.stop.assert_called_once()
+        mock_pool.discard.assert_called_once_with(dead_executor)
+
+
 class TestEngineTraceWriterSuppression:
     """Tests for engine trace writer suppress_errors configuration."""
 
@@ -807,10 +880,12 @@ class TestEngineVerification:
         )
         mock_llm_cls.return_value = mock_llm
 
-        verification_json = json.dumps({
-            "citations": [{"doc_id": 0, "found": True}],
-            "quotes": [],
-        })
+        verification_json = json.dumps(
+            {
+                "citations": [{"doc_id": 0, "found": True}],
+                "quotes": [],
+            }
+        )
 
         mock_executor = MagicMock()
         mock_executor.is_alive = True
@@ -939,10 +1014,12 @@ class TestEngineVerification:
         )
         mock_llm_cls.return_value = mock_llm
 
-        verification_json = json.dumps({
-            "citations": [{"doc_id": 0, "found": True}],
-            "quotes": [],
-        })
+        verification_json = json.dumps(
+            {
+                "citations": [{"doc_id": 0, "found": True}],
+                "quotes": [],
+            }
+        )
 
         mock_executor = MagicMock()
         mock_executor.is_alive = True
