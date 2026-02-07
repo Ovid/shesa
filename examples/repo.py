@@ -378,7 +378,7 @@ def run_interactive_loop(
     print('Type "help" or "?" for commands.')
     print()
 
-    history: list[tuple[str, str]] = []
+    history: list[tuple[str, str, str]] = []
 
     while True:
         try:
@@ -471,7 +471,8 @@ def run_interactive_loop(
             print(result.answer)
             print()
 
-            history.append((user_input, result.answer))
+            stats = format_stats(result.execution_time, result.token_usage, result.trace)
+            history.append((user_input, result.answer, stats))
 
             if verbose:
                 print(format_stats(result.execution_time, result.token_usage, result.trace))

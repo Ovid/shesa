@@ -108,7 +108,7 @@ class TestFormatHistoryPrefix:
         """Single exchange formats correctly."""
         from examples.script_utils import format_history_prefix
 
-        history = [("What is X?", "X is Y.")]
+        history = [("What is X?", "X is Y.", "")]
         result = format_history_prefix(history)
         assert "Previous conversation:" in result
         assert "Q1: What is X?" in result
@@ -175,14 +175,14 @@ class TestShouldWarnHistorySize:
         """Small history should not trigger warning."""
         from examples.script_utils import should_warn_history_size
 
-        history = [("q", "a") for _ in range(5)]
+        history = [("q", "a", "") for _ in range(5)]
         assert not should_warn_history_size(history)
 
     def test_many_exchanges_warns(self) -> None:
         """10+ exchanges should trigger warning."""
         from examples.script_utils import should_warn_history_size
 
-        history = [("q", "a") for _ in range(10)]
+        history = [("q", "a", "") for _ in range(10)]
         assert should_warn_history_size(history)
 
     def test_large_chars_warns(self) -> None:
@@ -191,7 +191,7 @@ class TestShouldWarnHistorySize:
 
         # Create history with large content (50k+ chars total)
         large_text = "x" * 50000
-        history = [("q", large_text)]
+        history = [("q", large_text, "")]
         assert should_warn_history_size(history)
 
 
@@ -333,7 +333,7 @@ class TestFormatSessionTranscript:
         """Single exchange should be formatted correctly."""
         from examples.script_utils import format_session_transcript
 
-        history = [("What is X?", "X is a variable.")]
+        history = [("What is X?", "X is a variable.", "")]
         result = format_session_transcript(history, "my-project")
 
         assert "# Session Transcript" in result
@@ -346,7 +346,7 @@ class TestFormatSessionTranscript:
         """Multiple exchanges should be separated by horizontal rules."""
         from examples.script_utils import format_session_transcript
 
-        history = [("Q1?", "A1."), ("Q2?", "A2.")]
+        history = [("Q1?", "A1.", ""), ("Q2?", "A2.", "")]
         result = format_session_transcript(history, "project")
 
         assert "**Exchanges:** 2" in result
@@ -364,6 +364,32 @@ class TestFormatSessionTranscript:
         result = format_session_transcript([], "project")
         assert "**Date:**" in result
 
+    def test_includes_stats_in_transcript(self) -> None:
+        """Transcript should include execution stats for each exchange."""
+        from examples.script_utils import format_session_transcript
+
+        stats = "Execution time: 2.50s\nTokens: 150 (prompt: 100, completion: 50)\nTrace steps: 3"
+        history: list[tuple[str, str, str]] = [("What is X?", "X is Y.", stats)]
+        result = format_session_transcript(history, "project")
+
+        assert "**User:** What is X?" in result
+        assert "X is Y." in result
+        assert "Execution time: 2.50s" in result
+        assert "Tokens: 150" in result
+        assert "Trace steps: 3" in result
+
+    def test_stats_appear_after_answer(self) -> None:
+        """Stats should appear after the answer, not before it."""
+        from examples.script_utils import format_session_transcript
+
+        stats = "Execution time: 1.00s\nTokens: 100 (prompt: 80, completion: 20)\nTrace steps: 2"
+        history: list[tuple[str, str, str]] = [("Q?", "The answer.", stats)]
+        result = format_session_transcript(history, "project")
+
+        answer_pos = result.index("The answer.")
+        stats_pos = result.index("Execution time: 1.00s")
+        assert stats_pos > answer_pos
+
 
 class TestWriteSession:
     """Tests for write_session function."""
@@ -372,7 +398,7 @@ class TestWriteSession:
         """Should write transcript to specified filename."""
         from examples.script_utils import write_session
 
-        history = [("Q?", "A.")]
+        history = [("Q?", "A.", "")]
         filepath = tmp_path / "test.md"
 
         result = write_session(history, "project", str(filepath))
@@ -389,7 +415,7 @@ class TestWriteSession:
         # Change to tmp_path for the test
         monkeypatch.chdir(tmp_path)
 
-        history = [("Q?", "A.")]
+        history = [("Q?", "A.", "")]
         result = write_session(history, "project", None)
 
         assert result.startswith("session-")
@@ -400,7 +426,7 @@ class TestWriteSession:
         """Should create parent directories if they don't exist."""
         from examples.script_utils import write_session
 
-        history = [("Q?", "A.")]
+        history = [("Q?", "A.", "")]
         filepath = tmp_path / "subdir" / "nested" / "test.md"
 
         write_session(history, "project", str(filepath))
@@ -411,7 +437,7 @@ class TestWriteSession:
         """Should return the path that was written to."""
         from examples.script_utils import write_session
 
-        history = [("Q?", "A.")]
+        history = [("Q?", "A.", "")]
         filepath = tmp_path / "output.md"
 
         result = write_session(history, "project", str(filepath))

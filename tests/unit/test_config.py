@@ -77,6 +77,61 @@ class TestMaxTracesConfig:
         assert config.max_traces_per_project == 100
 
 
+class TestVerifyCitationsConfig:
+    """Tests for verify_citations config."""
+
+    def test_default_verify_citations_is_true(self) -> None:
+        """Default verify_citations is True."""
+        config = SheshaConfig()
+        assert config.verify_citations is True
+
+    def test_verify_citations_from_env_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """SHESHA_VERIFY_CITATIONS=false disables verification."""
+        monkeypatch.setenv("SHESHA_VERIFY_CITATIONS", "false")
+        config = SheshaConfig.load()
+        assert config.verify_citations is False
+
+    def test_verify_citations_from_env_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """SHESHA_VERIFY_CITATIONS=true enables verification."""
+        monkeypatch.setenv("SHESHA_VERIFY_CITATIONS", "true")
+        config = SheshaConfig.load()
+        assert config.verify_citations is True
+
+    def test_verify_citations_from_file(self, tmp_path: Path) -> None:
+        """verify_citations can be set from config file."""
+        config_file = tmp_path / "shesha.yaml"
+        config_file.write_text("verify_citations: false\n")
+        config = SheshaConfig.from_file(config_file)
+        assert config.verify_citations is False
+
+    def test_verify_citations_override(self) -> None:
+        """verify_citations can be overridden via kwargs."""
+        config = SheshaConfig.load(verify_citations=False)
+        assert config.verify_citations is False
+
+    def test_verify_citations_from_env_method(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """from_env() respects SHESHA_VERIFY_CITATIONS."""
+        monkeypatch.setenv("SHESHA_VERIFY_CITATIONS", "false")
+        config = SheshaConfig.from_env()
+        assert config.verify_citations is False
+
+    def test_verify_citations_invalid_env_raises_in_load(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load() raises ValueError for unrecognized SHESHA_VERIFY_CITATIONS value."""
+        monkeypatch.setenv("SHESHA_VERIFY_CITATIONS", "treu")
+        with pytest.raises(ValueError, match="SHESHA_VERIFY_CITATIONS"):
+            SheshaConfig.load()
+
+    def test_verify_citations_invalid_env_raises_in_from_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """from_env() raises ValueError for unrecognized SHESHA_VERIFY_CITATIONS value."""
+        monkeypatch.setenv("SHESHA_VERIFY_CITATIONS", "yse")
+        with pytest.raises(ValueError, match="SHESHA_VERIFY_CITATIONS"):
+            SheshaConfig.from_env()
+
+
 def test_config_has_no_allowed_hosts():
     """allowed_hosts was removed — config must not have it."""
     config = SheshaConfig()

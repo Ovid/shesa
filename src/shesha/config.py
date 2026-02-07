@@ -8,6 +8,22 @@ from typing import Any
 
 import yaml
 
+_BOOL_TRUE = {"true", "1", "yes"}
+_BOOL_FALSE = {"false", "0", "no"}
+
+
+def _parse_bool_env(env_var: str, value: str) -> bool:
+    """Parse a boolean environment variable, raising on unrecognized values."""
+    lower = value.lower()
+    if lower in _BOOL_TRUE:
+        return True
+    if lower in _BOOL_FALSE:
+        return False
+    raise ValueError(
+        f"Invalid value for {env_var}: {value!r}. "
+        f"Expected one of: {', '.join(sorted(_BOOL_TRUE | _BOOL_FALSE))}"
+    )
+
 
 @dataclass
 class SheshaConfig:
@@ -31,18 +47,28 @@ class SheshaConfig:
     max_iterations: int = 20
     max_output_chars: int = 50000
 
+    # Verification
+    verify_citations: bool = True
+
     # Trace logging
     max_traces_per_project: int = 50
 
     @classmethod
     def from_env(cls) -> "SheshaConfig":
         """Create config from environment variables."""
+        verify_env = os.environ.get("SHESHA_VERIFY_CITATIONS")
+        verify = (
+            _parse_bool_env("SHESHA_VERIFY_CITATIONS", verify_env)
+            if verify_env is not None
+            else cls.verify_citations
+        )
         return cls(
             model=os.environ.get("SHESHA_MODEL", cls.model),
             api_key=os.environ.get("SHESHA_API_KEY"),
             storage_path=os.environ.get("SHESHA_STORAGE_PATH", cls.storage_path),
             pool_size=int(os.environ.get("SHESHA_POOL_SIZE", str(cls.pool_size))),
             max_iterations=int(os.environ.get("SHESHA_MAX_ITERATIONS", str(cls.max_iterations))),
+            verify_citations=verify,
         )
 
     @classmethod
@@ -85,12 +111,15 @@ class SheshaConfig:
             "SHESHA_POOL_SIZE": "pool_size",
             "SHESHA_MAX_ITERATIONS": "max_iterations",
             "SHESHA_MAX_TRACES_PER_PROJECT": "max_traces_per_project",
+            "SHESHA_VERIFY_CITATIONS": "verify_citations",
         }
         for env_var, field_name in env_map.items():
             if env_var in os.environ:
                 env_val: Any = os.environ[env_var]
                 if field_name in {"pool_size", "max_iterations", "max_traces_per_project"}:
                     env_val = int(env_val)
+                elif field_name in {"verify_citations"}:
+                    env_val = _parse_bool_env(env_var, env_val)
                 config_dict[field_name] = env_val
 
         # Layer 4: Explicit overrides (highest priority)

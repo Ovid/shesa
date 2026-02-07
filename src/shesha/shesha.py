@@ -92,6 +92,7 @@ class Shesha:
             max_output_chars=config.max_output_chars,
             execution_timeout=config.execution_timeout_sec,
             max_traces_per_project=config.max_traces_per_project,
+            verify_citations=config.verify_citations,
         )
 
         # Initialize repo ingester

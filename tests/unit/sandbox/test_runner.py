@@ -99,3 +99,91 @@ class TestResetAction:
 
         llm_query_check = json.loads(output_lines[4])
         assert llm_query_check["stdout"] == "True\n", "llm_query should still exist"
+
+
+class TestLlmQueryErrorHandling:
+    """Tests for llm_query() error response handling."""
+
+    def test_llm_query_raises_on_error_response(self) -> None:
+        """llm_query() raises ValueError when host sends error field."""
+        import io
+        import sys
+
+        from shesha.sandbox.runner import main
+
+        error_msg = "Content size (735,490 chars) exceeds the sub-LLM limit"
+
+        # The runner reads lines from stdin in sequence:
+        # 1. {"action": "execute", "code": "result = llm_query('x', 'y')"}
+        # 2. (llm_query writes request to stdout, then reads next line from stdin)
+        # 3. {"action": "llm_response", "error": "Content size..."}
+        # 4. (code raises ValueError, execute_code returns error result)
+
+        error_response = json.dumps({"action": "llm_response", "error": error_msg})
+        commands = [
+            json.dumps({"action": "execute", "code": "result = llm_query('summarize', 'big')"})
+            + "\n",
+            error_response + "\n",
+        ]
+        stdin = io.StringIO("".join(commands))
+        stdout = io.StringIO()
+
+        old_stdin = sys.stdin
+        old_stdout = sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            main()
+        finally:
+            sys.stdin = old_stdin
+            sys.stdout = old_stdout
+
+        output_lines = stdout.getvalue().strip().split("\n")
+        # First line: the llm_query request from the sandbox
+        llm_request = json.loads(output_lines[0])
+        assert llm_request["action"] == "llm_query"
+        # Second line: the execute result (should be error from ValueError)
+        exec_result = json.loads(output_lines[1])
+        assert exec_result["status"] == "error"
+        assert "ValueError" in exec_result["error"]
+        assert error_msg in exec_result["error"]
+
+    def test_llm_query_succeeds_on_normal_response(self) -> None:
+        """llm_query() returns result string when response has no error field."""
+        import io
+        import sys
+
+        from shesha.sandbox.runner import main
+
+        normal_response = json.dumps({"action": "llm_response", "result": "Analysis complete"})
+        commands = [
+            json.dumps(
+                {
+                    "action": "execute",
+                    "code": "result = llm_query('summarize', 'content')\nprint(result)",
+                }
+            )
+            + "\n",
+            normal_response + "\n",
+        ]
+        stdin = io.StringIO("".join(commands))
+        stdout = io.StringIO()
+
+        old_stdin = sys.stdin
+        old_stdout = sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            main()
+        finally:
+            sys.stdin = old_stdin
+            sys.stdout = old_stdout
+
+        output_lines = stdout.getvalue().strip().split("\n")
+        # First line: the llm_query request
+        llm_request = json.loads(output_lines[0])
+        assert llm_request["action"] == "llm_query"
+        # Second line: the execute result (should be ok)
+        exec_result = json.loads(output_lines[1])
+        assert exec_result["status"] == "ok"
+        assert "Analysis complete" in exec_result["stdout"]

@@ -19,6 +19,12 @@ class ProtocolError(Exception):
     pass
 
 
+class SubcallContentError(Exception):
+    """Sub-LLM call rejected (e.g., content exceeds size limit)."""
+
+    pass
+
+
 # Protocol limits to prevent DoS attacks from malicious containers
 MAX_BUFFER_SIZE = 10 * 1024 * 1024  # 10 MB max buffer
 MAX_LINE_LENGTH = 1 * 1024 * 1024  # 1 MB max single line
@@ -65,6 +71,11 @@ class ContainerExecutor:
         self._raw_buffer: bytes = b""  # Buffer for raw Docker stream (with headers)
         self._content_buffer: bytes = b""  # Buffer for demuxed content only
 
+    @property
+    def is_alive(self) -> bool:
+        """Whether the executor has an active socket connection."""
+        return self._socket is not None
+
     def start(self) -> None:
         """Start a container for execution."""
         self._raw_buffer = b""  # Clear raw stream buffer
@@ -91,7 +102,7 @@ class ContainerExecutor:
 
     def stop(self) -> None:
         """Stop and remove the container."""
-        if self._socket:
+        if self._socket is not None:
             self._socket.close()
             self._socket = None
         if self._container:
@@ -142,31 +153,44 @@ class ContainerExecutor:
                 # Check if this is an llm_query request
                 if result.get("action") == "llm_query":
                     if self.llm_query_handler is None:
-                        # No handler - send error back
+                        # No handler — signal error so sandbox raises ValueError
                         self._send_raw(
                             json.dumps(
                                 {
                                     "action": "llm_response",
-                                    "result": "ERROR: No LLM query handler configured",
+                                    "error": "No LLM query handler configured",
                                 }
                             )
                             + "\n"
                         )
                     else:
                         # Call handler and send response back
-                        llm_response = self.llm_query_handler(
-                            result["instruction"],
-                            result["content"],
-                        )
-                        self._send_raw(
-                            json.dumps(
-                                {
-                                    "action": "llm_response",
-                                    "result": llm_response,
-                                }
+                        try:
+                            llm_response = self.llm_query_handler(
+                                result["instruction"],
+                                result["content"],
                             )
-                            + "\n"
-                        )
+                        except SubcallContentError as e:
+                            # Content rejected — send error so sandbox raises
+                            self._send_raw(
+                                json.dumps(
+                                    {
+                                        "action": "llm_response",
+                                        "error": str(e),
+                                    }
+                                )
+                                + "\n"
+                            )
+                        else:
+                            self._send_raw(
+                                json.dumps(
+                                    {
+                                        "action": "llm_response",
+                                        "result": llm_response,
+                                    }
+                                )
+                                + "\n"
+                            )
                     continue
 
                 # This is the final execution result
@@ -227,7 +251,7 @@ class ContainerExecutor:
 
     def _send_raw(self, data: str) -> None:
         """Send raw data to container stdin."""
-        if self._socket:
+        if self._socket is not None:
             self._socket._sock.sendall(data.encode())
 
     def _read_line(self, timeout: int = 30) -> str:
@@ -242,7 +266,7 @@ class ContainerExecutor:
         - 3 bytes: padding (zeros)
         - 4 bytes: payload length (big-endian)
         """
-        if not self._socket:
+        if self._socket is None:
             raise RuntimeError("No socket connection")
 
         self._socket._sock.settimeout(timeout)

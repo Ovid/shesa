@@ -89,13 +89,13 @@ def format_stats(execution_time: float, token_usage: TokenUsage, trace: Trace) -
     return "\n".join(lines)
 
 
-def format_history_prefix(history: list[tuple[str, str]]) -> str:
+def format_history_prefix(history: list[tuple[str, str, str]]) -> str:
     """Format conversation history as context for a follow-up question."""
     if not history:
         return ""
 
     lines = ["Previous conversation:"]
-    for i, (q, a) in enumerate(history, 1):
+    for i, (q, a, _stats) in enumerate(history, 1):
         lines.append(f"Q{i}: {q}")
         lines.append(f"A{i}: {a}")
         lines.append("")  # blank line between exchanges
@@ -156,11 +156,11 @@ def parse_write_command(user_input: str) -> str | None:
     return filename
 
 
-def should_warn_history_size(history: list[tuple[str, str]]) -> bool:
+def should_warn_history_size(history: list[tuple[str, str, str]]) -> bool:
     """Check if history is large enough to warrant a warning."""
     if len(history) >= HISTORY_WARN_EXCHANGES:
         return True
-    total_chars = sum(len(q) + len(a) for q, a in history)
+    total_chars = sum(len(q) + len(a) for q, a, _s in history)
     return total_chars >= HISTORY_WARN_CHARS
 
 
@@ -195,11 +195,11 @@ def generate_session_filename() -> str:
     return f"session-{timestamp}.md"
 
 
-def format_session_transcript(history: list[tuple[str, str]], project_name: str) -> str:
+def format_session_transcript(history: list[tuple[str, str, str]], project_name: str) -> str:
     """Format conversation history as a markdown transcript.
 
     Args:
-        history: List of (question, answer) tuples.
+        history: List of (question, answer, stats) tuples.
         project_name: Name or URL of the project for metadata.
 
     Returns:
@@ -217,13 +217,15 @@ def format_session_transcript(history: list[tuple[str, str]], project_name: str)
         "---",
     ]
 
-    for question, answer in history:
+    for question, answer, stats in history:
         lines.extend(
             [
                 "",
                 f"**User:** {question}",
                 "",
                 answer,
+                "",
+                stats,
                 "",
                 "---",
             ]
@@ -233,14 +235,14 @@ def format_session_transcript(history: list[tuple[str, str]], project_name: str)
 
 
 def write_session(
-    history: list[tuple[str, str]],
+    history: list[tuple[str, str, str]],
     project_name: str,
     filename: str | None,
 ) -> str:
     """Write session transcript to a markdown file.
 
     Args:
-        history: List of (question, answer) tuples.
+        history: List of (question, answer, stats) tuples.
         project_name: Name or URL of the project for metadata.
         filename: Output filename, or None to auto-generate.
 

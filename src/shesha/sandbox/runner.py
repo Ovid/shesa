@@ -82,6 +82,8 @@ def main() -> None:
         response_line = real_stdin.readline()
         response = json.loads(response_line)
         if response.get("action") == "llm_response":
+            if "error" in response:
+                raise ValueError(str(response["error"]))
             return str(response["result"])
         raise RuntimeError(f"Unexpected response: {response}")
 

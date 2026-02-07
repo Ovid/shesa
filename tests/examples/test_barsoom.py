@@ -202,7 +202,7 @@ class TestHistoryFormatting:
 
     def test_format_history_prefix_single_exchange(self) -> None:
         """Single exchange formats correctly."""
-        history = [("Who is Dejah Thoris?", "She is the Princess of Helium.")]
+        history = [("Who is Dejah Thoris?", "She is the Princess of Helium.", "")]
         result = format_history_prefix(history)
 
         assert "Previous conversation:" in result
@@ -213,9 +213,9 @@ class TestHistoryFormatting:
     def test_format_history_prefix_multiple_exchanges(self) -> None:
         """Multiple exchanges format with correct numbering."""
         history = [
-            ("Question one?", "Answer one."),
-            ("Question two?", "Answer two."),
-            ("Question three?", "Answer three."),
+            ("Question one?", "Answer one.", ""),
+            ("Question two?", "Answer two.", ""),
+            ("Question three?", "Answer three.", ""),
         ]
         result = format_history_prefix(history)
 
@@ -233,22 +233,22 @@ class TestHistoryWarning:
     def test_should_warn_at_exchange_limit(self) -> None:
         """Warn when exchange count reaches threshold."""
         # Just under limit - no warning
-        history = [("q", "a") for _ in range(HISTORY_WARN_EXCHANGES - 1)]
+        history = [("q", "a", "") for _ in range(HISTORY_WARN_EXCHANGES - 1)]
         assert should_warn_history_size(history) is False
 
         # At limit - warn
-        history.append(("q", "a"))
+        history.append(("q", "a", ""))
         assert should_warn_history_size(history) is True
 
     def test_should_warn_at_char_limit(self) -> None:
         """Warn when character count reaches threshold."""
         # Create history with large content but few exchanges
         large_answer = "x" * (HISTORY_WARN_CHARS - 100)
-        history = [("short question", large_answer)]
+        history = [("short question", large_answer, "")]
         assert should_warn_history_size(history) is False
 
         # Add more to exceed limit
-        history.append(("another", "x" * 200))
+        history.append(("another", "x" * 200, ""))
         assert should_warn_history_size(history) is True
 
     def test_should_warn_empty_history(self) -> None:

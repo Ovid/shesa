@@ -96,3 +96,22 @@ class TestTraceRedaction:
         redacted = trace.redacted(config)
         assert "custom-secret-123" not in redacted.steps[0].content
         assert "[HIDDEN]" in redacted.steps[0].content
+
+
+class TestVerificationStepType:
+    """Tests for VERIFICATION step type."""
+
+    def test_verification_step_type_exists(self) -> None:
+        """StepType.VERIFICATION exists."""
+        assert StepType.VERIFICATION.value == "verification"
+
+    def test_trace_can_add_verification_step(self) -> None:
+        """Trace can add a VERIFICATION step."""
+        trace = Trace()
+        step = trace.add_step(
+            type=StepType.VERIFICATION,
+            content="verification result json",
+            iteration=0,
+        )
+        assert step.type == StepType.VERIFICATION
+        assert len(trace.steps) == 1

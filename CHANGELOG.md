@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Post-FINAL citation verification: after `FINAL()`, the engine mechanically checks that cited doc IDs exist in the corpus and that quoted strings actually appear in the cited documents. Results are available via `QueryResult.verification`. Zero LLM cost, fail-safe (verification errors don't affect answer delivery)
+- `verify_citations` config option (default `True`, env var `SHESHA_VERIFY_CITATIONS`) to enable/disable citation verification
+- `ContainerExecutor.is_alive` property to check whether executor has an active socket connection
+
+### Changed
+
+- `llm_query()` in sandbox now raises `ValueError` when content exceeds the sub-LLM size limit, preventing error messages from being silently captured as return values and passed to `FINAL()`
+
+### Fixed
+
+- RLM engine now recovers from dead executors mid-loop when a container pool is available, acquiring a fresh executor instead of wasting remaining iterations
+- RLM engine exits early with a clear error when executor dies and no pool is available, instead of running all remaining iterations against a dead executor
+- Oversized `llm_query()` calls no longer produce error strings that get passed to `FINAL()` as the answer; they now raise exceptions so the LLM can retry with chunked content
+
 ## [0.4.0] - 2026-02-06
 
 ### Added

@@ -16,6 +16,7 @@ class StepType(Enum):
     SUBCALL_RESPONSE = "subcall_response"
     ERROR = "error"
     FINAL_ANSWER = "final_answer"
+    VERIFICATION = "verification"
 
 
 @dataclass

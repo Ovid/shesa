@@ -272,7 +272,7 @@ def main() -> None:
     print()
 
     # Conversation history for follow-up questions
-    history: list[tuple[str, str]] = []
+    history: list[tuple[str, str, str]] = []
 
     # Interactive loop
     while True:
@@ -344,7 +344,8 @@ def main() -> None:
             print()
 
             # Store exchange in history
-            history.append((user_input, result.answer))
+            stats = format_stats(result.execution_time, result.token_usage, result.trace)
+            history.append((user_input, result.answer, stats))
 
             if args.verbose:
                 print(format_stats(result.execution_time, result.token_usage, result.trace))

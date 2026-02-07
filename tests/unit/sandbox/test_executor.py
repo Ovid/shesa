@@ -20,6 +20,23 @@ class TestProtocolError:
         assert str(err) == "test message"
 
 
+class TestSubcallContentError:
+    """Tests for SubcallContentError exception."""
+
+    def test_subcall_content_error_exists(self):
+        """SubcallContentError is importable from executor module."""
+        from shesha.sandbox.executor import SubcallContentError
+
+        err = SubcallContentError("content too large")
+        assert str(err) == "content too large"
+
+    def test_subcall_content_error_is_exception(self):
+        """SubcallContentError is a proper Exception subclass."""
+        from shesha.sandbox.executor import SubcallContentError
+
+        assert issubclass(SubcallContentError, Exception)
+
+
 class TestProtocolLimits:
     """Tests for protocol limit constants."""
 
@@ -771,6 +788,161 @@ class TestExecuteProtocolHandling:
         # Should return error result, not raise RuntimeError
         assert result.status == "error"
         assert "stopped" in result.error.lower() or "socket" in result.error.lower()
+
+
+class TestSubcallContentErrorHandling:
+    """Tests for SubcallContentError handling in execute()."""
+
+    def test_execute_sends_error_response_on_subcall_content_error(self):
+        """execute() sends error field to sandbox when handler raises SubcallContentError."""
+        import json
+
+        from shesha.sandbox.executor import SubcallContentError
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        error_msg = "Content size (735,490 chars) exceeds the sub-LLM limit"
+
+        def handler_raises(instruction: str, content: str) -> str:
+            raise SubcallContentError(error_msg)
+
+        executor.llm_query_handler = handler_raises
+
+        # Simulate: container sends llm_query, then receives error response, then sends result
+        llm_query_msg = json.dumps(
+            {"action": "llm_query", "instruction": "summarize", "content": "big content"}
+        )
+        # After sending error response, container code raises ValueError and returns error result
+        exec_result_msg = json.dumps(
+            {
+                "status": "error",
+                "stdout": "",
+                "stderr": "",
+                "return_value": None,
+                "error": "ValueError: " + error_msg,
+            }
+        )
+
+        read_responses = iter([llm_query_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(executor, "_send_raw", side_effect=lambda d: sent_data.append(d)):
+                executor.execute("analysis = llm_query('summarize', big_content)")
+
+        # First _send_raw is the execute command, second should be the error response
+        # _send_raw is called for the initial execute AND for the llm_response
+        assert len(sent_data) == 2
+        error_response = json.loads(sent_data[1].strip())
+        assert error_response["action"] == "llm_response"
+        assert "error" in error_response
+        assert error_msg in error_response["error"]
+
+    def test_execute_does_not_stop_container_on_subcall_content_error(self):
+        """SubcallContentError does not kill the container — user error."""
+        import json
+
+        from shesha.sandbox.executor import SubcallContentError
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        def handler_raises(instruction: str, content: str) -> str:
+            raise SubcallContentError("too large")
+
+        executor.llm_query_handler = handler_raises
+
+        llm_query_msg = json.dumps({"action": "llm_query", "instruction": "x", "content": "y"})
+        exec_result_msg = json.dumps(
+            {
+                "status": "error",
+                "stdout": "",
+                "stderr": "",
+                "return_value": None,
+                "error": "ValueError: too large",
+            }
+        )
+
+        with patch.object(executor, "_read_line", side_effect=[llm_query_msg, exec_result_msg]):
+            with patch.object(executor, "_send_raw"):
+                with patch.object(executor, "stop") as mock_stop:
+                    executor.execute("llm_query('x', 'y')")
+
+        # Container should NOT be stopped — this is a content error, not protocol violation
+        mock_stop.assert_not_called()
+
+
+class TestNoHandlerErrorProtocol:
+    """Tests for llm_query when no handler is configured."""
+
+    def test_no_handler_sends_error_field_not_result(self):
+        """When llm_query_handler is None, executor sends error field to sandbox."""
+        import json
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+        executor.llm_query_handler = None
+
+        llm_query_msg = json.dumps(
+            {"action": "llm_query", "instruction": "summarize", "content": "data"}
+        )
+        exec_result_msg = json.dumps(
+            {
+                "status": "error",
+                "stdout": "",
+                "stderr": "",
+                "return_value": None,
+                "error": "ValueError: No LLM query handler configured",
+            }
+        )
+
+        read_responses = iter([llm_query_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(executor, "_send_raw", side_effect=lambda d: sent_data.append(d)):
+                executor.execute("llm_query('summarize', 'data')")
+
+        # Second _send_raw should be the llm_response with error field
+        assert len(sent_data) == 2
+        error_response = json.loads(sent_data[1].strip())
+        assert error_response["action"] == "llm_response"
+        assert "error" in error_response
+        assert "result" not in error_response
+
+
+class TestIsAlive:
+    """Tests for is_alive property."""
+
+    def test_is_alive_true_when_socket_exists(self):
+        """is_alive returns True when socket is set."""
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        assert executor.is_alive is True
+
+    def test_is_alive_false_when_socket_is_none(self):
+        """is_alive returns False when socket is None."""
+        executor = ContainerExecutor()
+        executor._socket = None
+
+        assert executor.is_alive is False
+
+    def test_is_alive_false_after_protocol_error(self):
+        """is_alive returns False after ProtocolError kills executor."""
+        from shesha.sandbox.executor import ProtocolError
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        # Simulate protocol error during execute (which calls stop())
+        with patch.object(executor, "_read_line", side_effect=ProtocolError("overflow")):
+            with patch.object(executor, "_send_raw"):
+                executor.execute("print('hello')")
+
+        # stop() sets _socket = None
+        assert executor.is_alive is False
 
 
 class TestResetNamespace:

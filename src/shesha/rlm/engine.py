@@ -4,7 +4,7 @@ import re
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from shesha.llm.client import LLMClient
@@ -13,7 +13,12 @@ from shesha.prompts import PromptLoader
 from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output, wrap_subcall_content
 from shesha.rlm.trace import StepType, TokenUsage, Trace, TraceStep
 from shesha.rlm.trace_writer import IncrementalTraceWriter, TraceWriter
-from shesha.sandbox.executor import ContainerExecutor
+from shesha.rlm.verification import (
+    VerificationResult,
+    build_verification_code,
+    parse_verification_output,
+)
+from shesha.sandbox.executor import ContainerExecutor, SubcallContentError
 from shesha.sandbox.pool import ContainerPool
 from shesha.storage.base import StorageBackend
 
@@ -29,6 +34,7 @@ class QueryResult:
     trace: Trace
     token_usage: TokenUsage
     execution_time: float
+    verification: VerificationResult | None = field(default=None)
 
 
 def extract_code_blocks(text: str) -> list[str]:
@@ -52,6 +58,7 @@ class RLMEngine:
         prompts_dir: Path | None = None,
         pool: ContainerPool | None = None,
         max_traces_per_project: int = 50,
+        verify_citations: bool = True,
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -63,6 +70,7 @@ class RLMEngine:
         self.prompt_loader = PromptLoader(prompts_dir)
         self._pool = pool
         self.max_traces_per_project = max_traces_per_project
+        self.verify_citations = verify_citations
 
     def _handle_llm_query(
         self,
@@ -90,7 +98,7 @@ class RLMEngine:
         # Check content size limit
         if len(content) > self.max_subcall_content_chars:
             error_msg = (
-                f"Error: Content size ({len(content):,} chars) exceeds the sub-LLM limit "
+                f"Content size ({len(content):,} chars) exceeds the sub-LLM limit "
                 f"of {self.max_subcall_content_chars:,} chars. Please chunk the content "
                 f"into smaller pieces and make multiple llm_query calls."
             )
@@ -103,7 +111,7 @@ class RLMEngine:
                 on_step(step)
             if on_progress:
                 on_progress(StepType.SUBCALL_RESPONSE, iteration, error_msg)
-            return error_msg
+            raise SubcallContentError(error_msg)
 
         # Wrap content in untrusted tags (code-level security boundary)
         wrapped_content = wrap_subcall_content(content)
@@ -313,13 +321,63 @@ class RLMEngine:
                         break
 
                 if final_answer:
+                    verification = None
+                    if self.verify_citations and executor.is_alive:
+                        try:
+                            code = build_verification_code(final_answer)
+                            vresult = executor.execute(code, timeout=self.execution_timeout)
+                            if vresult.status == "ok" and vresult.stdout:
+                                verification = parse_verification_output(vresult.stdout)
+                                step = trace.add_step(
+                                    type=StepType.VERIFICATION,
+                                    content=vresult.stdout,
+                                    iteration=iteration,
+                                )
+                                _write_step(step)
+                                if on_progress:
+                                    on_progress(StepType.VERIFICATION, iteration, vresult.stdout)
+                        except Exception as exc:
+                            # Verification failure doesn't affect answer delivery,
+                            # but record the error for diagnostics.
+                            step = trace.add_step(
+                                type=StepType.VERIFICATION,
+                                content=f"Verification error: {exc}",
+                                iteration=iteration,
+                            )
+                            _write_step(step)
+                            if on_progress:
+                                on_progress(
+                                    StepType.VERIFICATION,
+                                    iteration,
+                                    f"Verification error: {exc}",
+                                )
+
                     query_result = QueryResult(
                         answer=final_answer,
                         trace=trace,
                         token_usage=token_usage,
                         execution_time=time.time() - start_time,
+                        verification=verification,
                     )
                     _finalize_trace(final_answer, "success")
+                    return query_result
+
+                # Recover from dead executor mid-loop
+                if not executor.is_alive and self._pool is not None:
+                    executor.stop()
+                    self._pool.discard(executor)
+                    executor = self._pool.acquire()
+                    executor.llm_query_handler = llm_query_callback
+                    executor.setup_context(documents)
+                elif not executor.is_alive:
+                    answer = "[Executor died — cannot continue]"
+                    query_result = QueryResult(
+                        answer=answer,
+                        trace=trace,
+                        token_usage=token_usage,
+                        execution_time=time.time() - start_time,
+                    )
+                    _finalize_trace(answer, "executor_died")
                     return query_result
 
                 # Add output to conversation

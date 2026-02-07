@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from shesha.rlm.engine import QueryResult, RLMEngine, extract_code_blocks
 from shesha.rlm.trace import StepType, TokenUsage, Trace
 
@@ -42,6 +44,48 @@ def test_query_result_dataclass():
     )
     assert result.answer == "The answer"
     assert result.execution_time == 1.5
+
+
+def test_query_result_verification_defaults_none():
+    """QueryResult.verification defaults to None."""
+    result = QueryResult(
+        answer="ans",
+        trace=Trace(),
+        token_usage=TokenUsage(),
+        execution_time=0.0,
+    )
+    assert result.verification is None
+
+
+def test_query_result_accepts_verification():
+    """QueryResult accepts optional verification param."""
+    from shesha.rlm.verification import Citation, VerificationResult
+
+    vr = VerificationResult(
+        citations=[Citation(doc_id=0, found=True)],
+        quotes=[],
+    )
+    result = QueryResult(
+        answer="ans",
+        trace=Trace(),
+        token_usage=TokenUsage(),
+        execution_time=0.0,
+        verification=vr,
+    )
+    assert result.verification is vr
+    assert result.verification.all_valid is True
+
+
+def test_engine_verify_citations_defaults_true():
+    """RLMEngine.verify_citations defaults to True."""
+    engine = RLMEngine(model="test-model")
+    assert engine.verify_citations is True
+
+
+def test_engine_verify_citations_can_be_disabled():
+    """RLMEngine accepts verify_citations=False."""
+    engine = RLMEngine(model="test-model", verify_citations=False)
+    assert engine.verify_citations is False
 
 
 class TestRLMEngine:
@@ -239,11 +283,13 @@ class TestRLMEngine:
         mock_executor.stop.assert_called_once()
 
     @patch("shesha.rlm.engine.LLMClient")
-    def test_engine_returns_error_for_oversized_subcall_content(
+    def test_engine_raises_for_oversized_subcall_content(
         self,
         mock_llm_cls: MagicMock,
     ):
-        """Engine returns error string when subcall content exceeds limit."""
+        """Engine raises SubcallContentError when subcall content exceeds limit."""
+        from shesha.sandbox.executor import SubcallContentError
+
         # Create engine with small limit for testing
         engine = RLMEngine(model="test-model", max_subcall_content_chars=1000)
 
@@ -252,19 +298,19 @@ class TestRLMEngine:
         token_usage = TokenUsage()
         large_content = "x" * 5000  # 5K chars, exceeds 1K limit
 
-        result = engine._handle_llm_query(
-            instruction="Summarize this",
-            content=large_content,
-            trace=trace,
-            token_usage=token_usage,
-            iteration=0,
-        )
+        with pytest.raises(SubcallContentError) as exc_info:
+            engine._handle_llm_query(
+                instruction="Summarize this",
+                content=large_content,
+                trace=trace,
+                token_usage=token_usage,
+                iteration=0,
+            )
 
-        # Should return error string, not call the LLM
-        assert "Error" in result
-        assert "5,000" in result or "5000" in result  # actual size
-        assert "1,000" in result or "1000" in result  # limit
-        assert "chunk" in result.lower()  # guidance to chunk smaller
+        error_msg = str(exc_info.value)
+        assert "5,000" in error_msg or "5000" in error_msg  # actual size
+        assert "1,000" in error_msg or "1000" in error_msg  # limit
+        assert "chunk" in error_msg.lower()  # guidance to chunk smaller
         mock_llm_cls.assert_not_called()  # No sub-LLM call made
 
     @patch("shesha.rlm.engine.LLMClient")
@@ -336,6 +382,166 @@ class TestRLMEngine:
         assert "<untrusted_document_content>" in prompt_text
         assert "</untrusted_document_content>" in prompt_text
         assert "Untrusted document data" in prompt_text
+
+
+class TestDeadExecutorNoPool:
+    """Tests for early exit when executor dies without pool."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_only_one_llm_call_when_executor_dies(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine makes only 1 LLM call, not 20, when executor dies without pool."""
+        from shesha.sandbox.executor import ExecutionResult
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nprint("big output")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+
+        def kill_on_execute(code, timeout=30):
+            mock_executor.is_alive = False
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error="Protocol error: line too long",
+            )
+
+        mock_executor.execute.side_effect = kill_on_execute
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=20)  # No pool
+        engine.query(documents=["doc"], question="Q?")
+
+        # Should have only called LLM once, not continued for 20 iterations
+        assert mock_llm.complete.call_count == 1
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_executor_died_answer_distinct_from_max_iterations(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Early exit answer is distinct from max iterations message."""
+        from shesha.sandbox.executor import ExecutionResult
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nprint("boom")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+
+        def kill_on_execute(code, timeout=30):
+            mock_executor.is_alive = False
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error="Protocol error: overflow",
+            )
+
+        mock_executor.execute.side_effect = kill_on_execute
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")  # No pool
+        result = engine.query(documents=["doc"], question="Q?")
+
+        # Answer should mention executor dying, not "max iterations"
+        assert "max iterations" not in result.answer.lower()
+        assert "executor" in result.answer.lower() or "died" in result.answer.lower()
+
+
+class TestDeadExecutorWithPool:
+    """Tests for dead executor recovery when pool is available."""
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_dead_executor_stopped_before_discard(
+        self,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """Dead executor is stopped before being discarded from pool."""
+        from shesha.sandbox.executor import ExecutionResult
+        from shesha.sandbox.pool import ContainerPool
+
+        mock_llm = MagicMock()
+        call_count = 0
+
+        def llm_side_effect(messages):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MagicMock(
+                    content='```repl\nprint("boom")\n```',
+                    prompt_tokens=100,
+                    completion_tokens=50,
+                    total_tokens=150,
+                )
+            return MagicMock(
+                content='```repl\nFINAL("recovered")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            )
+
+        mock_llm.complete.side_effect = llm_side_effect
+        mock_llm_cls.return_value = mock_llm
+
+        # First executor: dies on execute
+        dead_executor = MagicMock()
+        dead_executor.is_alive = True
+
+        def kill_on_execute(code, timeout=30):
+            dead_executor.is_alive = False
+            return ExecutionResult(
+                status="error",
+                stdout="",
+                stderr="",
+                return_value=None,
+                error="Protocol error",
+            )
+
+        dead_executor.execute.side_effect = kill_on_execute
+
+        # Second executor: works fine
+        fresh_executor = MagicMock()
+        fresh_executor.is_alive = True
+        fresh_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="recovered",
+        )
+
+        mock_pool = MagicMock(spec=ContainerPool)
+        mock_pool.acquire.side_effect = [dead_executor, fresh_executor]
+
+        engine = RLMEngine(model="test-model", pool=mock_pool)
+        result = engine.query(documents=["doc"], question="Q?")
+
+        assert result.answer == "recovered"
+        dead_executor.stop.assert_called_once()
+        mock_pool.discard.assert_called_once_with(dead_executor)
 
 
 class TestEngineTraceWriterSuppression:
@@ -652,3 +858,234 @@ class TestEngineMaxTracesConfig:
             )
 
             mock_writer.cleanup_old_traces.assert_called_once_with("test-project", max_count=25)
+
+
+class TestEngineVerification:
+    """Tests for post-FINAL citation verification."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_runs_verification_after_final(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """Engine runs verification after FINAL and populates result.verification."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Doc 0 says something")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        verification_json = json.dumps(
+            {
+                "citations": [{"doc_id": 0, "found": True}],
+                "quotes": [],
+            }
+        )
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # First call: the FINAL answer execution
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="Doc 0 says something",
+            ),
+            # Second call: verification code execution
+            MagicMock(
+                status="ok",
+                stdout=verification_json,
+                stderr="",
+                error=None,
+                final_answer=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify_citations=True)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        assert result.answer == "Doc 0 says something"
+        assert result.verification is not None
+        assert len(result.verification.citations) == 1
+        assert result.verification.citations[0].found is True
+        assert mock_executor.execute.call_count == 2
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_skips_verification_when_disabled(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """Engine skips verification when verify_citations=False."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Doc 0 says something")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="Doc 0 says something",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify_citations=False)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        assert result.answer == "Doc 0 says something"
+        assert result.verification is None
+        assert mock_executor.execute.call_count == 1
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_handles_verification_failure_gracefully(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """Verification failure doesn't affect answer delivery."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Doc 0 answer")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # First call: FINAL answer
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="Doc 0 answer",
+            ),
+            # Second call: verification fails
+            MagicMock(
+                status="error",
+                stdout="",
+                stderr="Traceback: something broke",
+                error="execution error",
+                final_answer=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify_citations=True)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        assert result.answer == "Doc 0 answer"
+        assert result.verification is None
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_adds_verification_trace_step(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """VERIFICATION step appears in trace after successful verification."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Doc 0 says something")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        verification_json = json.dumps(
+            {
+                "citations": [{"doc_id": 0, "found": True}],
+                "quotes": [],
+            }
+        )
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="Doc 0 says something",
+            ),
+            MagicMock(
+                status="ok",
+                stdout=verification_json,
+                stderr="",
+                error=None,
+                final_answer=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify_citations=True)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        step_types = [s.type for s in result.trace.steps]
+        assert StepType.VERIFICATION in step_types
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_records_verification_error_in_trace(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """Verification exception is recorded as a VERIFICATION trace step."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Doc 0 answer")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # First call: FINAL answer
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="Doc 0 answer",
+            ),
+            # Second call: verification raises
+            ValueError("Could not parse verification output: no valid JSON found"),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify_citations=True)
+        result = engine.query(documents=["Doc content"], question="What?")
+
+        assert result.answer == "Doc 0 answer"
+        assert result.verification is None
+        # Error should be recorded in a VERIFICATION trace step
+        verification_steps = [s for s in result.trace.steps if s.type == StepType.VERIFICATION]
+        assert len(verification_steps) == 1
+        assert "Could not parse verification output" in verification_steps[0].content
