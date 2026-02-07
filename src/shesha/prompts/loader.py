@@ -110,6 +110,25 @@ class PromptLoader:
         """Render the code_required prompt (no variables)."""
         return self._prompts["code_required.md"]
 
+    def render_verify_adversarial_prompt(
+        self, findings: str, documents: str
+    ) -> str:
+        """Render the adversarial verification prompt."""
+        return self._prompts["verify_adversarial.md"].format(
+            findings=findings,
+            documents=documents,
+        )
+
+    def render_verify_code_prompt(
+        self, previous_results: str, findings: str, documents: str
+    ) -> str:
+        """Render the code-specific verification prompt."""
+        return self._prompts["verify_code.md"].format(
+            previous_results=previous_results,
+            findings=findings,
+            documents=documents,
+        )
+
     def get_raw_template(self, name: str) -> str:
         """Get the raw template content for a prompt file."""
         return self._prompts[name]

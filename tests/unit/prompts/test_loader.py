@@ -23,6 +23,13 @@ def valid_prompts_dir(tmp_path: Path) -> Path:
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
     (prompts_dir / "code_required.md").write_text("Write code now.")
+    (prompts_dir / "verify_adversarial.md").write_text(
+        "Verify {findings} against {documents}. JSON: {{{{ }}}}"
+    )
+    (prompts_dir / "verify_code.md").write_text(
+        "Previous: {previous_results}\nFindings: {findings}\nDocs: {documents}\n"
+        "JSON: {{{{ }}}}"
+    )
 
     return prompts_dir
 
@@ -108,3 +115,48 @@ def test_loader_raises_when_file_missing(tmp_path: Path):
     with pytest.raises(FileNotFoundError) as exc_info:
         PromptLoader(prompts_dir=prompts_dir)
     assert "Required prompt file not found" in str(exc_info.value)
+
+
+def test_loader_loads_verify_adversarial(valid_prompts_dir: Path):
+    """PromptLoader loads verify_adversarial.md template."""
+    loader = PromptLoader(prompts_dir=valid_prompts_dir)
+    raw = loader.get_raw_template("verify_adversarial.md")
+    assert "{findings}" in raw
+    assert "{documents}" in raw
+
+
+def test_loader_render_verify_adversarial_prompt(valid_prompts_dir: Path):
+    """PromptLoader renders verify_adversarial prompt with variables."""
+    loader = PromptLoader(prompts_dir=valid_prompts_dir)
+    result = loader.render_verify_adversarial_prompt(
+        findings="Finding 1: something wrong",
+        documents="Document A content",
+    )
+    assert "Finding 1: something wrong" in result
+    assert "Document A content" in result
+    # Escaped braces should become literal braces after rendering
+    assert "{{ }}" in result
+
+
+def test_loader_loads_verify_code(valid_prompts_dir: Path):
+    """PromptLoader loads verify_code.md template."""
+    loader = PromptLoader(prompts_dir=valid_prompts_dir)
+    raw = loader.get_raw_template("verify_code.md")
+    assert "{previous_results}" in raw
+    assert "{findings}" in raw
+    assert "{documents}" in raw
+
+
+def test_loader_render_verify_code_prompt(valid_prompts_dir: Path):
+    """PromptLoader renders verify_code prompt with variables."""
+    loader = PromptLoader(prompts_dir=valid_prompts_dir)
+    result = loader.render_verify_code_prompt(
+        previous_results="Previous review JSON here",
+        findings="Finding 2: code issue",
+        documents="def foo(): pass",
+    )
+    assert "Previous review JSON here" in result
+    assert "Finding 2: code issue" in result
+    assert "def foo(): pass" in result
+    # Escaped braces should become literal braces after rendering
+    assert "{{ }}" in result

@@ -95,3 +95,47 @@ def test_validate_subcall_with_untrusted_tags_passes():
     )
     # Should not raise
     validate_prompt("subcall.md", content)
+
+
+def test_verify_adversarial_schema_defined():
+    """PROMPT_SCHEMAS includes verify_adversarial.md with required placeholders."""
+    assert "verify_adversarial.md" in PROMPT_SCHEMAS
+    schema = PROMPT_SCHEMAS["verify_adversarial.md"]
+    assert schema.required == {"findings", "documents"}
+    assert schema.optional == set()
+
+
+def test_verify_code_schema_defined():
+    """PROMPT_SCHEMAS includes verify_code.md with required placeholders."""
+    assert "verify_code.md" in PROMPT_SCHEMAS
+    schema = PROMPT_SCHEMAS["verify_code.md"]
+    assert schema.required == {"previous_results", "findings", "documents"}
+    assert schema.optional == set()
+
+
+def test_validate_verify_adversarial_passes_valid():
+    """validate_prompt passes for valid verify_adversarial.md content."""
+    content = "Verify these {findings} against {documents}."
+    validate_prompt("verify_adversarial.md", content)
+
+
+def test_validate_verify_adversarial_fails_missing_placeholder():
+    """validate_prompt raises when verify_adversarial.md is missing a placeholder."""
+    content = "Only {findings} here."
+    with pytest.raises(PromptValidationError) as exc_info:
+        validate_prompt("verify_adversarial.md", content)
+    assert "documents" in str(exc_info.value)
+
+
+def test_validate_verify_code_passes_valid():
+    """validate_prompt passes for valid verify_code.md content."""
+    content = "Review {previous_results} for {findings} in {documents}."
+    validate_prompt("verify_code.md", content)
+
+
+def test_validate_verify_code_fails_missing_placeholder():
+    """validate_prompt raises when verify_code.md is missing a placeholder."""
+    content = "Only {findings} and {documents} here."
+    with pytest.raises(PromptValidationError) as exc_info:
+        validate_prompt("verify_code.md", content)
+    assert "previous_results" in str(exc_info.value)
