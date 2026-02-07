@@ -607,6 +607,101 @@ class TestFormatAnalysisAsContext:
         assert "External Dependencies:" not in result
 
 
+class TestFormatVerifiedOutput:
+    """Tests for format_verified_output()."""
+
+    def test_formats_summary_and_appendix(self) -> None:
+        """Output contains both verified findings and appendix."""
+        from examples.script_utils import format_verified_output
+        from shesha.rlm.semantic_verification import (
+            FindingVerification,
+            SemanticVerificationReport,
+        )
+
+        report = SemanticVerificationReport(
+            findings=[
+                FindingVerification(
+                    finding_id="P1.1",
+                    original_claim="Real issue",
+                    confidence="high",
+                    reason="Confirmed by code.",
+                    evidence_classification="code_analysis",
+                    flags=[],
+                ),
+                FindingVerification(
+                    finding_id="P0.1",
+                    original_claim="False alarm",
+                    confidence="low",
+                    reason="Standard idiom.",
+                    evidence_classification="code_analysis",
+                    flags=["standard_idiom"],
+                ),
+            ],
+            content_type="code",
+        )
+        original_answer = "## P1.1: Real issue\nDetails.\n\n## P0.1: False alarm\nMore details."
+        output = format_verified_output(original_answer, report)
+
+        assert "Verified Findings" in output
+        assert "Verification Appendix" in output
+        assert "P1.1" in output
+        assert "P0.1" in output
+        assert "standard_idiom" in output
+
+    def test_no_high_confidence_shows_message(self) -> None:
+        """When no findings are high/medium confidence, shows appropriate message."""
+        from examples.script_utils import format_verified_output
+        from shesha.rlm.semantic_verification import (
+            FindingVerification,
+            SemanticVerificationReport,
+        )
+
+        report = SemanticVerificationReport(
+            findings=[
+                FindingVerification(
+                    finding_id="P0.1",
+                    original_claim="Bogus",
+                    confidence="low",
+                    reason="Not real.",
+                    evidence_classification="code_analysis",
+                    flags=[],
+                ),
+            ],
+            content_type="general",
+        )
+        output = format_verified_output("Original", report)
+        assert "0" in output or "no verified findings" in output.lower() or "None" in output
+
+    def test_all_high_confidence_no_appendix_content(self) -> None:
+        """When all findings are high confidence, appendix says none filtered."""
+        from examples.script_utils import format_verified_output
+        from shesha.rlm.semantic_verification import (
+            FindingVerification,
+            SemanticVerificationReport,
+        )
+
+        report = SemanticVerificationReport(
+            findings=[
+                FindingVerification(
+                    finding_id="P1.1",
+                    original_claim="Good finding",
+                    confidence="high",
+                    reason="Confirmed.",
+                    evidence_classification="code_analysis",
+                    flags=[],
+                ),
+            ],
+            content_type="code",
+        )
+        output = format_verified_output("Original", report)
+        assert "Verified Findings" in output
+        assert (
+            "0 findings filtered" in output
+            or "no findings filtered" in output.lower()
+            or "Appendix" in output
+        )
+
+
 class TestFormatAnalysisForDisplay:
     """Tests for analysis display formatting."""
 

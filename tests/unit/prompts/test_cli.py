@@ -17,6 +17,8 @@ def test_cli_validates_valid_prompts(tmp_path: Path):
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
     (prompts_dir / "code_required.md").write_text("Write code.")
+    (prompts_dir / "verify_adversarial.md").write_text("Verify {findings} against {documents}.")
+    (prompts_dir / "verify_code.md").write_text("{previous_results} {findings} {documents}")
 
     result = subprocess.run(
         [sys.executable, "-m", "shesha.prompts", "--prompts-dir", str(prompts_dir)],
@@ -35,6 +37,8 @@ def test_cli_fails_invalid_prompts(tmp_path: Path):
     (prompts_dir / "system.md").write_text("Missing all placeholders")
     (prompts_dir / "subcall.md").write_text("{instruction}\n{content}")
     (prompts_dir / "code_required.md").write_text("Write code.")
+    (prompts_dir / "verify_adversarial.md").write_text("Verify {findings} against {documents}.")
+    (prompts_dir / "verify_code.md").write_text("{previous_results} {findings} {documents}")
 
     result = subprocess.run(
         [sys.executable, "-m", "shesha.prompts", "--prompts-dir", str(prompts_dir)],

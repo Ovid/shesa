@@ -88,6 +88,23 @@ def test_engine_verify_citations_can_be_disabled():
     assert engine.verify_citations is False
 
 
+def test_semantic_verification_step_type_exists():
+    """SEMANTIC_VERIFICATION step type exists."""
+    assert StepType.SEMANTIC_VERIFICATION.value == "semantic_verification"
+
+
+def test_engine_verify_defaults_false():
+    """RLMEngine.verify defaults to False."""
+    engine = RLMEngine(model="test-model")
+    assert engine.verify is False
+
+
+def test_engine_verify_can_be_enabled():
+    """RLMEngine accepts verify=True."""
+    engine = RLMEngine(model="test-model", verify=True)
+    assert engine.verify is True
+
+
 class TestRLMEngine:
     """Tests for RLMEngine."""
 
@@ -382,6 +399,183 @@ class TestRLMEngine:
         assert "<untrusted_document_content>" in prompt_text
         assert "</untrusted_document_content>" in prompt_text
         assert "Untrusted document data" in prompt_text
+
+    @patch("shesha.rlm.engine.LLMClient")
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    def test_engine_runs_semantic_verification_when_enabled(
+        self,
+        mock_executor_cls: MagicMock,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """Engine runs semantic verification when verify=True."""
+        verification_findings = json.dumps(
+            {
+                "findings": [
+                    {
+                        "finding_id": "P0.1",
+                        "original_claim": "Issue",
+                        "confidence": "high",
+                        "reason": "Confirmed.",
+                        "evidence_classification": "code_analysis",
+                        "flags": [],
+                    }
+                ]
+            }
+        )
+
+        # Mock LLM: first call is the main query, subsequent calls are verification subcalls.
+        # doc_names=["main.py"] is a code file, so Layer 2 also runs (3 LLM calls total).
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            # Main query response
+            MagicMock(
+                content='```repl\nFINAL("## P0.1: Issue\\nSee Doc 0.")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Layer 1: Adversarial verification subcall response
+            MagicMock(
+                content=verification_findings,
+                prompt_tokens=200,
+                completion_tokens=100,
+                total_tokens=300,
+            ),
+            # Layer 2: Code-specific verification subcall response
+            MagicMock(
+                content=verification_findings,
+                prompt_tokens=200,
+                completion_tokens=100,
+                total_tokens=300,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        verification_json = json.dumps(
+            {
+                "citations": [{"doc_id": 0, "found": True}],
+                "quotes": [],
+            }
+        )
+        mock_executor.execute.side_effect = [
+            # FINAL execution
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="## P0.1: Issue\nSee Doc 0.",
+            ),
+            # Mechanical verification
+            MagicMock(
+                status="ok",
+                stdout=verification_json,
+                stderr="",
+                error=None,
+                final_answer=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify=True, verify_citations=True)
+        result = engine.query(
+            documents=["Doc content here"],
+            question="Find issues",
+            doc_names=["main.py"],
+        )
+
+        assert result.semantic_verification is not None
+        assert len(result.semantic_verification.findings) == 1
+        assert result.semantic_verification.findings[0].confidence == "high"
+
+    @patch("shesha.rlm.engine.LLMClient")
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    def test_engine_skips_semantic_verification_when_disabled(
+        self,
+        mock_executor_cls: MagicMock,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """Engine skips semantic verification when verify=False."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("answer")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="answer",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify=False, verify_citations=False)
+        result = engine.query(documents=["Doc"], question="What?")
+
+        assert result.semantic_verification is None
+
+    @patch("shesha.rlm.engine.LLMClient")
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    def test_engine_semantic_verification_failure_does_not_block_answer(
+        self,
+        mock_executor_cls: MagicMock,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """Semantic verification failure doesn't prevent answer delivery."""
+        # Answer must reference Doc 0 so gather_cited_documents finds citations
+        final_answer_text = "See Doc 0 for details"
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            MagicMock(
+                content=f'```repl\nFINAL("{final_answer_text}")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Verification subcall returns garbage (unparseable)
+            MagicMock(
+                content="I refuse to output JSON",
+                prompt_tokens=200,
+                completion_tokens=100,
+                total_tokens=300,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer=final_answer_text,
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", verify=True, verify_citations=False)
+        result = engine.query(
+            documents=["Doc content"],
+            question="What?",
+            doc_names=["file.txt"],
+        )
+
+        assert result.answer == final_answer_text
+        assert result.semantic_verification is None
+        # Error recorded in trace
+        sem_steps = [s for s in result.trace.steps if s.type == StepType.SEMANTIC_VERIFICATION]
+        assert len(sem_steps) >= 1
+        last_step = sem_steps[-1].content
+        assert "error" in last_step.lower() or "Could not parse" in last_step
 
 
 class TestDeadExecutorNoPool:

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Semantic verification (`--verify` flag): opt-in post-analysis adversarial review that checks whether findings are supported by evidence. For code projects, adds code-specific checks for comment-mining, test/production conflation, and language idiom misidentification. Output reformatted into verified summary + appendix. Note: significantly increases analysis time and token cost (1-2 additional LLM calls)
 - Post-FINAL citation verification: after `FINAL()`, the engine mechanically checks that cited doc IDs exist in the corpus and that quoted strings actually appear in the cited documents. Results are available via `QueryResult.verification`. Zero LLM cost, fail-safe (verification errors don't affect answer delivery)
 - `verify_citations` config option (default `True`, env var `SHESHA_VERIFY_CITATIONS`) to enable/disable citation verification
 - `ContainerExecutor.is_alive` property to check whether executor has an active socket connection

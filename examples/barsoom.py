@@ -78,6 +78,7 @@ from script_utils import (
     format_progress,
     format_stats,
     format_thought_time,
+    format_verified_output,
     install_urllib3_cleanup_hook,
     is_exit_command,
     is_help_command,
@@ -141,6 +142,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--prompt",
         type=str,
         help="Run a single query and exit (non-interactive mode)",
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help=(
+            "Run post-analysis semantic verification. Produces higher-accuracy "
+            "results by adversarially reviewing all findings. Note: this can "
+            "significantly increase analysis time and token count "
+            "(typically 1-2 additional LLM calls)."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -217,7 +228,7 @@ def main() -> None:
         sys.exit(1)
 
     # Initialize Shesha with config from environment
-    config = SheshaConfig.load(storage_path=STORAGE_PATH)
+    config = SheshaConfig.load(storage_path=STORAGE_PATH, verify=args.verify)
     shesha = Shesha(config=config)
 
     # Check if project exists
@@ -253,7 +264,10 @@ def main() -> None:
 
             elapsed = time.time() - query_start_time
             print(format_thought_time(elapsed))
-            print(result.answer)
+            if result.semantic_verification is not None:
+                print(format_verified_output(result.answer, result.semantic_verification))
+            else:
+                print(result.answer)
             print()
 
             if args.verbose:
@@ -340,7 +354,10 @@ def main() -> None:
 
             elapsed = time.time() - query_start_time
             print(format_thought_time(elapsed))
-            print(result.answer)
+            if result.semantic_verification is not None:
+                print(format_verified_output(result.answer, result.semantic_verification))
+            else:
+                print(result.answer)
             print()
 
             # Store exchange in history

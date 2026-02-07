@@ -17,6 +17,7 @@ class StepType(Enum):
     ERROR = "error"
     FINAL_ANSWER = "final_answer"
     VERIFICATION = "verification"
+    SEMANTIC_VERIFICATION = "semantic_verification"
 
 
 @dataclass

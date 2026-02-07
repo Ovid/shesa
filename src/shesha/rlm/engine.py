@@ -1,5 +1,6 @@
 """RLM engine - the core REPL+LLM loop."""
 
+import json
 import re
 import time
 import uuid
@@ -11,6 +12,12 @@ from shesha.llm.client import LLMClient
 from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
 from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output, wrap_subcall_content
+from shesha.rlm.semantic_verification import (
+    SemanticVerificationReport,
+    detect_content_type,
+    gather_cited_documents,
+    parse_verification_response,
+)
 from shesha.rlm.trace import StepType, TokenUsage, Trace, TraceStep
 from shesha.rlm.trace_writer import IncrementalTraceWriter, TraceWriter
 from shesha.rlm.verification import (
@@ -35,6 +42,7 @@ class QueryResult:
     token_usage: TokenUsage
     execution_time: float
     verification: VerificationResult | None = field(default=None)
+    semantic_verification: SemanticVerificationReport | None = field(default=None)
 
 
 def extract_code_blocks(text: str) -> list[str]:
@@ -59,6 +67,7 @@ class RLMEngine:
         pool: ContainerPool | None = None,
         max_traces_per_project: int = 50,
         verify_citations: bool = True,
+        verify: bool = False,
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -71,6 +80,7 @@ class RLMEngine:
         self._pool = pool
         self.max_traces_per_project = max_traces_per_project
         self.verify_citations = verify_citations
+        self.verify = verify
 
     def _handle_llm_query(
         self,
@@ -138,6 +148,131 @@ class RLMEngine:
             on_progress(StepType.SUBCALL_RESPONSE, iteration, response.content)
 
         return response.content
+
+    def _run_semantic_verification(
+        self,
+        final_answer: str,
+        documents: list[str],
+        doc_names: list[str],
+        trace: Trace,
+        token_usage: TokenUsage,
+        iteration: int,
+        on_progress: ProgressCallback | None = None,
+        on_step: Callable[[TraceStep], None] | None = None,
+    ) -> SemanticVerificationReport | None:
+        """Run semantic verification on the final answer.
+
+        Returns SemanticVerificationReport or None if verification fails.
+        """
+        # Gather cited documents
+        cited_docs_text = gather_cited_documents(final_answer, documents, doc_names)
+        if not cited_docs_text:
+            return None
+
+        # Layer 1: Adversarial verification
+        prompt = self.prompt_loader.render_verify_adversarial_prompt(
+            findings=final_answer,
+            documents=cited_docs_text,
+        )
+
+        step = trace.add_step(
+            type=StepType.SEMANTIC_VERIFICATION,
+            content="Starting adversarial verification (Layer 1)",
+            iteration=iteration,
+        )
+        if on_step:
+            on_step(step)
+        if on_progress:
+            on_progress(StepType.SEMANTIC_VERIFICATION, iteration, "Adversarial verification")
+
+        sub_llm = LLMClient(model=self.model, api_key=self.api_key)
+        response = sub_llm.complete(messages=[{"role": "user", "content": prompt}])
+        token_usage.prompt_tokens += response.prompt_tokens
+        token_usage.completion_tokens += response.completion_tokens
+
+        findings = parse_verification_response(response.content)
+
+        step = trace.add_step(
+            type=StepType.SEMANTIC_VERIFICATION,
+            content=f"Layer 1 complete: {len(findings)} findings reviewed",
+            iteration=iteration,
+            tokens_used=response.total_tokens,
+        )
+        if on_step:
+            on_step(step)
+        if on_progress:
+            on_progress(
+                StepType.SEMANTIC_VERIFICATION,
+                iteration,
+                f"Layer 1 complete: {len(findings)} findings",
+            )
+
+        # Layer 2: Code-specific checks (only for code projects)
+        content_type = detect_content_type(doc_names)
+        if content_type == "code":
+            layer1_json = json.dumps(
+                {
+                    "findings": [
+                        {
+                            "finding_id": f.finding_id,
+                            "original_claim": f.original_claim,
+                            "confidence": f.confidence,
+                            "reason": f.reason,
+                            "evidence_classification": f.evidence_classification,
+                            "flags": f.flags,
+                        }
+                        for f in findings
+                    ]
+                },
+                indent=2,
+            )
+
+            prompt = self.prompt_loader.render_verify_code_prompt(
+                previous_results=layer1_json,
+                findings=final_answer,
+                documents=cited_docs_text,
+            )
+
+            step = trace.add_step(
+                type=StepType.SEMANTIC_VERIFICATION,
+                content="Starting code-specific verification (Layer 2)",
+                iteration=iteration,
+            )
+            if on_step:
+                on_step(step)
+            if on_progress:
+                on_progress(
+                    StepType.SEMANTIC_VERIFICATION,
+                    iteration,
+                    "Code-specific verification",
+                )
+
+            sub_llm2 = LLMClient(model=self.model, api_key=self.api_key)
+            response2 = sub_llm2.complete(messages=[{"role": "user", "content": prompt}])
+            token_usage.prompt_tokens += response2.prompt_tokens
+            token_usage.completion_tokens += response2.completion_tokens
+
+            findings = parse_verification_response(response2.content)
+
+            step = trace.add_step(
+                type=StepType.SEMANTIC_VERIFICATION,
+                content=f"Layer 2 complete: {len(findings)} findings reviewed",
+                iteration=iteration,
+                tokens_used=response2.total_tokens,
+            )
+            if on_step:
+                on_step(step)
+            if on_progress:
+                on_progress(
+                    StepType.SEMANTIC_VERIFICATION,
+                    iteration,
+                    f"Layer 2 complete: {len(findings)} findings",
+                )
+
+        return SemanticVerificationReport(
+            findings=findings,
+            content_type=content_type,
+        )
 
     def query(
         self,
@@ -352,12 +487,40 @@ class RLMEngine:
                                     f"Verification error: {exc}",
                                 )
 
+                    semantic_verification = None
+                    if self.verify:
+                        try:
+                            semantic_verification = self._run_semantic_verification(
+                                final_answer=final_answer,
+                                documents=documents,
+                                doc_names=doc_names or [],
+                                trace=trace,
+                                token_usage=token_usage,
+                                iteration=iteration,
+                                on_progress=on_progress,
+                                on_step=_write_step,
+                            )
+                        except Exception as exc:
+                            step = trace.add_step(
+                                type=StepType.SEMANTIC_VERIFICATION,
+                                content=f"Semantic verification error: {exc}",
+                                iteration=iteration,
+                            )
+                            _write_step(step)
+                            if on_progress:
+                                on_progress(
+                                    StepType.SEMANTIC_VERIFICATION,
+                                    iteration,
+                                    f"Semantic verification error: {exc}",
+                                )
+
                     query_result = QueryResult(
                         answer=final_answer,
                         trace=trace,
                         token_usage=token_usage,
                         execution_time=time.time() - start_time,
                         verification=verification,
+                        semantic_verification=semantic_verification,
                     )
                     _finalize_trace(final_answer, "success")
                     return query_result

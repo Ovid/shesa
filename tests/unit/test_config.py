@@ -132,6 +132,20 @@ class TestVerifyCitationsConfig:
             SheshaConfig.from_env()
 
 
+class TestVerifyConfig:
+    """Tests for verify config field."""
+
+    def test_verify_defaults_false(self) -> None:
+        """verify defaults to False."""
+        config = SheshaConfig()
+        assert config.verify is False
+
+    def test_verify_can_be_set_true(self) -> None:
+        """verify can be set to True."""
+        config = SheshaConfig(verify=True)
+        assert config.verify is True
+
+
 def test_config_has_no_allowed_hosts():
     """allowed_hosts was removed — config must not have it."""
     config = SheshaConfig()

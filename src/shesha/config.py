@@ -50,6 +50,9 @@ class SheshaConfig:
     # Verification
     verify_citations: bool = True
 
+    # Semantic verification
+    verify: bool = False
+
     # Trace logging
     max_traces_per_project: int = 50
 
