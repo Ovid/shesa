@@ -1,5 +1,7 @@
 """Tests for semantic verification module."""
 
+import json
+
 import pytest
 
 from shesha.rlm.semantic_verification import (
@@ -7,6 +9,7 @@ from shesha.rlm.semantic_verification import (
     SemanticVerificationReport,
     detect_content_type,
     gather_cited_documents,
+    parse_verification_response,
 )
 
 
@@ -224,3 +227,101 @@ class TestGatherCitedDocuments:
         result = gather_cited_documents(answer, documents, doc_names)
         assert "Second doc" in result
         assert "### Document 1 (second.py)" in result
+
+
+class TestParseVerificationResponse:
+    """Tests for parse_verification_response()."""
+
+    def test_valid_json_response(self) -> None:
+        """Parses a valid JSON response with one finding."""
+        data = {
+            "findings": [
+                {
+                    "finding_id": "F1",
+                    "original_claim": "Uses async/await",
+                    "confidence": "high",
+                    "reason": "Found in source",
+                    "evidence_classification": "direct_quote",
+                    "flags": ["verified"],
+                }
+            ]
+        }
+        result = parse_verification_response(json.dumps(data))
+        assert len(result) == 1
+        assert result[0].finding_id == "F1"
+        assert result[0].confidence == "high"
+        assert result[0].flags == ["verified"]
+
+    def test_multiple_findings(self) -> None:
+        """Parses response with multiple findings."""
+        data = {
+            "findings": [
+                {
+                    "finding_id": "F1",
+                    "original_claim": "claim1",
+                    "confidence": "high",
+                    "reason": "r1",
+                    "evidence_classification": "direct_quote",
+                    "flags": [],
+                },
+                {
+                    "finding_id": "F2",
+                    "original_claim": "claim2",
+                    "confidence": "low",
+                    "reason": "r2",
+                    "evidence_classification": "unsupported",
+                    "flags": ["speculative"],
+                },
+            ]
+        }
+        result = parse_verification_response(json.dumps(data))
+        assert len(result) == 2
+        assert result[0].finding_id == "F1"
+        assert result[1].finding_id == "F2"
+        assert result[1].flags == ["speculative"]
+
+    def test_json_in_markdown_code_block(self) -> None:
+        """Parses JSON wrapped in markdown code blocks."""
+        data = {
+            "findings": [
+                {
+                    "finding_id": "F1",
+                    "original_claim": "claim",
+                    "confidence": "medium",
+                    "reason": "reason",
+                    "evidence_classification": "inferred",
+                    "flags": [],
+                }
+            ]
+        }
+        text = f"Here is the result:\n```json\n{json.dumps(data)}\n```"
+        result = parse_verification_response(text)
+        assert len(result) == 1
+        assert result[0].finding_id == "F1"
+
+    def test_invalid_json_raises_value_error(self) -> None:
+        """Raises ValueError when no valid JSON is found."""
+        with pytest.raises(ValueError):
+            parse_verification_response("This is not JSON at all")
+
+    def test_missing_findings_key_raises_value_error(self) -> None:
+        """Raises ValueError when JSON lacks 'findings' key."""
+        with pytest.raises(ValueError):
+            parse_verification_response(json.dumps({"results": []}))
+
+    def test_missing_flags_defaults_to_empty_list(self) -> None:
+        """Missing flags field defaults to empty list."""
+        data = {
+            "findings": [
+                {
+                    "finding_id": "F1",
+                    "original_claim": "claim",
+                    "confidence": "high",
+                    "reason": "reason",
+                    "evidence_classification": "direct_quote",
+                }
+            ]
+        }
+        result = parse_verification_response(json.dumps(data))
+        assert len(result) == 1
+        assert result[0].flags == []
