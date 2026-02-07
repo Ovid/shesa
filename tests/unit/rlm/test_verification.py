@@ -194,7 +194,6 @@ class TestBuildVerificationCode:
         namespace: dict[str, object] = {"context": context}
         exec(compile(code, "<test>", "exec"), namespace)
 
-
         output = namespace.get("quotes")
         assert output is not None
         assert len(output) == 1  # type: ignore[arg-type]
