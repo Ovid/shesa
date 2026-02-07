@@ -120,7 +120,9 @@ If `llm_query` raises a `ValueError` about content size, **chunk into 2-3 pieces
 ```repl
 try:
     result = llm_query(instruction="Analyze this", content=large_text)
-except ValueError:
+except ValueError as e:
+    if "exceeds" not in str(e).lower():
+        raise  # Not a size error — re-raise
     # Content too large — split into 2-3 chunks and retry
     chunk_size = len(large_text) // 2 + 1
     chunks = [large_text[i:i+chunk_size] for i in range(0, len(large_text), chunk_size)]
