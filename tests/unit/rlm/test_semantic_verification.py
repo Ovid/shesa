@@ -5,6 +5,7 @@ import pytest
 from shesha.rlm.semantic_verification import (
     FindingVerification,
     SemanticVerificationReport,
+    detect_content_type,
 )
 
 
@@ -138,3 +139,40 @@ class TestSemanticVerificationReport:
         report = SemanticVerificationReport(findings=[], content_type="general")
         assert report.high_confidence == []
         assert report.low_confidence == []
+
+
+class TestDetectContentType:
+    """Tests for detect_content_type()."""
+
+    def test_empty_list_returns_general(self) -> None:
+        """Empty doc_names list returns 'general'."""
+        assert detect_content_type([]) == "general"
+
+    def test_majority_code_files_returns_code(self) -> None:
+        """Returns 'code' when more than half of docs are code files."""
+        assert detect_content_type(["main.py", "utils.py", "README.md"]) == "code"
+
+    def test_majority_non_code_returns_general(self) -> None:
+        """Returns 'general' when majority are not code files."""
+        assert detect_content_type(["report.pdf", "notes.txt", "main.py"]) == "general"
+
+    def test_perl_extensions_detected(self) -> None:
+        """Perl .pm and .pl files are detected as code."""
+        assert detect_content_type(["Foo.pm", "bar.pl", "Baz.t"]) == "code"
+
+    def test_mixed_extensions_all_recognized(self) -> None:
+        """Various code extensions are all recognized."""
+        code_files = ["app.js", "lib.ts", "main.rs", "server.go", "App.java"]
+        assert detect_content_type(code_files) == "code"
+
+    def test_case_insensitive(self) -> None:
+        """Extension matching is case-insensitive."""
+        assert detect_content_type(["MAIN.PY", "Utils.JS", "readme.txt"]) == "code"
+
+    def test_no_extension_not_code(self) -> None:
+        """Files without extensions are not counted as code."""
+        assert detect_content_type(["Makefile", "Dockerfile", "README"]) == "general"
+
+    def test_exactly_half_returns_general(self) -> None:
+        """Exactly half code files returns 'general' (strict majority)."""
+        assert detect_content_type(["main.py", "README.md"]) == "general"
