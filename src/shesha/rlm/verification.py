@@ -66,8 +66,8 @@ _MIN_QUOTE_LENGTH = 10
 
 # Patterns for extracting quoted evidence from LLM answers
 _QUOTE_PATTERNS = [
-    re.compile(r'"([^"]{10,})"'),  # "double-quoted"
-    re.compile(r"`([^`]{10,})`"),  # `backtick-quoted`
+    re.compile(rf'"([^"]{{{_MIN_QUOTE_LENGTH},}})"'),  # "double-quoted"
+    re.compile(rf"`([^`]{{{_MIN_QUOTE_LENGTH},}})`"),  # `backtick-quoted`
 ]
 
 
