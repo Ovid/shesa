@@ -72,11 +72,23 @@ class TestInputArea:
         """Trailing backslash continuation markers are stripped from submitted text."""
         async with InputAreaApp().run_test() as pilot:
             input_area = pilot.app.query_one(InputArea)
-            # Simulate multiline text with trailing backslash
+            # Simulate multiline text with backslash-newline in the middle
             input_area.text = "line one \\\nline two"
             await pilot.press("enter")
             assert "line one" in pilot.app.submitted_texts[0]
             assert "\\" not in pilot.app.submitted_texts[0]
+
+    async def test_trailing_backslash_continues(self) -> None:
+        """Trailing backslash prevents submission and inserts newline."""
+        async with InputAreaApp().run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "line one\\"
+            await pilot.press("enter")
+            await pilot.pause()
+            # Should NOT have submitted
+            assert pilot.app.submitted_texts == []
+            # Should have inserted a newline to continue
+            assert "\n" in input_area.text
 
     async def test_tab_posts_accept_when_completion_active(self) -> None:
         """Tab posts CompletionAccept when completion is active."""
@@ -193,6 +205,17 @@ class TestInputArea:
             input_area.focus()
             input_area.text = "hello"
             await pilot.press("alt+enter")
+            await pilot.pause()
+            assert "\n" in input_area.text
+            assert pilot.app.submitted_texts == []
+
+    async def test_ctrl_j_inserts_newline(self) -> None:
+        """Ctrl+J inserts a newline instead of submitting."""
+        async with InputAreaApp().run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.focus()
+            input_area.text = "hello"
+            await pilot.press("ctrl+j")
             await pilot.pause()
             assert "\n" in input_area.text
             assert pilot.app.submitted_texts == []

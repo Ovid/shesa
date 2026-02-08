@@ -140,7 +140,7 @@ class SheshaTUI(App[None]):
             yield InputArea()
         yield Static(
             "Tab: switch panes \u2502 \u2191\u2193: history"
-            " \u2502 \u2325+\u23ce: newline \u2502 Esc\u00d72: cancel \u2502 /: commands",
+            " \u2502 Ctrl+J: newline \u2502 Esc\u00d72: cancel \u2502 /: commands",
             id="help-bar",
         )
 

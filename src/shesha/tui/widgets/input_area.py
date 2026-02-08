@@ -18,9 +18,10 @@ class InputSubmitted(Message):
 class InputArea(TextArea):
     """Input widget for the TUI prompt.
 
-    Enter submits, Alt+Enter (or Shift+Enter) inserts newline.
-    Trailing backslashes on lines are treated as continuation markers
-    and stripped before submission.
+    Enter submits. Ctrl+J inserts a newline (works in all terminals).
+    Alt+Enter and Shift+Enter also insert newlines in terminals that
+    support them. A trailing backslash prevents submission and continues
+    on the next line; backslash-newline pairs are joined on submission.
     """
 
     DEFAULT_CSS = """
@@ -129,7 +130,7 @@ class InputArea(TextArea):
             self.post_message(InputArea.HistoryNavigate("next"))
             return
 
-        if event.key in ("shift+enter", "alt+enter"):
+        if event.key in ("shift+enter", "alt+enter", "ctrl+j"):
             event.prevent_default()
             event.stop()
             self.insert("\n")
@@ -141,8 +142,12 @@ class InputArea(TextArea):
             text = self.text.strip()
             if not text:
                 return
-            # Strip trailing backslash continuation markers
-            cleaned = re.sub(r"\\\n", "\n", text).rstrip("\\")
+            # Trailing backslash means "continue on next line"
+            if text.endswith("\\"):
+                self.insert("\n")
+                return
+            # Clean up backslash continuation markers before submitting
+            cleaned = re.sub(r"\\\n", "\n", text)
             self.post_message(InputSubmitted(cleaned))
             self.text = ""
             return
