@@ -30,7 +30,10 @@ class InfoBarState:
 
     def set_progress(self, elapsed: float, iteration: int, step: str) -> None:
         """Set phase to a specific iteration/step."""
-        self._phase_line = f"[{elapsed:.1f}s] [Iteration {iteration}] {step}"
+        dots = int(elapsed * 3) % 3 + 1
+        self._phase_line = (
+            f"[{elapsed:.1f}s] [Iteration {iteration}] {step}{'.' * dots}{' ' * (3 - dots)}"
+        )
 
     def set_done(self, elapsed: float, iterations: int) -> None:
         """Set phase to Done."""

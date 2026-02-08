@@ -82,6 +82,7 @@ class SheshaTUI(App[None]):
         self._query_in_progress = False
         self._query_start_time = 0.0
         self._last_iteration = 0
+        self._last_step_name = ""
         self._cumulative_prompt_tokens = 0
         self._cumulative_completion_tokens = 0
         self._timer_handle: Timer | None = None
@@ -244,6 +245,7 @@ class SheshaTUI(App[None]):
         elapsed = time.time() - self._query_start_time
         self._last_iteration = iteration + 1  # Convert 0-indexed to 1-indexed
         step_name = step_display_name(step_type)
+        self._last_step_name = step_name
         self.call_from_thread(
             self.query_one(InfoBar).update_progress,
             elapsed,
@@ -259,6 +261,8 @@ class SheshaTUI(App[None]):
         info_bar = self.query_one(InfoBar)
         if self._last_iteration == 0:
             info_bar.update_thinking(elapsed)
+        else:
+            info_bar.update_progress(elapsed, self._last_iteration, self._last_step_name)
 
     def _on_query_complete(self, result: QueryResult, question: str) -> None:
         """Handle completed query (called on main thread)."""
