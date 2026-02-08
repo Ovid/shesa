@@ -884,6 +884,35 @@ class TestIngestRepoErrorHandling:
 
                     assert isinstance(exc_info.value.__cause__, OSError)
 
+    def test_failed_new_remote_project_cleans_up_cloned_repo(self, tmp_path: Path):
+        """Failed ingestion of a new remote project deletes the cloned repo."""
+        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
+            with patch("shesha.shesha.RepoIngester") as mock_ingester_cls:
+                mock_ingester = MagicMock()
+                mock_ingester_cls.return_value = mock_ingester
+
+                mock_ingester.is_local_path.return_value = False
+                mock_ingester.get_saved_sha.return_value = None
+                mock_ingester.clone.return_value = tmp_path / "repos" / "remote-project"
+                mock_ingester.list_files_from_path.return_value = ["crash.py"]
+                mock_ingester.repos_dir = tmp_path / "repos"
+
+                shesha = Shesha(model="test-model", storage_path=tmp_path)
+
+                with patch.object(shesha._parser_registry, "find_parser") as mock_find:
+                    mock_parser = MagicMock()
+                    mock_parser.parse.side_effect = OSError("disk full")
+                    mock_find.return_value = mock_parser
+
+                    with pytest.raises(RepoIngestError):
+                        shesha.create_project_from_repo(
+                            url="https://github.com/org/repo",
+                            name="remote-project",
+                        )
+
+                # Cloned repo should be cleaned up
+                mock_ingester.delete_repo.assert_called_once_with("remote-project")
+
 
 class TestCheckRepoForUpdates:
     """Tests for check_repo_for_updates method."""
