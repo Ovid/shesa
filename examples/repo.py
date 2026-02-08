@@ -460,7 +460,9 @@ def main() -> None:
             tui.query_one(OutputArea).add_system_message(f"Error: {e}")
 
     tui.register_command("/summary", handle_summary, "Show codebase analysis")
-    tui.register_command("/analyze", handle_analyze, "Generate/regenerate analysis")
+    tui.register_command(
+        "/analyze", handle_analyze, "Generate/regenerate analysis", threaded=True
+    )
     tui.run()
 
 

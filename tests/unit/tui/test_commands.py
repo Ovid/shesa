@@ -82,3 +82,47 @@ class TestCommandRegistry:
         result = registry.dispatch("  /help")
         assert result is True
         assert called == [True]
+
+    def test_register_threaded_command(self) -> None:
+        """Commands can be registered as threaded."""
+        registry = CommandRegistry()
+        registry.register("/analyze", lambda _: None, "Analyze", threaded=True)
+        result = registry.resolve("/analyze")
+        assert result is not None
+        _handler, _args, threaded = result
+        assert threaded is True
+
+    def test_resolve_non_threaded_command(self) -> None:
+        """Non-threaded commands resolve with threaded=False."""
+        registry = CommandRegistry()
+        registry.register("/help", lambda _: None, "Help")
+        result = registry.resolve("/help")
+        assert result is not None
+        _handler, _args, threaded = result
+        assert threaded is False
+
+    def test_resolve_with_args(self) -> None:
+        """Resolve parses command name and args."""
+        registry = CommandRegistry()
+        registry.register("/write", lambda _: None, "Write")
+        result = registry.resolve("/write output.md")
+        assert result is not None
+        _handler, args, _threaded = result
+        assert args == "output.md"
+
+    def test_resolve_unknown_returns_none(self) -> None:
+        """Resolve returns None for unknown commands."""
+        registry = CommandRegistry()
+        result = registry.resolve("/unknown")
+        assert result is None
+
+    def test_resolve_calls_handler(self) -> None:
+        """Resolve returns a callable handler."""
+        called_with: list[str] = []
+        registry = CommandRegistry()
+        registry.register("/echo", lambda a: called_with.append(a), "Echo")
+        result = registry.resolve("/echo hello")
+        assert result is not None
+        handler, args, _threaded = result
+        handler(args)
+        assert called_with == ["hello"]

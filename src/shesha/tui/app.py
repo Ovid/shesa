@@ -108,10 +108,23 @@ class SheshaTUI(App[None]):
         self._command_registry.register("/quit", self._cmd_quit, "Exit")
 
     def register_command(
-        self, name: str, handler: Callable[[str], object], description: str
+        self,
+        name: str,
+        handler: Callable[[str], object],
+        description: str,
+        *,
+        threaded: bool = False,
     ) -> None:
-        """Register a custom slash command."""
-        self._command_registry.register(name, handler, description)
+        """Register a custom slash command.
+
+        Args:
+            name: Command name (e.g., "/analyze").
+            handler: Callable receiving the argument string.
+            description: Short description for help/completions.
+            threaded: If True, handler runs in a worker thread to avoid
+                blocking the UI.
+        """
+        self._command_registry.register(name, handler, description, threaded=threaded)
 
     def compose(self) -> ComposeResult:
         """Create the app layout."""
@@ -213,10 +226,17 @@ class SheshaTUI(App[None]):
 
         # Check if it's a command
         if self._command_registry.is_command(text):
-            if not self._command_registry.dispatch(text):
+            resolved = self._command_registry.resolve(text)
+            if resolved is None:
                 self.query_one(OutputArea).add_system_message(
                     f"Unknown command: {text.strip().split()[0]}"
                 )
+            else:
+                handler, args, threaded = resolved
+                if threaded:
+                    self.run_worker(lambda: handler(args), thread=True)
+                else:
+                    handler(args)
             return
 
         # It's a query -- add to history and execute
