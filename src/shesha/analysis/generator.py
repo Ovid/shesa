@@ -74,6 +74,26 @@ class AnalysisGenerator:
 
         return None
 
+    @staticmethod
+    def _to_str(value: Any) -> str:
+        """Coerce a value to a string. Dicts/lists are JSON-encoded."""
+        if isinstance(value, str):
+            return value
+        return json.dumps(value)
+
+    @staticmethod
+    def _to_str_list(items: list[Any]) -> list[str]:
+        """Coerce list items to strings. Dict items use their 'name' key or JSON."""
+        result = []
+        for item in items:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict) and "name" in item:
+                result.append(item["name"])
+            else:
+                result.append(str(item))
+        return result
+
     def generate(self, project_id: str) -> RepoAnalysis:
         """Generate a codebase analysis for a project.
 
@@ -104,9 +124,9 @@ class AnalysisGenerator:
                     path=c.get("path", ""),
                     description=c.get("description", ""),
                     apis=c.get("apis", []),
-                    models=c.get("models", []),
-                    entry_points=c.get("entry_points", []),
-                    internal_dependencies=c.get("internal_dependencies", []),
+                    models=self._to_str_list(c.get("models", [])),
+                    entry_points=self._to_str_list(c.get("entry_points", [])),
+                    internal_dependencies=self._to_str_list(c.get("internal_dependencies", [])),
                     auth=c.get("auth"),
                     data_persistence=c.get("data_persistence"),
                 )
@@ -129,7 +149,7 @@ class AnalysisGenerator:
             version="1",
             generated_at=datetime.now(UTC).isoformat(),
             head_sha=head_sha,
-            overview=data.get("overview", ""),
+            overview=self._to_str(data.get("overview", "")),
             components=components,
             external_dependencies=external_deps,
         )

@@ -134,6 +134,68 @@ class TestAnalysisGeneration:
 
         assert result.head_sha == ""  # Empty string when no SHA
 
+    def test_generate_coerces_dict_overview_to_string(self):
+        """generate() coerces a dict overview from the LLM to a string."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_shesha.get_project.return_value = mock_project
+
+        mock_result = MagicMock()
+        mock_result.answer = """
+        ```json
+        {
+          "overview": {"summary": "A web app", "architecture": "MVC"},
+          "components": [],
+          "external_dependencies": []
+        }
+        ```
+        """
+        mock_project.query.return_value = mock_result
+        mock_shesha.get_project_sha.return_value = "sha789"
+
+        generator = AnalysisGenerator(mock_shesha)
+        result = generator.generate("test-project")
+
+        assert isinstance(result.overview, str)
+        assert "A web app" in result.overview
+
+    def test_generate_coerces_dict_models_to_strings(self):
+        """generate() coerces dict items in models/entry_points/internal_dependencies to strings."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_shesha.get_project.return_value = mock_project
+
+        mock_result = MagicMock()
+        mock_result.answer = """
+        ```json
+        {
+          "overview": "Test app",
+          "components": [
+            {
+              "name": "Core",
+              "path": "src/",
+              "description": "Core module",
+              "apis": [],
+              "models": [{"name": "User", "fields": ["id", "name"]}],
+              "entry_points": [{"file": "main.py", "function": "main"}],
+              "internal_dependencies": [{"module": "utils"}]
+            }
+          ],
+          "external_dependencies": []
+        }
+        ```
+        """
+        mock_project.query.return_value = mock_result
+        mock_shesha.get_project_sha.return_value = "sha999"
+
+        generator = AnalysisGenerator(mock_shesha)
+        result = generator.generate("test-project")
+
+        comp = result.components[0]
+        assert all(isinstance(m, str) for m in comp.models)
+        assert all(isinstance(e, str) for e in comp.entry_points)
+        assert all(isinstance(d, str) for d in comp.internal_dependencies)
+
     def test_generate_handles_invalid_json(self):
         """generate() falls back to raw answer when JSON extraction fails."""
         mock_shesha = MagicMock()

@@ -231,7 +231,7 @@ def format_analysis_for_display(analysis: "RepoAnalysis") -> str:
 
     # Overview
     lines.append("## Overview")
-    lines.append(analysis.overview)
+    lines.append(str(analysis.overview))
     lines.append("")
 
     # Components
@@ -253,9 +253,9 @@ def format_analysis_for_display(analysis: "RepoAnalysis") -> str:
                 if api_strs:
                     lines.append(f"  APIs: {'; '.join(api_strs)}")
             if comp.models:
-                lines.append(f"  Models: {', '.join(comp.models)}")
+                lines.append(f"  Models: {', '.join(str(m) for m in comp.models)}")
             if comp.entry_points:
-                lines.append(f"  Entry points: {', '.join(comp.entry_points)}")
+                lines.append(f"  Entry points: {', '.join(str(e) for e in comp.entry_points)}")
 
     # External dependencies
     if analysis.external_dependencies:
