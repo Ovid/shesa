@@ -247,7 +247,8 @@ def format_analysis_for_display(analysis: "RepoAnalysis") -> str:
                         "endpoints", api.get("operations", api.get("commands", []))
                     )
                     if endpoints:
-                        api_strs.append(f"{api_type}: {', '.join(endpoints[:3])}")
+                        strs = [str(e) if not isinstance(e, str) else e for e in endpoints[:3]]
+                        api_strs.append(f"{api_type}: {', '.join(strs)}")
                 if api_strs:
                     lines.append(f"  APIs: {'; '.join(api_strs)}")
             if comp.models:

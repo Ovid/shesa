@@ -403,6 +403,42 @@ class TestFormatAnalysisForDisplay:
         assert "REST API for user management" in output
         assert "User" in output
 
+    def test_format_analysis_handles_dict_endpoints(self) -> None:
+        """Formatted analysis handles endpoints that are dicts, not strings."""
+        from examples.script_utils import format_analysis_for_display
+        from shesha.models import AnalysisComponent, RepoAnalysis
+
+        comp = AnalysisComponent(
+            name="API Server",
+            path="api/",
+            description="REST API",
+            apis=[
+                {
+                    "type": "rest",
+                    "endpoints": [
+                        {"path": "/users", "method": "GET"},
+                        {"path": "/auth", "method": "POST"},
+                    ],
+                }
+            ],
+            models=[],
+            entry_points=[],
+            internal_dependencies=[],
+        )
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123",
+            overview="Test",
+            components=[comp],
+            external_dependencies=[],
+        )
+
+        output = format_analysis_for_display(analysis)
+
+        assert "rest:" in output.lower()
+        assert "API Server" in output
+
     def test_format_analysis_includes_caveats(self) -> None:
         """Formatted analysis includes caveats warning."""
         from examples.script_utils import format_analysis_for_display
