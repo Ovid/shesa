@@ -611,6 +611,14 @@ class TestSubprocessTimeouts:
             with pytest.raises(RepoIngestError):
                 ingester.fetch("my-project")
 
+    def test_list_files_timeout_raises_repo_ingest_error(self, ingester: RepoIngester):
+        """list_files_from_path() raises RepoIngestError on timeout instead of returning []."""
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=30)
+
+            with pytest.raises(RepoIngestError):
+                ingester.list_files_from_path(Path("/fake/repo"))
+
     def test_get_remote_sha_timeout_returns_none(self, ingester: RepoIngester):
         """get_remote_sha() returns None on timeout."""
         with patch("shesha.repo.ingester.subprocess.run") as mock_run:

@@ -319,7 +319,10 @@ class RepoIngester:
                 timeout=GIT_LOCAL_TIMEOUT,
             )
         except subprocess.TimeoutExpired:
-            return []
+            raise RepoIngestError(
+                str(repo_path),
+                RuntimeError(f"git ls-files timed out after {GIT_LOCAL_TIMEOUT}s"),
+            )
 
         if result.returncode != 0:
             return []
