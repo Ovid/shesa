@@ -175,6 +175,7 @@ class TestHelpBar:
             text = str(help_bar.render())
             assert "Tab" in text
             assert "history" in text.lower()
+            assert "Esc" in text
 
 
 class TestHistoryNavigation:
@@ -231,3 +232,30 @@ class TestHistoryNavigation:
             await pilot.press("down")
             await pilot.pause()
             assert input_area.text == ""
+
+
+class TestQueryCancellation:
+    """Tests for Esc×2 query cancellation."""
+
+    async def test_double_escape_cancels_query(self) -> None:
+        """Double-escape stops a running query and shows Cancelled."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            info_bar = pilot.app.query_one(InfoBar)
+            # Simulate a query in progress
+            pilot.app._query_in_progress = True
+            input_area.query_in_progress = True
+            input_area.text = "some text"
+            # First escape clears text
+            await pilot.press("escape")
+            await pilot.pause()
+            assert input_area.text == ""
+            # Second escape cancels
+            await pilot.press("escape")
+            await pilot.pause()
+            assert pilot.app._query_in_progress is False
+            assert input_area.query_in_progress is False
+            _, line2 = info_bar._state.render_lines()
+            assert "Cancelled" in line2

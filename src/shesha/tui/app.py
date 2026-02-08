@@ -13,6 +13,7 @@ from textual.containers import Horizontal
 from textual.css.query import NoMatches
 from textual.timer import Timer
 from textual.widgets import Static, TextArea
+from textual.worker import Worker
 
 from shesha.rlm.trace import StepType
 from shesha.tui.commands import CommandRegistry
@@ -91,6 +92,7 @@ class SheshaTUI(App[None]):
         self._cumulative_prompt_tokens = 0
         self._cumulative_completion_tokens = 0
         self._timer_handle: Timer | None = None
+        self._worker_handle: Worker[object] | None = None
         self._register_builtin_commands()
 
     def _register_builtin_commands(self) -> None:
@@ -121,7 +123,7 @@ class SheshaTUI(App[None]):
             yield InputArea()
         yield Static(
             "Tab: switch panes \u2502 \u2191\u2193: history"
-            " \u2502 Shift+Enter: newline \u2502 /: commands",
+            " \u2502 Esc\u00d72: cancel \u2502 /: commands",
             id="help-bar",
         )
 
@@ -166,6 +168,15 @@ class SheshaTUI(App[None]):
     def on_input_area_completion_dismiss(self, event: InputArea.CompletionDismiss) -> None:
         """Handle completion dismissal."""
         self._hide_completions()
+
+    def on_input_area_query_cancelled(self, event: InputArea.QueryCancelled) -> None:
+        """Handle query cancellation from double-escape."""
+        if self._worker_handle is not None:
+            self._worker_handle.cancel()
+            self._worker_handle = None
+        self._stop_query()
+        self.query_one(InfoBar).update_cancelled()
+        self.query_one(OutputArea).add_system_message("Query cancelled.")
 
     def on_input_area_history_navigate(self, event: InputArea.HistoryNavigate) -> None:
         """Handle history navigation from InputArea."""
@@ -236,7 +247,7 @@ class SheshaTUI(App[None]):
         else:
             full_question = question
 
-        self.run_worker(
+        self._worker_handle = self.run_worker(
             self._make_query_runner(full_question, question),
             thread=True,
             exit_on_error=False,

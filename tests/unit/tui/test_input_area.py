@@ -39,6 +39,9 @@ class InputAreaApp(App[None]):
     def on_input_area_history_navigate(self, event: InputArea.HistoryNavigate) -> None:
         self.history_messages.append(event.direction)
 
+    def on_input_area_query_cancelled(self, event: InputArea.QueryCancelled) -> None:
+        self.completion_messages.append(("query_cancelled",))
+
 
 class TestInputArea:
     """Tests for InputArea widget."""
@@ -152,3 +155,22 @@ class TestInputArea:
         async with InputAreaApp().run_test() as pilot:
             await pilot.press("down")
             assert "next" in pilot.app.history_messages
+
+    async def test_escape_clears_text_first(self) -> None:
+        """First escape clears text, does not cancel query."""
+        async with InputAreaApp().run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.query_in_progress = True
+            input_area.text = "some text"
+            await pilot.press("escape")
+            assert input_area.text == ""
+            assert ("query_cancelled",) not in pilot.app.completion_messages
+
+    async def test_escape_on_empty_cancels_query(self) -> None:
+        """Second escape (empty input, query running) posts QueryCancelled."""
+        async with InputAreaApp().run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.query_in_progress = True
+            # Input already empty
+            await pilot.press("escape")
+            assert ("query_cancelled",) in pilot.app.completion_messages
