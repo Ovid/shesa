@@ -461,6 +461,144 @@ class TestCreateProjectFromRepo:
                 assert "not a git repository" in str(exc_info.value).lower()
 
 
+class TestAtomicIngestion:
+    """Tests for atomic repo ingestion (stage-then-swap for updates, cleanup on failure)."""
+
+    def test_failed_new_project_ingestion_cleans_up_project(self, tmp_path: Path):
+        """Failed ingestion of a new project deletes the partially created project."""
+        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
+            with patch("shesha.shesha.RepoIngester") as mock_ingester_cls:
+                mock_ingester = MagicMock()
+                mock_ingester_cls.return_value = mock_ingester
+
+                mock_ingester.is_local_path.return_value = True
+                mock_ingester.is_git_repo.return_value = True
+                mock_ingester.get_saved_sha.return_value = None
+                mock_ingester.get_sha_from_path.return_value = "abc123"
+                mock_ingester.list_files_from_path.return_value = ["crash.py"]
+                mock_ingester.repos_dir = tmp_path / "repos"
+
+                shesha = Shesha(model="test-model", storage_path=tmp_path)
+
+                with patch.object(shesha._parser_registry, "find_parser") as mock_find:
+                    mock_parser = MagicMock()
+                    mock_parser.parse.side_effect = OSError("disk full")
+                    mock_find.return_value = mock_parser
+
+                    with pytest.raises(RepoIngestError):
+                        shesha.create_project_from_repo(
+                            url="/path/to/local/repo",
+                            name="clean-on-fail",
+                        )
+
+                # Project should have been cleaned up
+                assert not shesha._storage.project_exists("clean-on-fail")
+
+    def test_failed_update_preserves_original_documents(self, tmp_path: Path):
+        """Failed update preserves the original documents untouched."""
+        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
+            with patch("shesha.shesha.RepoIngester") as mock_ingester_cls:
+                mock_ingester = MagicMock()
+                mock_ingester_cls.return_value = mock_ingester
+
+                mock_ingester.is_local_path.return_value = True
+                mock_ingester.get_saved_sha.return_value = "old_sha"
+                mock_ingester.get_sha_from_path.return_value = "new_sha"
+                mock_ingester.list_files_from_path.return_value = ["crash.py"]
+                mock_ingester.repos_dir = tmp_path / "repos"
+
+                shesha = Shesha(model="test-model", storage_path=tmp_path)
+                shesha._storage.create_project("update-project")
+
+                # Store an original document
+                from shesha.models import ParsedDocument
+
+                original_doc = ParsedDocument(
+                    name="original.txt",
+                    content="original content",
+                    format="txt",
+                    metadata={},
+                    char_count=16,
+                    parse_warnings=[],
+                )
+                shesha._storage.store_document("update-project", original_doc)
+
+                result = shesha.create_project_from_repo(
+                    url="/path/to/local/repo",
+                    name="update-project",
+                )
+
+                assert result.status == "updates_available"
+
+                with patch.object(shesha._parser_registry, "find_parser") as mock_find:
+                    mock_parser = MagicMock()
+                    mock_parser.parse.side_effect = OSError("disk full")
+                    mock_find.return_value = mock_parser
+
+                    with pytest.raises(RepoIngestError):
+                        result.apply_updates()
+
+                # Original documents should be preserved
+                docs = shesha._storage.list_documents("update-project")
+                assert "original.txt" in docs
+
+    def test_successful_update_removes_orphaned_docs(self, tmp_path: Path):
+        """Successful update removes documents that no longer exist in the repo."""
+        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
+            with patch("shesha.shesha.RepoIngester") as mock_ingester_cls:
+                mock_ingester = MagicMock()
+                mock_ingester_cls.return_value = mock_ingester
+
+                mock_ingester.is_local_path.return_value = True
+                mock_ingester.get_saved_sha.return_value = "old_sha"
+                mock_ingester.get_sha_from_path.return_value = "new_sha"
+                # Only new_file.py exists in the repo now (old_file.txt is gone)
+                mock_ingester.list_files_from_path.return_value = ["new_file.py"]
+                mock_ingester.repos_dir = tmp_path / "repos"
+
+                shesha = Shesha(model="test-model", storage_path=tmp_path)
+                shesha._storage.create_project("orphan-project")
+
+                # Store the original document (which will become orphaned)
+                from shesha.models import ParsedDocument
+
+                old_doc = ParsedDocument(
+                    name="old_file.txt",
+                    content="old",
+                    format="txt",
+                    metadata={},
+                    char_count=3,
+                    parse_warnings=[],
+                )
+                shesha._storage.store_document("orphan-project", old_doc)
+
+                result = shesha.create_project_from_repo(
+                    url="/path/to/local/repo",
+                    name="orphan-project",
+                )
+
+                assert result.status == "updates_available"
+
+                with patch.object(shesha._parser_registry, "find_parser") as mock_find:
+                    mock_parser = MagicMock()
+                    mock_parser.parse.return_value = MagicMock(
+                        name="new_file.py",
+                        content="new",
+                        format="py",
+                        metadata={},
+                        char_count=3,
+                        parse_warnings=[],
+                    )
+                    mock_find.return_value = mock_parser
+
+                    result.apply_updates()
+
+                # old_file.txt should be gone (orphaned), only new_file.py exists
+                docs = shesha._storage.list_documents("orphan-project")
+                assert "new_file.py" in docs
+                assert "old_file.txt" not in docs
+
+
 class TestIngestRepoErrorHandling:
     """Tests for _ingest_repo error handling."""
 

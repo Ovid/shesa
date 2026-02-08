@@ -457,45 +457,77 @@ class Shesha:
         *,
         is_update: bool,
     ) -> RepoProjectResult:
-        """Ingest files from repository into project."""
+        """Ingest files from repository into project.
+
+        For new projects (is_update=False): creates project, ingests files,
+        and deletes the project if ingestion fails.
+
+        For updates (is_update=True): ingests into a staging project, then
+        atomically swaps docs into the target project. If ingestion fails,
+        the staging project is cleaned up and the original is untouched.
+        """
+        # Determine the project to ingest into
+        staging_name = f"_staging_{name}" if is_update else name
+
         if not is_update:
             self._storage.create_project(name)
 
-        is_local = self._repo_ingester.is_local_path(url)
-        if is_local:
-            repo_path = Path(url).expanduser()
-        else:
-            repo_path = self._repo_ingester.repos_dir / name
+        try:
+            if is_update:
+                self._storage.create_project(staging_name)
 
-        files = self._repo_ingester.list_files_from_path(repo_path, subdir=path)
-        files_ingested = 0
-        files_skipped = 0
-        warnings: list[str] = []
+            is_local = self._repo_ingester.is_local_path(url)
+            if is_local:
+                repo_path = Path(url).expanduser()
+            else:
+                repo_path = self._repo_ingester.repos_dir / name
 
-        for file_path in files:
-            full_path = repo_path / file_path
-            try:
-                parser = self._parser_registry.find_parser(full_path)
-                if parser is None:
+            files = self._repo_ingester.list_files_from_path(repo_path, subdir=path)
+            files_ingested = 0
+            files_skipped = 0
+            warnings: list[str] = []
+
+            for file_path in files:
+                full_path = repo_path / file_path
+                try:
+                    parser = self._parser_registry.find_parser(full_path)
+                    if parser is None:
+                        files_skipped += 1
+                        continue
+
+                    doc = parser.parse(full_path, include_line_numbers=True, file_path=file_path)
+                    doc = ParsedDocument(
+                        name=file_path,
+                        content=doc.content,
+                        format=doc.format,
+                        metadata=doc.metadata,
+                        char_count=doc.char_count,
+                        parse_warnings=doc.parse_warnings,
+                    )
+                    self._storage.store_document(staging_name, doc)
+                    files_ingested += 1
+                except (ParseError, NoParserError) as e:
                     files_skipped += 1
-                    continue
+                    warnings.append(f"Failed to parse {file_path}: {e}")
+                except Exception as e:
+                    raise RepoIngestError(url, cause=e) from e
 
-                doc = parser.parse(full_path, include_line_numbers=True, file_path=file_path)
-                doc = ParsedDocument(
-                    name=file_path,
-                    content=doc.content,
-                    format=doc.format,
-                    metadata=doc.metadata,
-                    char_count=doc.char_count,
-                    parse_warnings=doc.parse_warnings,
-                )
-                self._storage.store_document(name, doc)
-                files_ingested += 1
-            except (ParseError, NoParserError) as e:
-                files_skipped += 1
-                warnings.append(f"Failed to parse {file_path}: {e}")
-            except Exception as e:
-                raise RepoIngestError(url, cause=e) from e
+            # For updates, swap staging docs into target atomically
+            if is_update and isinstance(self._storage, FilesystemStorage):
+                self._storage.swap_docs(staging_name, name)
+                self._storage.delete_project(staging_name)
+
+        except Exception:
+            # Clean up on failure
+            if is_update:
+                # Delete staging project if it exists, original is untouched
+                if self._storage.project_exists(staging_name):
+                    self._storage.delete_project(staging_name)
+            else:
+                # Delete the partially created project
+                if self._storage.project_exists(name):
+                    self._storage.delete_project(name)
+            raise
 
         sha = self._repo_ingester.get_sha_from_path(repo_path)
         if sha:

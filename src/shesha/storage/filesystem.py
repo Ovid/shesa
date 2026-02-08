@@ -226,6 +226,39 @@ class FilesystemStorage:
             **({"caveats": caveats} if caveats is not None else {}),
         )
 
+    def swap_docs(self, source_project_id: str, target_project_id: str) -> None:
+        """Atomically replace target project's docs with source project's docs.
+
+        Uses rename-based swap with rollback on failure:
+        1. Rename target/docs → target/docs_backup
+        2. Rename source/docs → target/docs
+        3. Delete backup
+
+        If step 2 fails, restores backup to target/docs.
+        """
+        if not self.project_exists(source_project_id):
+            raise ProjectNotFoundError(source_project_id)
+        if not self.project_exists(target_project_id):
+            raise ProjectNotFoundError(target_project_id)
+
+        source_docs = self._project_path(source_project_id) / "docs"
+        target_docs = self._project_path(target_project_id) / "docs"
+        backup_docs = self._project_path(target_project_id) / "docs_backup"
+
+        # Step 1: Move target docs to backup
+        shutil.move(str(target_docs), str(backup_docs))
+
+        try:
+            # Step 2: Move source docs to target
+            shutil.move(str(source_docs), str(target_docs))
+        except Exception:
+            # Restore backup on failure
+            shutil.move(str(backup_docs), str(target_docs))
+            raise
+
+        # Step 3: Remove backup
+        shutil.rmtree(backup_docs)
+
     def delete_analysis(self, project_id: str) -> None:
         """Delete the codebase analysis for a project."""
         if not self.project_exists(project_id):

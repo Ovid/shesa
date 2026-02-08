@@ -1,7 +1,9 @@
 """Tests for filesystem storage backend."""
 
 import json
+import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -213,6 +215,102 @@ class TestPathTraversalProtection:
         raw_path = tmp_path / "projects" / "test-project" / "raw" / "src" / "main.py"
         assert raw_path.exists()
         assert raw_path.read_text() == "content"
+
+
+class TestSwapDocs:
+    """Tests for swap_docs atomic document replacement."""
+
+    def test_swap_docs_replaces_target_documents(self, storage: FilesystemStorage) -> None:
+        """swap_docs replaces target project's docs with source project's docs."""
+        storage.create_project("source")
+        storage.create_project("target")
+
+        # Add docs to source
+        doc_a = ParsedDocument(
+            name="new.txt",
+            content="new content",
+            format="txt",
+            metadata={},
+            char_count=11,
+            parse_warnings=[],
+        )
+        storage.store_document("source", doc_a)
+
+        # Add different docs to target
+        doc_b = ParsedDocument(
+            name="old.txt",
+            content="old content",
+            format="txt",
+            metadata={},
+            char_count=11,
+            parse_warnings=[],
+        )
+        storage.store_document("target", doc_b)
+
+        storage.swap_docs("source", "target")
+
+        # Target should have source's docs
+        docs = storage.list_documents("target")
+        assert "new.txt" in docs
+        assert "old.txt" not in docs
+
+    def test_swap_docs_restores_on_failure(self, tmp_path: Path) -> None:
+        """swap_docs restores target docs if swap fails midway."""
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("source")
+        storage.create_project("target")
+
+        doc = ParsedDocument(
+            name="keep.txt",
+            content="must survive",
+            format="txt",
+            metadata={},
+            char_count=12,
+            parse_warnings=[],
+        )
+        storage.store_document("target", doc)
+
+        source_doc = ParsedDocument(
+            name="new.txt",
+            content="new",
+            format="txt",
+            metadata={},
+            char_count=3,
+            parse_warnings=[],
+        )
+        storage.store_document("source", source_doc)
+
+        # Make the rename fail by patching shutil.move to raise on second call
+        original_move = shutil.move
+        call_count = [0]
+
+        def failing_move(src, dst, *args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 2:
+                raise OSError("Disk error")
+            return original_move(src, dst, *args, **kwargs)
+
+        with patch("shesha.storage.filesystem.shutil.move", side_effect=failing_move):
+            with pytest.raises(OSError):
+                storage.swap_docs("source", "target")
+
+        # Target should still have the original doc
+        docs = storage.list_documents("target")
+        assert "keep.txt" in docs
+
+    def test_swap_docs_source_not_found_raises(self, storage: FilesystemStorage) -> None:
+        """swap_docs raises ProjectNotFoundError when source doesn't exist."""
+        storage.create_project("target")
+
+        with pytest.raises(ProjectNotFoundError):
+            storage.swap_docs("nonexistent", "target")
+
+    def test_swap_docs_target_not_found_raises(self, storage: FilesystemStorage) -> None:
+        """swap_docs raises ProjectNotFoundError when target doesn't exist."""
+        storage.create_project("source")
+
+        with pytest.raises(ProjectNotFoundError):
+            storage.swap_docs("source", "nonexistent")
 
 
 class TestTraceOperations:
