@@ -87,8 +87,11 @@ from shesha.rlm.trace import StepType
 try:
     from shesha.tui import SheshaTUI
 except ImportError:
-    print("This example requires the TUI extra: pip install shesha[tui]")
-    sys.exit(1)
+    if __name__ == "__main__":
+        print("This example requires the TUI extra: pip install shesha[tui]")
+        sys.exit(1)
+    else:
+        raise
 
 BOOKS = {
     "barsoom-1.txt": "A Princess of Mars",

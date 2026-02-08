@@ -76,8 +76,11 @@ try:
     from shesha.tui import SheshaTUI
     from shesha.tui.widgets.output_area import OutputArea
 except ImportError:
-    print("This example requires the TUI extra: pip install shesha[tui]")
-    sys.exit(1)
+    if __name__ == "__main__":
+        print("This example requires the TUI extra: pip install shesha[tui]")
+        sys.exit(1)
+    else:
+        raise
 
 # Storage path for repo projects (not "repos" - that collides with RepoIngester's subdirectory)
 STORAGE_PATH = Path.home() / ".shesha" / "repo-explorer"
