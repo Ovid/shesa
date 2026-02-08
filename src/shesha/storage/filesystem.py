@@ -200,9 +200,9 @@ class FilesystemStorage:
         data = json.loads(analysis_path.read_text())
         components = [
             AnalysisComponent(
-                name=c["name"],
-                path=c["path"],
-                description=c["description"],
+                name=coerce_to_str(c["name"]),
+                path=coerce_to_str(c["path"]),
+                description=coerce_to_str(c["description"]),
                 apis=c["apis"],
                 models=coerce_to_str_list(c["models"]),
                 entry_points=coerce_to_str_list(c["entry_points"]),
@@ -214,9 +214,9 @@ class FilesystemStorage:
         ]
         external_deps = [
             AnalysisExternalDep(
-                name=d["name"],
-                type=d["type"],
-                description=d["description"],
+                name=coerce_to_str(d["name"]),
+                type=coerce_to_str(d["type"]),
+                description=coerce_to_str(d["description"]),
                 used_by=coerce_to_str_list(d["used_by"]),
                 optional=d.get("optional", False),
             )

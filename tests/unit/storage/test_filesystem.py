@@ -730,3 +730,68 @@ class TestAnalysisOperations:
         assert loaded is not None
         dep = loaded.external_dependencies[0]
         assert dep.used_by == ["API"]
+
+    def test_load_analysis_coerces_non_string_component_scalars(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """load_analysis coerces non-string name/path/description in components."""
+        storage.create_project("bad-scalars")
+        project_path = storage._project_path("bad-scalars")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [
+                {
+                    "name": 42,
+                    "path": None,
+                    "description": ["a", "list"],
+                    "apis": [],
+                    "models": [],
+                    "entry_points": [],
+                    "internal_dependencies": [],
+                }
+            ],
+            "external_dependencies": [],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-scalars")
+        assert loaded is not None
+        comp = loaded.components[0]
+        assert isinstance(comp.name, str)
+        assert isinstance(comp.path, str)
+        assert isinstance(comp.description, str)
+
+    def test_load_analysis_coerces_non_string_external_dep_scalars(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """load_analysis coerces non-string name/type/description in external deps."""
+        storage.create_project("bad-dep-scalars")
+        project_path = storage._project_path("bad-dep-scalars")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [],
+            "external_dependencies": [
+                {
+                    "name": 123,
+                    "type": None,
+                    "description": {"detail": "a db"},
+                    "used_by": [],
+                }
+            ],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-dep-scalars")
+        assert loaded is not None
+        dep = loaded.external_dependencies[0]
+        assert isinstance(dep.name, str)
+        assert isinstance(dep.type, str)
+        assert isinstance(dep.description, str)

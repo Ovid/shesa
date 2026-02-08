@@ -14,8 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `load_analysis()` now coerces dict/non-string values in stored JSON to strings before constructing analysis models, preventing `TypeError` crashes from LLM-generated analysis data
+- `load_analysis()` and `AnalysisGenerator.generate()` now coerce all validated string fields (scalars via `coerce_to_str()`, lists via `coerce_to_str_list()`) before constructing analysis models, preventing `TypeError` crashes from LLM-generated or stored data
 - `_send_raw()` now wraps `OSError`/`TimeoutError` from socket `sendall()` as `ProtocolError` and restores the previous socket timeout after each send
+- Fixed mutable closure in RLM engine where `llm_query` callback captured loop variable by reference
+- Repo ingestion is now atomic: updates use stage-then-swap to prevent mixed state on failure, new project creation cleans up on failure
+- Successful repo updates now remove orphaned documents that no longer exist in the repository
 
 ### Security
 
@@ -26,12 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added timeouts to all git subprocess calls to prevent indefinite hangs
 - Added `GIT_TERMINAL_PROMPT=0` to non-token git operations to prevent interactive prompts
 - Fixed `get_remote_sha()` to use authentication token when provided
-
-### Fixed
-
-- Fixed mutable closure in RLM engine where `llm_query` callback captured loop variable by reference
-- Repo ingestion is now atomic: updates use stage-then-swap to prevent mixed state on failure, new project creation cleans up on failure
-- Successful repo updates now remove orphaned documents that no longer exist in the repository
 
 ## [0.6.0] - 2026-02-08
 
