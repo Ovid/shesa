@@ -2,6 +2,7 @@
 
 import atexit
 import re
+import uuid
 import weakref
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -467,7 +468,7 @@ class Shesha:
         the staging project is cleaned up and the original is untouched.
         """
         # Determine the project to ingest into
-        staging_name = f"_staging_{name}" if is_update else name
+        staging_name = f"_staging_{name}_{uuid.uuid4().hex[:8]}" if is_update else name
 
         if not is_update:
             self._storage.create_project(name)

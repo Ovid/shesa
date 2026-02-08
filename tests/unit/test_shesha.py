@@ -598,6 +598,61 @@ class TestAtomicIngestion:
                 assert "new_file.py" in docs
                 assert "old_file.txt" not in docs
 
+    def test_staging_name_does_not_collide_with_user_project(self, tmp_path: Path):
+        """Staging project name must not collide with existing user projects."""
+        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
+            with patch("shesha.shesha.RepoIngester") as mock_ingester_cls:
+                mock_ingester = MagicMock()
+                mock_ingester_cls.return_value = mock_ingester
+
+                mock_ingester.is_local_path.return_value = True
+                mock_ingester.get_saved_sha.return_value = "old_sha"
+                mock_ingester.get_sha_from_path.return_value = "new_sha"
+                mock_ingester.list_files_from_path.return_value = ["file.py"]
+                mock_ingester.repos_dir = tmp_path / "repos"
+
+                shesha = Shesha(model="test-model", storage_path=tmp_path)
+                shesha._storage.create_project("my-project")
+
+                # Create a user project whose name matches the old staging pattern
+                shesha._storage.create_project("_staging_my-project")
+
+                from shesha.models import ParsedDocument
+
+                original_doc = ParsedDocument(
+                    name="original.txt",
+                    content="original",
+                    format="txt",
+                    metadata={},
+                    char_count=8,
+                    parse_warnings=[],
+                )
+                shesha._storage.store_document("my-project", original_doc)
+
+                result = shesha.create_project_from_repo(
+                    url="/path/to/local/repo",
+                    name="my-project",
+                )
+
+                assert result.status == "updates_available"
+
+                with patch.object(shesha._parser_registry, "find_parser") as mock_find:
+                    mock_parser = MagicMock()
+                    mock_parser.parse.return_value = MagicMock(
+                        name="file.py",
+                        content="new",
+                        format="py",
+                        metadata={},
+                        char_count=3,
+                        parse_warnings=[],
+                    )
+                    mock_find.return_value = mock_parser
+
+                    result.apply_updates()
+
+                # The user's unrelated project must still exist
+                assert shesha._storage.project_exists("_staging_my-project")
+
 
 class TestIngestRepoErrorHandling:
     """Tests for _ingest_repo error handling."""
