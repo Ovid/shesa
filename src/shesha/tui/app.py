@@ -54,9 +54,11 @@ class SheshaTUI(App[None]):
     }}
     #prompt {{
         width: 2;
-        min-height: 1;
+        height: 1;
         color: {SHESHA_TEAL};
-        padding-top: 1;
+    }}
+    #input-row InputArea {{
+        width: 1fr;
     }}
     """
 
@@ -145,7 +147,10 @@ class SheshaTUI(App[None]):
         value = self.query_one(CompletionPopup).selected_value
         self._hide_completions()
         if value:
-            self.query_one(InputArea).text = value + " "
+            input_area = self.query_one(InputArea)
+            filled = value + " "
+            input_area.text = filled
+            input_area.move_cursor((0, len(filled)))
 
     def on_input_area_completion_dismiss(self, event: InputArea.CompletionDismiss) -> None:
         """Handle completion dismissal."""
