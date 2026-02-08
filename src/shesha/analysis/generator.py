@@ -91,7 +91,7 @@ class AnalysisGenerator:
             elif isinstance(item, dict) and "name" in item:
                 result.append(item["name"])
             else:
-                result.append(str(item))
+                result.append(json.dumps(item))
         return result
 
     def generate(self, project_id: str) -> RepoAnalysis:

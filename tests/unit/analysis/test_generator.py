@@ -196,6 +196,24 @@ class TestAnalysisGeneration:
         assert all(isinstance(e, str) for e in comp.entry_points)
         assert all(isinstance(d, str) for d in comp.internal_dependencies)
 
+    def test_to_str_list_fallback_uses_json_not_repr(self):
+        """_to_str_list fallback produces JSON, not Python repr, for dicts without 'name'."""
+        generator = AnalysisGenerator(MagicMock())
+
+        items = [
+            "plain_string",
+            {"name": "User", "fields": ["id"]},
+            {"module": "utils", "version": "1.0"},
+        ]
+        result = generator._to_str_list(items)
+
+        assert result[0] == "plain_string"
+        assert result[1] == "User"
+        # Fallback: dict without "name" key should be JSON (double quotes),
+        # not Python repr (single quotes)
+        assert '"module"' in result[2]
+        assert "'" not in result[2]
+
     def test_generate_handles_invalid_json(self):
         """generate() falls back to raw answer when JSON extraction fails."""
         mock_shesha = MagicMock()
