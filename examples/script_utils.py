@@ -133,7 +133,8 @@ def format_analysis_as_context(analysis: "RepoAnalysis") -> str:
                     api_type = api.get("type", "unknown")
                     endpoints = api.get("endpoints", [])
                     if endpoints:
-                        lines.append(f"  APIs ({api_type}): {', '.join(endpoints[:5])}")
+                        strs = [str(e) if not isinstance(e, str) else e for e in endpoints[:5]]
+                        lines.append(f"  APIs ({api_type}): {', '.join(strs)}")
             if comp.models:
                 lines.append(f"  Models: {', '.join(comp.models)}")
 

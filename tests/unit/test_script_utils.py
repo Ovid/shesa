@@ -188,6 +188,42 @@ class TestFormatAnalysisAsContext:
         assert "APIs (rest): /users, /auth" in result
         assert "Models: User, Session" in result
 
+    def test_handles_dict_endpoints(self) -> None:
+        """Context string handles endpoints that are dicts, not strings."""
+        from examples.script_utils import format_analysis_as_context
+        from shesha.models import AnalysisComponent, RepoAnalysis
+
+        comp = AnalysisComponent(
+            name="API Server",
+            path="api/",
+            description="REST API",
+            apis=[
+                {
+                    "type": "rest",
+                    "endpoints": [
+                        {"path": "/users", "method": "GET"},
+                        {"path": "/auth", "method": "POST"},
+                    ],
+                }
+            ],
+            models=[],
+            entry_points=[],
+            internal_dependencies=[],
+        )
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123",
+            overview="Test",
+            components=[comp],
+            external_dependencies=[],
+        )
+
+        result = format_analysis_as_context(analysis)
+
+        assert "APIs (rest):" in result
+        assert "API Server" in result
+
     def test_includes_external_dependencies(self) -> None:
         """Context string includes external dependencies."""
         from examples.script_utils import format_analysis_as_context
