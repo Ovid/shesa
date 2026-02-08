@@ -13,11 +13,8 @@ class InfoBarApp(App[None]):
 
 
 def _get_content(bar: InfoBar) -> str:
-    """Extract the text content from an InfoBar widget.
-
-    Uses the name-mangled _Static__content attribute set by Static.update().
-    """
-    return str(bar._Static__content)  # type: ignore[attr-defined]
+    """Extract the text content from an InfoBar widget."""
+    return bar.content
 
 
 class TestInfoBarWidget:
