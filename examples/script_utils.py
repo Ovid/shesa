@@ -121,7 +121,7 @@ def format_analysis_as_context(analysis: "RepoAnalysis") -> str:
     Returns:
         Formatted string suitable for prepending to user queries.
     """
-    lines = ["=== Codebase Analysis ===", str(analysis.overview)]
+    lines = ["=== Codebase Analysis ===", analysis.overview]
 
     if analysis.components:
         lines.append("")
@@ -136,7 +136,7 @@ def format_analysis_as_context(analysis: "RepoAnalysis") -> str:
                         strs = [str(e) if not isinstance(e, str) else e for e in endpoints[:5]]
                         lines.append(f"  APIs ({api_type}): {', '.join(strs)}")
             if comp.models:
-                lines.append(f"  Models: {', '.join(str(m) for m in comp.models)}")
+                lines.append(f"  Models: {', '.join(comp.models)}")
 
     if analysis.external_dependencies:
         lines.append("")
@@ -231,7 +231,7 @@ def format_analysis_for_display(analysis: "RepoAnalysis") -> str:
 
     # Overview
     lines.append("## Overview")
-    lines.append(str(analysis.overview))
+    lines.append(analysis.overview)
     lines.append("")
 
     # Components
@@ -253,9 +253,9 @@ def format_analysis_for_display(analysis: "RepoAnalysis") -> str:
                 if api_strs:
                     lines.append(f"  APIs: {'; '.join(api_strs)}")
             if comp.models:
-                lines.append(f"  Models: {', '.join(str(m) for m in comp.models)}")
+                lines.append(f"  Models: {', '.join(comp.models)}")
             if comp.entry_points:
-                lines.append(f"  Entry points: {', '.join(str(e) for e in comp.entry_points)}")
+                lines.append(f"  Entry points: {', '.join(comp.entry_points)}")
 
     # External dependencies
     if analysis.external_dependencies:

@@ -588,3 +588,145 @@ class TestAnalysisOperations:
         """Loading analysis from nonexistent project raises."""
         with pytest.raises(ProjectNotFoundError):
             storage.load_analysis("no-such-project")
+
+    def test_load_analysis_coerces_dict_overview(self, storage: FilesystemStorage) -> None:
+        """load_analysis coerces dict overview to string."""
+        storage.create_project("bad-types")
+        project_path = storage._project_path("bad-types")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": {"summary": "A test app", "details": "more info"},
+            "components": [],
+            "external_dependencies": [],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-types")
+        assert loaded is not None
+        assert isinstance(loaded.overview, str)
+        assert "summary" in loaded.overview
+
+    def test_load_analysis_coerces_dict_items_in_models(self, storage: FilesystemStorage) -> None:
+        """load_analysis coerces dict items in models list to strings."""
+        storage.create_project("bad-models")
+        project_path = storage._project_path("bad-models")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [
+                {
+                    "name": "API",
+                    "path": "api/",
+                    "description": "REST API",
+                    "apis": [],
+                    "models": [{"name": "User", "fields": ["id"]}, "Session"],
+                    "entry_points": ["main.py"],
+                    "internal_dependencies": [],
+                }
+            ],
+            "external_dependencies": [],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-models")
+        assert loaded is not None
+        comp = loaded.components[0]
+        assert comp.models == ["User", "Session"]
+
+    def test_load_analysis_coerces_dict_items_in_entry_points(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """load_analysis coerces dict items in entry_points to strings."""
+        storage.create_project("bad-eps")
+        project_path = storage._project_path("bad-eps")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [
+                {
+                    "name": "API",
+                    "path": "api/",
+                    "description": "REST API",
+                    "apis": [],
+                    "models": [],
+                    "entry_points": [{"path": "main.py", "type": "cli"}],
+                    "internal_dependencies": [],
+                }
+            ],
+            "external_dependencies": [],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-eps")
+        assert loaded is not None
+        comp = loaded.components[0]
+        assert len(comp.entry_points) == 1
+        assert isinstance(comp.entry_points[0], str)
+
+    def test_load_analysis_coerces_dict_items_in_internal_dependencies(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """load_analysis coerces dict items in internal_dependencies."""
+        storage.create_project("bad-deps")
+        project_path = storage._project_path("bad-deps")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [
+                {
+                    "name": "API",
+                    "path": "api/",
+                    "description": "REST API",
+                    "apis": [],
+                    "models": [],
+                    "entry_points": [],
+                    "internal_dependencies": [{"name": "db", "version": "1.0"}],
+                }
+            ],
+            "external_dependencies": [],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-deps")
+        assert loaded is not None
+        comp = loaded.components[0]
+        assert comp.internal_dependencies == ["db"]
+
+    def test_load_analysis_coerces_dict_items_in_used_by(self, storage: FilesystemStorage) -> None:
+        """load_analysis coerces dict items in used_by to strings."""
+        storage.create_project("bad-usedby")
+        project_path = storage._project_path("bad-usedby")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [],
+            "external_dependencies": [
+                {
+                    "name": "Redis",
+                    "type": "database",
+                    "description": "Cache",
+                    "used_by": [{"name": "API", "component": "server"}],
+                }
+            ],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-usedby")
+        assert loaded is not None
+        dep = loaded.external_dependencies[0]
+        assert dep.used_by == ["API"]

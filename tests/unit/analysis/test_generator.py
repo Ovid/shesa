@@ -197,15 +197,15 @@ class TestAnalysisGeneration:
         assert all(isinstance(d, str) for d in comp.internal_dependencies)
 
     def test_to_str_list_fallback_uses_json_not_repr(self):
-        """_to_str_list fallback produces JSON, not Python repr, for dicts without 'name'."""
-        generator = AnalysisGenerator(MagicMock())
+        """coerce_to_str_list fallback produces JSON, not Python repr, for dicts without 'name'."""
+        from shesha.models import coerce_to_str_list
 
         items = [
             "plain_string",
             {"name": "User", "fields": ["id"]},
             {"module": "utils", "version": "1.0"},
         ]
-        result = generator._to_str_list(items)
+        result = coerce_to_str_list(items)
 
         assert result[0] == "plain_string"
         assert result[1] == "User"

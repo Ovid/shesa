@@ -498,10 +498,16 @@ class TestMain:
         mock_result.project = MagicMock()
         mock_result.project.project_id = "test-project"
 
-        mock_analysis = MagicMock()
-        mock_analysis.overview = "Test overview"
-        mock_analysis.components = []
-        mock_analysis.external_dependencies = []
+        from shesha.models import RepoAnalysis
+
+        mock_analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-06T10:30:00Z",
+            head_sha="abc123",
+            overview="Test overview",
+            components=[],
+            external_dependencies=[],
+        )
 
         mock_shesha = MagicMock()
         mock_shesha.list_projects.return_value = ["test-project"]

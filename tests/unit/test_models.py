@@ -9,6 +9,7 @@ from shesha.models import (
     AnalysisExternalDep,
     ProjectInfo,
     QueryContext,
+    RepoAnalysis,
     RepoProjectResult,
 )
 
@@ -346,3 +347,204 @@ class TestRepoAnalysis:
         )
 
         assert analysis.caveats == "Custom warning."
+
+
+class TestAnalysisComponentTypeValidation:
+    """Tests for AnalysisComponent __post_init__ type validation."""
+
+    def test_dict_name_raises_type_error(self) -> None:
+        """Dict name should raise TypeError."""
+        with pytest.raises(TypeError, match="name"):
+            AnalysisComponent(
+                name={"key": "value"},  # type: ignore[arg-type]
+                path="api/",
+                description="REST API",
+                apis=[],
+                models=[],
+                entry_points=[],
+                internal_dependencies=[],
+            )
+
+    def test_dict_path_raises_type_error(self) -> None:
+        """Dict path should raise TypeError."""
+        with pytest.raises(TypeError, match="path"):
+            AnalysisComponent(
+                name="API",
+                path={"key": "value"},  # type: ignore[arg-type]
+                description="REST API",
+                apis=[],
+                models=[],
+                entry_points=[],
+                internal_dependencies=[],
+            )
+
+    def test_dict_description_raises_type_error(self) -> None:
+        """Dict description should raise TypeError."""
+        with pytest.raises(TypeError, match="description"):
+            AnalysisComponent(
+                name="API",
+                path="api/",
+                description={"key": "value"},  # type: ignore[arg-type]
+                apis=[],
+                models=[],
+                entry_points=[],
+                internal_dependencies=[],
+            )
+
+    def test_dict_items_in_models_raises_type_error(self) -> None:
+        """Dict items in models list should raise TypeError."""
+        with pytest.raises(TypeError, match="models"):
+            AnalysisComponent(
+                name="API",
+                path="api/",
+                description="REST API",
+                apis=[],
+                models=[{"name": "User"}],  # type: ignore[list-item]
+                entry_points=[],
+                internal_dependencies=[],
+            )
+
+    def test_dict_items_in_entry_points_raises_type_error(self) -> None:
+        """Dict items in entry_points list should raise TypeError."""
+        with pytest.raises(TypeError, match="entry_points"):
+            AnalysisComponent(
+                name="API",
+                path="api/",
+                description="REST API",
+                apis=[],
+                models=[],
+                entry_points=[{"path": "main.py"}],  # type: ignore[list-item]
+                internal_dependencies=[],
+            )
+
+    def test_dict_items_in_internal_dependencies_raises_type_error(self) -> None:
+        """Dict items in internal_dependencies should raise TypeError."""
+        with pytest.raises(TypeError, match="internal_dependencies"):
+            AnalysisComponent(
+                name="API",
+                path="api/",
+                description="REST API",
+                apis=[],
+                models=[],
+                entry_points=[],
+                internal_dependencies=[{"name": "db"}],  # type: ignore[list-item]
+            )
+
+
+class TestAnalysisExternalDepTypeValidation:
+    """Tests for AnalysisExternalDep __post_init__ type validation."""
+
+    def test_dict_name_raises_type_error(self) -> None:
+        """Dict name should raise TypeError."""
+        with pytest.raises(TypeError, match="name"):
+            AnalysisExternalDep(
+                name={"key": "value"},  # type: ignore[arg-type]
+                type="database",
+                description="Cache",
+                used_by=["API"],
+            )
+
+    def test_dict_description_raises_type_error(self) -> None:
+        """Dict description should raise TypeError."""
+        with pytest.raises(TypeError, match="description"):
+            AnalysisExternalDep(
+                name="Redis",
+                type="database",
+                description={"key": "value"},  # type: ignore[arg-type]
+                used_by=["API"],
+            )
+
+    def test_dict_items_in_used_by_raises_type_error(self) -> None:
+        """Dict items in used_by should raise TypeError."""
+        with pytest.raises(TypeError, match="used_by"):
+            AnalysisExternalDep(
+                name="Redis",
+                type="database",
+                description="Cache",
+                used_by=[{"name": "API"}],  # type: ignore[list-item]
+            )
+
+
+class TestRepoAnalysisTypeValidation:
+    """Tests for RepoAnalysis __post_init__ type validation."""
+
+    def test_dict_overview_raises_type_error(self) -> None:
+        """Dict overview should raise TypeError."""
+        with pytest.raises(TypeError, match="overview"):
+            RepoAnalysis(
+                version="1",
+                generated_at="2026-02-06T10:30:00Z",
+                head_sha="abc123",
+                overview={"summary": "test"},  # type: ignore[arg-type]
+                components=[],
+                external_dependencies=[],
+            )
+
+    def test_dict_caveats_raises_type_error(self) -> None:
+        """Dict caveats should raise TypeError."""
+        with pytest.raises(TypeError, match="caveats"):
+            RepoAnalysis(
+                version="1",
+                generated_at="2026-02-06T10:30:00Z",
+                head_sha="abc123",
+                overview="Test",
+                components=[],
+                external_dependencies=[],
+                caveats={"note": "caveat"},  # type: ignore[arg-type]
+            )
+
+
+class TestCoercionHelpers:
+    """Tests for coerce_to_str and coerce_to_str_list."""
+
+    def test_coerce_to_str_with_string(self) -> None:
+        """String input returns unchanged."""
+        from shesha.models import coerce_to_str
+
+        assert coerce_to_str("hello") == "hello"
+
+    def test_coerce_to_str_with_dict(self) -> None:
+        """Dict input returns JSON-encoded string."""
+        from shesha.models import coerce_to_str
+
+        result = coerce_to_str({"key": "value"})
+        assert isinstance(result, str)
+        assert "key" in result
+
+    def test_coerce_to_str_with_list(self) -> None:
+        """List input returns JSON-encoded string."""
+        from shesha.models import coerce_to_str
+
+        result = coerce_to_str(["a", "b"])
+        assert isinstance(result, str)
+
+    def test_coerce_to_str_list_with_strings(self) -> None:
+        """String items pass through unchanged."""
+        from shesha.models import coerce_to_str_list
+
+        assert coerce_to_str_list(["a", "b"]) == ["a", "b"]
+
+    def test_coerce_to_str_list_with_dict_name_key(self) -> None:
+        """Dict items with 'name' key use the name value."""
+        from shesha.models import coerce_to_str_list
+
+        result = coerce_to_str_list([{"name": "User", "fields": ["id"]}])
+        assert result == ["User"]
+
+    def test_coerce_to_str_list_with_dict_no_name_key(self) -> None:
+        """Dict items without 'name' key are JSON-encoded."""
+        from shesha.models import coerce_to_str_list
+
+        result = coerce_to_str_list([{"path": "/api", "method": "GET"}])
+        assert len(result) == 1
+        assert isinstance(result[0], str)
+        assert "path" in result[0]
+
+    def test_coerce_to_str_list_mixed(self) -> None:
+        """Mixed list with strings and dicts."""
+        from shesha.models import coerce_to_str_list
+
+        result = coerce_to_str_list(["User", {"name": "Session"}, {"path": "/api"}])
+        assert result[0] == "User"
+        assert result[1] == "Session"
+        assert isinstance(result[2], str)

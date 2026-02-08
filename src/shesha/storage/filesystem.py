@@ -9,7 +9,14 @@ from shesha.exceptions import (
     ProjectExistsError,
     ProjectNotFoundError,
 )
-from shesha.models import AnalysisComponent, AnalysisExternalDep, ParsedDocument, RepoAnalysis
+from shesha.models import (
+    AnalysisComponent,
+    AnalysisExternalDep,
+    ParsedDocument,
+    RepoAnalysis,
+    coerce_to_str,
+    coerce_to_str_list,
+)
 from shesha.security.paths import safe_path
 
 
@@ -197,9 +204,9 @@ class FilesystemStorage:
                 path=c["path"],
                 description=c["description"],
                 apis=c["apis"],
-                models=c["models"],
-                entry_points=c["entry_points"],
-                internal_dependencies=c["internal_dependencies"],
+                models=coerce_to_str_list(c["models"]),
+                entry_points=coerce_to_str_list(c["entry_points"]),
+                internal_dependencies=coerce_to_str_list(c["internal_dependencies"]),
                 auth=c.get("auth"),
                 data_persistence=c.get("data_persistence"),
             )
@@ -210,7 +217,7 @@ class FilesystemStorage:
                 name=d["name"],
                 type=d["type"],
                 description=d["description"],
-                used_by=d["used_by"],
+                used_by=coerce_to_str_list(d["used_by"]),
                 optional=d.get("optional", False),
             )
             for d in data["external_dependencies"]
@@ -220,7 +227,7 @@ class FilesystemStorage:
             version=data["version"],
             generated_at=data["generated_at"],
             head_sha=data["head_sha"],
-            overview=data["overview"],
+            overview=coerce_to_str(data["overview"]),
             components=components,
             external_dependencies=external_deps,
             **({"caveats": caveats} if caveats is not None else {}),

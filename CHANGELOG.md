@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Strict type validation (`__post_init__`) on `AnalysisComponent`, `AnalysisExternalDep`, and `RepoAnalysis` dataclasses — bad-typed fields now raise `TypeError` at construction time
+- `coerce_to_str()` and `coerce_to_str_list()` helpers in `models.py` for safe type coercion at storage/generation boundaries
+
+### Fixed
+
+- `load_analysis()` now coerces dict/non-string values in stored JSON to strings before constructing analysis models, preventing `TypeError` crashes from LLM-generated analysis data
+
 ### Security
 
 - Added tmpfs mounts to container security config (default `/tmp` with 64MB limit, noexec)
