@@ -71,6 +71,25 @@ class TestOutputArea:
             static_widgets = output.query("Static")
             assert len(static_widgets) > 0
 
+    async def test_focus_border_shown(self) -> None:
+        """OutputArea shows a border when focused."""
+        async with OutputAreaApp().run_test() as pilot:
+            output = pilot.app.query_one(OutputArea)
+            output.focus()
+            await pilot.pause()
+            border = output.styles.border
+            # At least one side should have a visible border type
+            assert any(edge[0] not in ("", "none", "hidden") for edge in border)
+
+    async def test_no_border_when_unfocused(self) -> None:
+        """OutputArea has no visible border when not focused."""
+        async with OutputAreaApp().run_test() as pilot:
+            output = pilot.app.query_one(OutputArea)
+            pilot.app.set_focus(None)
+            await pilot.pause()
+            border = output.styles.border
+            assert all(edge[0] in ("", "none", "hidden") for edge in border)
+
     async def test_scroll_to_bottom_on_add(self) -> None:
         """Adding content scrolls to bottom."""
         async with OutputAreaApp().run_test() as pilot:

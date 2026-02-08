@@ -31,7 +31,7 @@ class InputArea(TextArea):
         border: none;
     }
     InputArea:focus {
-        border: none;
+        border: solid #00bcd4;
     }
     """
 

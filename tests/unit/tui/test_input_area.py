@@ -174,3 +174,12 @@ class TestInputArea:
             # Input already empty
             await pilot.press("escape")
             assert ("query_cancelled",) in pilot.app.completion_messages
+
+    async def test_focus_border_shown(self) -> None:
+        """InputArea shows a border when focused."""
+        async with InputAreaApp().run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.focus()
+            await pilot.pause()
+            border = input_area.styles.border
+            assert any(edge[0] not in ("", "none", "hidden") for edge in border)

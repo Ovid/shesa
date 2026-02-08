@@ -16,6 +16,9 @@ class OutputArea(VerticalScroll):
         height: 1fr;
         padding: 0 1;
     }
+    OutputArea:focus {
+        border: solid #00bcd4;
+    }
     OutputArea .user-message {
         color: $accent;
         margin-top: 1;
