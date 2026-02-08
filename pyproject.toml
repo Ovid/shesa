@@ -29,6 +29,10 @@ dev = [
     "mypy>=1.8",
     "types-PyYAML>=6.0",
     "types-docker>=7.0",
+    "textual>=1.0",
+]
+tui = [
+    "textual>=1.0",
 ]
 
 [tool.hatch.build.targets.wheel]

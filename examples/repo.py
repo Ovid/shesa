@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """Interactive git repository explorer using Shesha.
 
-This script provides an interactive CLI for exploring git repositories using
+This script provides an interactive TUI for exploring git repositories using
 Shesha's Recursive Language Model (RLM) capabilities. It supports both remote
 repositories (GitHub, GitLab, Bitbucket) and local git repos.
 
 Features:
     - Interactive picker for previously indexed repositories
     - Automatic update detection and application
-    - Conversation history for follow-up questions
-    - Session transcript export with "write" command
-    - In-session help with "help" or "?" command
-    - Verbose mode with execution stats and progress
+    - Textual-based TUI with rich output, progress tracking, and token stats
+    - Slash commands: /help, /write, /summary, /analyze, /quit
+    - Session transcript export with /write command
 
 Usage:
     # Explore a GitHub repository
@@ -23,8 +22,8 @@ Usage:
     # Show picker of previously indexed repos
     python examples/repo.py
 
-    # Auto-apply updates and show verbose stats
-    python examples/repo.py https://github.com/org/repo --update --verbose
+    # Auto-apply updates
+    python examples/repo.py https://github.com/org/repo --update
 
 Environment Variables:
     SHESHA_API_KEY: Required. API key for your LLM provider.
@@ -36,15 +35,15 @@ Example:
     Loading repository: https://github.com/Ovid/shesha
     Loaded 42 files.
 
-    Ask questions about the codebase. Type "quit" or "exit" to leave.
+    Ask questions about the codebase. Type /help for commands.
 
     > How does the sandbox execute code?
     [Thought for 15 seconds]
     The sandbox executes code in isolated Docker containers...
 
     # Save session transcript
-    > write                    # Auto-generates timestamped filename
-    > write my-notes.md        # Custom filename
+    > /write                    # Auto-generates timestamped filename
+    > /write my-notes.md        # Custom filename
 """
 
 from __future__ import annotations
@@ -52,7 +51,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -64,46 +62,31 @@ from typing import TYPE_CHECKING
 sys.path.insert(0, str(Path(__file__).parent))
 
 from script_utils import (
-    ThinkingSpinner,
     format_analysis_as_context,
     format_analysis_for_display,
-    format_history_prefix,
-    format_progress,
-    format_stats,
-    format_thought_time,
-    format_verified_output,
     install_urllib3_cleanup_hook,
-    is_analysis_command,
     is_exit_command,
-    is_help_command,
-    is_regenerate_command,
-    is_write_command,
-    parse_write_command,
-    should_warn_history_size,
-    write_session,
 )
 
 from shesha import Shesha, SheshaConfig
 from shesha.exceptions import ProjectNotFoundError, RepoIngestError
-from shesha.rlm.trace import StepType
+
+# Guard TUI imports: textual is an optional dependency (shesha[tui]).
+try:
+    from shesha.tui import SheshaTUI
+    from shesha.tui.widgets.output_area import OutputArea
+except ModuleNotFoundError:
+    if __name__ == "__main__":
+        print("This example requires the TUI extra: pip install shesha[tui]")
+        sys.exit(1)
+    else:
+        raise
 
 # Storage path for repo projects (not "repos" - that collides with RepoIngester's subdirectory)
 STORAGE_PATH = Path.home() / ".shesha" / "repo-explorer"
 
-INTERACTIVE_HELP = """\
-Shesha Repository Explorer - Ask questions about the indexed codebase.
-
-Commands:
-  help, ?              Show this help message
-  analysis             Show codebase analysis
-  analyze              Generate/regenerate codebase analysis
-  write                Save session transcript (auto-generated filename)
-  write <filename>     Save session transcript to specified file
-  quit, exit           Leave the session"""
-
 if TYPE_CHECKING:
     from shesha.models import RepoProjectResult
-    from shesha.project import Project
 
 
 def _looks_like_repo_url_or_path(value: str) -> bool:
@@ -140,7 +123,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         Parsed arguments namespace with:
             - repo: Git repository URL or local path (optional)
             - update: Whether to auto-apply updates without prompting
-            - verbose: Whether to show execution stats after each answer
     """
     parser = argparse.ArgumentParser(description="Explore git repositories using Shesha RLM")
     parser.add_argument(
@@ -152,11 +134,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--update",
         action="store_true",
         help="Auto-apply updates without prompting",
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Show execution stats after each answer",
     )
     parser.add_argument(
         "--pristine",
@@ -355,151 +332,6 @@ def check_and_prompt_analysis(shesha: Shesha, project_id: str) -> None:
             print()  # Clean line after interrupt
 
 
-def run_interactive_loop(
-    project: Project,
-    verbose: bool,
-    project_name: str,
-    shesha: Shesha,
-    analysis_context: str | None = None,
-) -> None:
-    """Run the interactive question-answer loop for querying the codebase.
-
-    Provides a REPL-style interface where users can ask questions about the
-    indexed repository. Maintains conversation history for follow-up questions
-    and warns when history grows large.
-
-    Args:
-        project: The Shesha project containing the indexed repository.
-        verbose: If True, displays execution stats (time, tokens, trace)
-            and progress updates during query processing.
-        project_name: Name or URL of the project for session transcript metadata.
-        shesha: Shesha instance for analysis commands.
-        analysis_context: Pre-formatted analysis text to prepend to queries.
-            When set, each query includes this context so the LLM has structural
-            knowledge of the codebase. Pass None to skip (equivalent to --pristine).
-
-    Note:
-        The loop continues until the user types "quit", "exit", or presses
-        Ctrl+C/Ctrl+D. Conversation history is maintained in memory and
-        prepended to each query for context.
-    """
-    if analysis_context:
-        print("Using codebase analysis as context. Use --pristine to disable.")
-    print()
-    print("Ask questions about the codebase.")
-    print('Type "help" or "?" for commands.')
-    print()
-
-    history: list[tuple[str, str, str]] = []
-
-    while True:
-        try:
-            user_input = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nGoodbye!")
-            break
-
-        if not user_input:
-            continue
-
-        if is_exit_command(user_input):
-            print("Goodbye!")
-            break
-
-        if is_help_command(user_input):
-            print(INTERACTIVE_HELP)
-            print()
-            continue
-
-        if is_analysis_command(user_input):
-            analysis = shesha.get_analysis(project.project_id)
-            if analysis is None:
-                print("No analysis exists. Use 'analyze' to generate one.")
-            else:
-                print(format_analysis_for_display(analysis))
-            print()
-            continue
-
-        if is_regenerate_command(user_input):
-            print("Generating analysis (this may take a minute)...")
-            try:
-                shesha.generate_analysis(project.project_id)
-                print("Analysis complete. Use 'analysis' to view.")
-            except Exception as e:
-                print(f"Error generating analysis: {e}")
-            print()
-            continue
-
-        if is_write_command(user_input):
-            if not history:
-                print("Nothing to save - no exchanges yet.")
-                print()
-                continue
-            try:
-                filename = parse_write_command(user_input)
-                path = write_session(history, project_name, filename)
-                print(f"Session saved to {path} ({len(history)} exchanges)")
-            except OSError as e:
-                print(f"Error saving session: {e}")
-            print()
-            continue
-
-        if should_warn_history_size(history):
-            print(f"Warning: Conversation history is large ({len(history)} exchanges).")
-            try:
-                clear = input("Clear history? (y/n): ").strip().lower()
-                if clear == "y":
-                    history.clear()
-                    print("History cleared.")
-            except (EOFError, KeyboardInterrupt):
-                pass  # User cancelled, continue with existing history
-
-        try:
-            spinner = ThinkingSpinner()
-            spinner.start()
-            query_start_time = time.time()
-
-            def on_progress(step_type: StepType, iteration: int, content: str) -> None:
-                if verbose:
-                    spinner.stop()
-                    elapsed = time.time() - query_start_time
-                    print(format_progress(step_type, iteration, content, elapsed_seconds=elapsed))
-                    spinner.start()
-
-            prefix = format_history_prefix(history)
-            if analysis_context and prefix:
-                full_question = f"{analysis_context}\n\n{prefix}{user_input}"
-            elif analysis_context:
-                full_question = f"{analysis_context}\n\n{user_input}"
-            elif prefix:
-                full_question = f"{prefix}{user_input}"
-            else:
-                full_question = user_input
-            result = project.query(full_question, on_progress=on_progress)
-            spinner.stop()
-
-            elapsed = time.time() - query_start_time
-            print(format_thought_time(elapsed))
-            if result.semantic_verification is not None:
-                print(format_verified_output(result.answer, result.semantic_verification))
-            else:
-                print(result.answer)
-            print()
-
-            stats = format_stats(result.execution_time, result.token_usage, result.trace)
-            history.append((user_input, result.answer, stats))
-
-            if verbose:
-                print(format_stats(result.execution_time, result.token_usage, result.trace))
-                print()
-
-        except Exception as e:
-            spinner.stop()
-            print(f"Error: {e}")
-            print('Try again or type "quit" to exit.')
-            print()
-
-
 def main() -> None:
     """Main entry point for the repository explorer CLI.
 
@@ -509,7 +341,7 @@ def main() -> None:
     3. Determines repository source (argument, picker, or prompt)
     4. Loads or creates the repository project
     5. Handles any available updates
-    6. Enters the interactive query loop
+    6. Launches the TUI for interactive querying
 
     Raises:
         SystemExit: If SHESHA_API_KEY is not set or Docker is unavailable.
@@ -607,8 +439,44 @@ def main() -> None:
         if analysis:
             analysis_context = format_analysis_as_context(analysis)
 
-    # Enter interactive loop
-    run_interactive_loop(project, args.verbose, project.project_id, shesha, analysis_context)
+    # Create and launch TUI
+    tui = SheshaTUI(
+        project=project,
+        project_name=project.project_id,
+        analysis_context=analysis_context,
+    )
+
+    # Register custom commands
+    def handle_summary(args: str) -> None:
+        analysis = shesha.get_analysis(project.project_id)
+        if analysis is None:
+            tui.query_one(OutputArea).add_system_message(
+                "No analysis. Use /analyze to generate."
+            )
+        else:
+            tui.query_one(OutputArea).add_system_markdown(
+                format_analysis_for_display(analysis)
+            )
+
+    def _post_message(msg: str) -> None:
+        """Post a system message to the output area (thread-safe)."""
+        tui.call_from_thread(
+            tui.query_one(OutputArea).add_system_message, msg
+        )
+
+    def handle_analyze(args: str) -> None:
+        _post_message("Generating analysis...")
+        try:
+            shesha.generate_analysis(project.project_id)
+            _post_message("Analysis complete. Use /summary to view.")
+        except Exception as e:
+            _post_message(f"Error: {e}")
+
+    tui.register_command("/summary", handle_summary, "Show codebase analysis")
+    tui.register_command(
+        "/analyze", handle_analyze, "Generate/regenerate analysis", threaded=True
+    )
+    tui.run()
 
 
 if __name__ == "__main__":

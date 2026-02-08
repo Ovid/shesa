@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Interactive TUI (Text User Interface) for `barsoom.py` and `repo.py` examples, inspired by Claude Code's interface. Features: 3-pane layout (scrolling output, live info bar, input area), markdown rendering toggle, slash commands with auto-complete, input history, dark/light theme toggle, real-time progress display replacing `--verbose` flag. Install with `pip install shesha[tui]`.
+
+### Changed
+
+- Renamed `/analysis` command to `/summary` in `repo.py` to avoid confusion with `/analyze`
+- `/summary` output now renders as markdown when markdown mode is enabled
+- Tab key toggles focus between output area and input area, with border highlight showing active pane
+- Example commands now require `/` prefix (e.g., `/help`, `/write`, `/quit`) instead of bare words
+- `--verbose` flag removed from `barsoom.py` and `repo.py` (info bar shows progress by default)
+
+### Removed
+
+- Interactive loop helper functions from `script_utils.py` (history formatting, command parsing, session writing -- absorbed into TUI modules)
+
 ## [0.5.0] - 2-26-02-08
 
 ### Added
