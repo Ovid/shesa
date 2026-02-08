@@ -257,8 +257,15 @@ class ContainerExecutor:
         if len(encoded) > MAX_PAYLOAD_SIZE:
             raise ProtocolError(f"Payload size {len(encoded)} exceeds maximum {MAX_PAYLOAD_SIZE}")
         if self._socket is not None:
-            self._socket._sock.settimeout(timeout)
-            self._socket._sock.sendall(encoded)
+            sock = self._socket._sock
+            previous_timeout = sock.gettimeout()
+            sock.settimeout(timeout)
+            try:
+                sock.sendall(encoded)
+            except OSError as e:
+                raise ProtocolError(f"Send failed: {e}") from e
+            finally:
+                sock.settimeout(previous_timeout)
 
     def _read_line(self, timeout: int = 30) -> str:
         """Read a line from container stdout, stripping Docker multiplexed headers.

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `load_analysis()` now coerces dict/non-string values in stored JSON to strings before constructing analysis models, preventing `TypeError` crashes from LLM-generated analysis data
+- `_send_raw()` now wraps `OSError`/`TimeoutError` from socket `sendall()` as `ProtocolError` and restores the previous socket timeout after each send
 
 ### Security
 

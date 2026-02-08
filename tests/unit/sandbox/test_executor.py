@@ -952,25 +952,31 @@ class TestSendTimeout:
         """_send_raw sets a timeout on the socket before sending."""
         executor = ContainerExecutor()
         mock_socket = MagicMock()
+        mock_socket._sock.gettimeout.return_value = 30.0
         executor._socket = mock_socket
 
         executor._send_raw("test data", timeout=10)
 
-        mock_socket._sock.settimeout.assert_called_with(10)
+        # First settimeout sets send timeout, second restores previous
+        calls = mock_socket._sock.settimeout.call_args_list
+        assert calls[0][0][0] == 10
         mock_socket._sock.sendall.assert_called_once()
 
     def test_send_raw_uses_default_timeout(self):
         """_send_raw uses default timeout when none specified."""
+        from shesha.sandbox.executor import DEFAULT_SEND_TIMEOUT
+
         executor = ContainerExecutor()
         mock_socket = MagicMock()
+        mock_socket._sock.gettimeout.return_value = 30.0
         executor._socket = mock_socket
 
         executor._send_raw("test data")
 
-        mock_socket._sock.settimeout.assert_called_once()
-        # Default timeout should be positive
-        timeout_val = mock_socket._sock.settimeout.call_args[0][0]
-        assert timeout_val > 0
+        calls = mock_socket._sock.settimeout.call_args_list
+        # First call sets send timeout (default), second restores previous
+        assert calls[0][0][0] == DEFAULT_SEND_TIMEOUT
+        assert DEFAULT_SEND_TIMEOUT > 0
 
 
 class TestPayloadSizeLimit:
@@ -997,6 +1003,67 @@ class TestPayloadSizeLimit:
         from shesha.sandbox.executor import MAX_PAYLOAD_SIZE
 
         assert MAX_PAYLOAD_SIZE == 50 * 1024 * 1024  # 50 MB
+
+
+class TestSendRawSocketErrors:
+    """Tests for socket error handling in _send_raw."""
+
+    def test_send_raw_wraps_os_error_as_protocol_error(self):
+        """_send_raw wraps OSError from sendall as ProtocolError."""
+        from shesha.sandbox.executor import ProtocolError
+
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.sendall.side_effect = OSError("Connection reset")
+        executor._socket = mock_socket
+
+        with pytest.raises(ProtocolError, match="Connection reset"):
+            executor._send_raw("test data")
+
+    def test_send_raw_wraps_timeout_error_as_protocol_error(self):
+        """_send_raw wraps TimeoutError from sendall as ProtocolError."""
+        from shesha.sandbox.executor import ProtocolError
+
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.sendall.side_effect = TimeoutError("Send timed out")
+        executor._socket = mock_socket
+
+        with pytest.raises(ProtocolError, match="Send timed out"):
+            executor._send_raw("test data")
+
+    def test_send_raw_restores_previous_timeout(self):
+        """_send_raw restores the previous socket timeout after sending."""
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.gettimeout.return_value = 30.0
+        executor._socket = mock_socket
+
+        executor._send_raw("test data", timeout=5)
+
+        # Should restore previous timeout after send
+        calls = mock_socket._sock.settimeout.call_args_list
+        assert len(calls) == 2
+        assert calls[0][0][0] == 5  # Set send timeout
+        assert calls[1][0][0] == 30.0  # Restore previous
+
+    def test_send_raw_restores_timeout_on_error(self):
+        """_send_raw restores the previous timeout even when sendall fails."""
+        from shesha.sandbox.executor import ProtocolError
+
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.gettimeout.return_value = 30.0
+        mock_socket._sock.sendall.side_effect = OSError("Broken pipe")
+        executor._socket = mock_socket
+
+        with pytest.raises(ProtocolError):
+            executor._send_raw("test data", timeout=5)
+
+        # Should still restore previous timeout
+        calls = mock_socket._sock.settimeout.call_args_list
+        assert len(calls) == 2
+        assert calls[1][0][0] == 30.0
 
 
 class TestEffectiveDeadline:
