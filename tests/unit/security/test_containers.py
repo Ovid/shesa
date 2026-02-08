@@ -50,6 +50,33 @@ class TestContainerSecurityConfig:
         assert config.cap_drop == ["NET_ADMIN"]
         assert config.network_disabled is False
 
+    def test_default_tmpfs(self) -> None:
+        """Default config has tmpfs mount for /tmp with restrictions."""
+        config = ContainerSecurityConfig()
+        assert config.tmpfs is not None
+        assert "/tmp" in config.tmpfs
+        assert "noexec" in config.tmpfs["/tmp"]
+        assert "nosuid" in config.tmpfs["/tmp"]
+        assert "nodev" in config.tmpfs["/tmp"]
+        assert "size=64m" in config.tmpfs["/tmp"]
+
+    def test_custom_tmpfs_override(self) -> None:
+        """Custom tmpfs overrides default."""
+        config = ContainerSecurityConfig(tmpfs={"/tmp": "size=128m"})
+        assert config.tmpfs == {"/tmp": "size=128m"}
+
+    def test_tmpfs_empty_dict_disables(self) -> None:
+        """Passing empty dict disables tmpfs."""
+        config = ContainerSecurityConfig(tmpfs={})
+        assert config.tmpfs == {}
+
+    def test_to_docker_kwargs_includes_tmpfs(self) -> None:
+        """to_docker_kwargs includes tmpfs in output."""
+        config = ContainerSecurityConfig()
+        kwargs = config.to_docker_kwargs()
+        assert "tmpfs" in kwargs
+        assert "/tmp" in kwargs["tmpfs"]
+
     def test_default_security_singleton(self) -> None:
         """DEFAULT_SECURITY is a pre-configured instance."""
         assert DEFAULT_SECURITY.cap_drop == ["ALL"]

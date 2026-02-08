@@ -134,6 +134,159 @@ class TestAnalysisGeneration:
 
         assert result.head_sha == ""  # Empty string when no SHA
 
+    def test_generate_coerces_dict_overview_to_string(self):
+        """generate() coerces a dict overview from the LLM to a string."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_shesha.get_project.return_value = mock_project
+
+        mock_result = MagicMock()
+        mock_result.answer = """
+        ```json
+        {
+          "overview": {"summary": "A web app", "architecture": "MVC"},
+          "components": [],
+          "external_dependencies": []
+        }
+        ```
+        """
+        mock_project.query.return_value = mock_result
+        mock_shesha.get_project_sha.return_value = "sha789"
+
+        generator = AnalysisGenerator(mock_shesha)
+        result = generator.generate("test-project")
+
+        assert isinstance(result.overview, str)
+        assert "A web app" in result.overview
+
+    def test_generate_coerces_dict_models_to_strings(self):
+        """generate() coerces dict items in models/entry_points/internal_dependencies to strings."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_shesha.get_project.return_value = mock_project
+
+        mock_result = MagicMock()
+        mock_result.answer = """
+        ```json
+        {
+          "overview": "Test app",
+          "components": [
+            {
+              "name": "Core",
+              "path": "src/",
+              "description": "Core module",
+              "apis": [],
+              "models": [{"name": "User", "fields": ["id", "name"]}],
+              "entry_points": [{"file": "main.py", "function": "main"}],
+              "internal_dependencies": [{"module": "utils"}]
+            }
+          ],
+          "external_dependencies": []
+        }
+        ```
+        """
+        mock_project.query.return_value = mock_result
+        mock_shesha.get_project_sha.return_value = "sha999"
+
+        generator = AnalysisGenerator(mock_shesha)
+        result = generator.generate("test-project")
+
+        comp = result.components[0]
+        assert all(isinstance(m, str) for m in comp.models)
+        assert all(isinstance(e, str) for e in comp.entry_points)
+        assert all(isinstance(d, str) for d in comp.internal_dependencies)
+
+    def test_to_str_list_fallback_uses_json_not_repr(self):
+        """coerce_to_str_list fallback produces JSON, not Python repr, for dicts without 'name'."""
+        from shesha.models import coerce_to_str_list
+
+        items = [
+            "plain_string",
+            {"name": "User", "fields": ["id"]},
+            {"module": "utils", "version": "1.0"},
+        ]
+        result = coerce_to_str_list(items)
+
+        assert result[0] == "plain_string"
+        assert result[1] == "User"
+        # Fallback: dict without "name" key should be JSON (double quotes),
+        # not Python repr (single quotes)
+        assert '"module"' in result[2]
+        assert "'" not in result[2]
+
+    def test_generate_coerces_non_string_component_scalars(self):
+        """generate() coerces non-string name/path/description in components."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_shesha.get_project.return_value = mock_project
+
+        mock_result = MagicMock()
+        mock_result.answer = """
+        ```json
+        {
+          "overview": "Test",
+          "components": [
+            {
+              "name": 42,
+              "path": null,
+              "description": ["a", "list"],
+              "apis": [],
+              "models": [],
+              "entry_points": [],
+              "internal_dependencies": []
+            }
+          ],
+          "external_dependencies": []
+        }
+        ```
+        """
+        mock_project.query.return_value = mock_result
+        mock_shesha.get_project_sha.return_value = "sha000"
+
+        generator = AnalysisGenerator(mock_shesha)
+        result = generator.generate("test-project")
+
+        comp = result.components[0]
+        assert isinstance(comp.name, str)
+        assert isinstance(comp.path, str)
+        assert isinstance(comp.description, str)
+
+    def test_generate_coerces_external_dep_fields(self):
+        """generate() coerces non-string fields in external dependencies."""
+        mock_shesha = MagicMock()
+        mock_project = MagicMock()
+        mock_shesha.get_project.return_value = mock_project
+
+        mock_result = MagicMock()
+        mock_result.answer = """
+        ```json
+        {
+          "overview": "Test",
+          "components": [],
+          "external_dependencies": [
+            {
+              "name": 123,
+              "type": null,
+              "description": {"detail": "a db"},
+              "used_by": [{"name": "API"}, "Frontend"],
+              "optional": false
+            }
+          ]
+        }
+        ```
+        """
+        mock_project.query.return_value = mock_result
+        mock_shesha.get_project_sha.return_value = "sha111"
+
+        generator = AnalysisGenerator(mock_shesha)
+        result = generator.generate("test-project")
+
+        dep = result.external_dependencies[0]
+        assert isinstance(dep.name, str)
+        assert isinstance(dep.type, str)
+        assert isinstance(dep.description, str)
+        assert all(isinstance(u, str) for u in dep.used_by)
+
     def test_generate_handles_invalid_json(self):
         """generate() falls back to raw answer when JSON extraction fails."""
         mock_shesha = MagicMock()

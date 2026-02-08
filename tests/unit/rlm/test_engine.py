@@ -178,7 +178,9 @@ class TestRLMEngine:
         # Track callback invocations
         progress_calls: list[tuple[StepType, int]] = []
 
-        def on_progress(step_type: StepType, iteration: int, content: str) -> None:
+        def on_progress(
+            step_type: StepType, iteration: int, content: str, token_usage: TokenUsage
+        ) -> None:
             progress_calls.append((step_type, iteration))
 
         engine = RLMEngine(model="test-model")
@@ -194,6 +196,100 @@ class TestRLMEngine:
         assert StepType.CODE_GENERATED in step_types
         assert StepType.CODE_OUTPUT in step_types
         assert StepType.FINAL_ANSWER in step_types
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_on_progress_receives_token_usage_snapshot(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """on_progress callback receives a TokenUsage snapshot with cumulative tokens."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Done")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="output",
+            stderr="",
+            error=None,
+            final_answer="Done",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        # Track TokenUsage received in callbacks
+        received_usages: list[TokenUsage] = []
+
+        def on_progress(
+            step_type: StepType, iteration: int, content: str, token_usage: TokenUsage
+        ) -> None:
+            received_usages.append(token_usage)
+
+        engine = RLMEngine(model="test-model")
+        engine.query(
+            documents=["Doc content"],
+            question="Test?",
+            on_progress=on_progress,
+        )
+
+        # Every callback should have received a TokenUsage
+        assert len(received_usages) > 0
+        # The last callback should reflect the accumulated tokens
+        last = received_usages[-1]
+        assert last.prompt_tokens >= 100
+        assert last.completion_tokens >= 50
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_on_progress_token_usage_is_snapshot_not_reference(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """TokenUsage passed to on_progress is a copy, not a mutable reference."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Done")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="output",
+            stderr="",
+            error=None,
+            final_answer="Done",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        received_usages: list[TokenUsage] = []
+
+        def on_progress(
+            step_type: StepType, iteration: int, content: str, token_usage: TokenUsage
+        ) -> None:
+            received_usages.append(token_usage)
+
+        engine = RLMEngine(model="test-model")
+        engine.query(
+            documents=["Doc content"],
+            question="Test?",
+            on_progress=on_progress,
+        )
+
+        # All received TokenUsage objects should be distinct instances
+        ids = [id(u) for u in received_usages]
+        assert len(set(ids)) == len(ids), "TokenUsage objects should be copies, not same reference"
 
     @patch("shesha.rlm.engine.LLMClient")
     def test_engine_acquires_executor_from_pool(
@@ -691,6 +787,157 @@ class TestRLMEngine:
         assert result.semantic_verification is None
         # Only 1 LLM call (main query), no verification calls
         assert mock_llm.complete.call_count == 1
+
+
+class TestCallbackIterationCapture:
+    """Tests for llm_query_callback capturing the correct iteration."""
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_callback_captures_iteration_at_creation_time(
+        self,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """llm_query callback uses the iteration it was created for, not a stale value.
+
+        Bug: callback captured `current_iteration` by reference, so by the time
+        it was called, the value could have advanced to a later iteration.
+        """
+        from shesha.sandbox.pool import ContainerPool
+
+        captured_iterations: list[int] = []
+
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            # Iteration 0: code with no FINAL
+            MagicMock(
+                content='```repl\nprint("hello")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Iteration 1: code with FINAL
+            MagicMock(
+                content='```repl\nFINAL("done")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        exec_count = [0]
+
+        def mock_execute(code, timeout=30):
+            exec_count[0] += 1
+            if exec_count[0] == 1:
+                # Iteration 0: trigger llm_query callback during execute
+                handler = mock_executor.llm_query_handler
+                if handler and callable(handler):
+                    handler("summarize", "data")
+                return MagicMock(
+                    status="ok", stdout="hello", stderr="", error=None, final_answer=None
+                )
+            return MagicMock(status="ok", stdout="", stderr="", error=None, final_answer="done")
+
+        mock_executor.execute.side_effect = mock_execute
+
+        mock_pool = MagicMock(spec=ContainerPool)
+        mock_pool.acquire.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", pool=mock_pool)
+
+        def capturing_handle(inst, cont, trace, tu, iteration, *a, **kw):
+            captured_iterations.append(iteration)
+            return "summary"
+
+        engine._handle_llm_query = capturing_handle
+
+        engine.query(documents=["Doc content"], question="What?")
+
+        # The callback was triggered during iteration 0's execute.
+        # It should pass iteration=0 to _handle_llm_query.
+        assert len(captured_iterations) == 1
+        assert captured_iterations[0] == 0, (
+            f"Callback during iteration 0 should pass iteration=0, got {captured_iterations[0]}"
+        )
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_recovery_callback_uses_current_iteration(
+        self,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """After dead executor recovery, the new callback uses the current iteration."""
+        from shesha.sandbox.executor import ExecutionResult
+        from shesha.sandbox.pool import ContainerPool
+
+        captured_iterations: list[int] = []
+
+        mock_llm = MagicMock()
+        call_count = [0]
+
+        def llm_side_effect(messages):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return MagicMock(
+                    content='```repl\nprint("boom")\n```',
+                    prompt_tokens=100,
+                    completion_tokens=50,
+                    total_tokens=150,
+                )
+            return MagicMock(
+                content='```repl\nFINAL("recovered")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            )
+
+        mock_llm.complete.side_effect = llm_side_effect
+        mock_llm_cls.return_value = mock_llm
+
+        # First executor: dies on execute
+        dead_executor = MagicMock()
+        dead_executor.is_alive = True
+
+        def kill_on_execute(code, timeout=30):
+            dead_executor.is_alive = False
+            return ExecutionResult(
+                status="error", stdout="", stderr="", return_value=None, error="Protocol error"
+            )
+
+        dead_executor.execute.side_effect = kill_on_execute
+
+        # Second executor: works, triggers callback during execute
+        fresh_executor = MagicMock()
+        fresh_executor.is_alive = True
+
+        def fresh_execute(code, timeout=30):
+            handler = fresh_executor.llm_query_handler
+            if handler and callable(handler):
+                handler("x", "y")
+            return MagicMock(
+                status="ok", stdout="", stderr="", error=None, final_answer="recovered"
+            )
+
+        fresh_executor.execute.side_effect = fresh_execute
+
+        mock_pool = MagicMock(spec=ContainerPool)
+        mock_pool.acquire.side_effect = [dead_executor, fresh_executor]
+
+        engine = RLMEngine(model="test-model", pool=mock_pool, verify_citations=False)
+
+        def capturing_handle(inst, cont, trace, tu, iteration, *a, **kw):
+            captured_iterations.append(iteration)
+            return "recovered"
+
+        engine._handle_llm_query = capturing_handle
+
+        engine.query(documents=["doc"], question="Q?")
+
+        # Should be iteration 1 (the iteration where recovery happened)
+        assert len(captured_iterations) == 1
+        assert captured_iterations[0] == 1
 
 
 class TestDeadExecutorNoPool:

@@ -29,6 +29,8 @@ class SubcallContentError(Exception):
 MAX_BUFFER_SIZE = 10 * 1024 * 1024  # 10 MB max buffer
 MAX_LINE_LENGTH = 1 * 1024 * 1024  # 1 MB max single line
 MAX_READ_DURATION = 300  # 5 min total deadline
+MAX_PAYLOAD_SIZE = 50 * 1024 * 1024  # 50 MB max outgoing payload
+DEFAULT_SEND_TIMEOUT = 30  # 30 seconds for send operations
 
 
 @dataclass
@@ -249,10 +251,21 @@ class ContainerExecutor:
                 error=f"Protocol error: invalid UTF-8 from container: {e}",
             )
 
-    def _send_raw(self, data: str) -> None:
+    def _send_raw(self, data: str, timeout: int = DEFAULT_SEND_TIMEOUT) -> None:
         """Send raw data to container stdin."""
+        encoded = data.encode()
+        if len(encoded) > MAX_PAYLOAD_SIZE:
+            raise ProtocolError(f"Payload size {len(encoded)} exceeds maximum {MAX_PAYLOAD_SIZE}")
         if self._socket is not None:
-            self._socket._sock.sendall(data.encode())
+            sock = self._socket._sock
+            previous_timeout = sock.gettimeout()
+            sock.settimeout(timeout)
+            try:
+                sock.sendall(encoded)
+            except OSError as e:
+                raise ProtocolError(f"Send failed: {e}") from e
+            finally:
+                sock.settimeout(previous_timeout)
 
     def _read_line(self, timeout: int = 30) -> str:
         """Read a line from container stdout, stripping Docker multiplexed headers.
@@ -271,11 +284,16 @@ class ContainerExecutor:
 
         self._socket._sock.settimeout(timeout)
 
+        # Effective deadline: the shorter of MAX_READ_DURATION and timeout + 10s buffer.
+        # This prevents a container from exploiting the gap between a short execution
+        # timeout and the hardcoded 5-minute MAX_READ_DURATION.
+        effective_deadline = min(MAX_READ_DURATION, timeout + 10)
+
         start_time = time.monotonic()
 
         while True:
-            if time.monotonic() - start_time > MAX_READ_DURATION:
-                raise ProtocolError(f"Read duration exceeded {MAX_READ_DURATION} seconds")
+            if time.monotonic() - start_time > effective_deadline:
+                raise ProtocolError(f"Read duration exceeded {effective_deadline} seconds")
             # Check if we have a complete line in the content buffer
             if b"\n" in self._content_buffer:
                 line, self._content_buffer = self._content_buffer.split(b"\n", 1)
@@ -289,8 +307,8 @@ class ContainerExecutor:
             # Ensure we have at least 8 bytes for a Docker header
             while len(self._raw_buffer) < 8:
                 # Check deadline inside inner loop to prevent slow-drip DoS
-                if time.monotonic() - start_time > MAX_READ_DURATION:
-                    raise ProtocolError(f"Read duration exceeded {MAX_READ_DURATION} seconds")
+                if time.monotonic() - start_time > effective_deadline:
+                    raise ProtocolError(f"Read duration exceeded {effective_deadline} seconds")
                 chunk = self._socket._sock.recv(4096)
                 if not chunk:
                     # Connection closed while waiting for Docker header
@@ -326,8 +344,8 @@ class ContainerExecutor:
                 # Read until we have the full frame (header + payload)
                 while len(self._raw_buffer) < 8 + payload_len:
                     # Check deadline inside inner loop to prevent slow-drip DoS
-                    if time.monotonic() - start_time > MAX_READ_DURATION:
-                        raise ProtocolError(f"Read duration exceeded {MAX_READ_DURATION} seconds")
+                    if time.monotonic() - start_time > effective_deadline:
+                        raise ProtocolError(f"Read duration exceeded {effective_deadline} seconds")
                     chunk = self._socket._sock.recv(4096)
                     if not chunk:
                         break
@@ -370,8 +388,8 @@ class ContainerExecutor:
                 # If still no newline, read more
                 if b"\n" not in self._content_buffer:
                     # Check deadline before recv to prevent slow-drip DoS
-                    if time.monotonic() - start_time > MAX_READ_DURATION:
-                        raise ProtocolError(f"Read duration exceeded {MAX_READ_DURATION} seconds")
+                    if time.monotonic() - start_time > effective_deadline:
+                        raise ProtocolError(f"Read duration exceeded {effective_deadline} seconds")
                     chunk = self._socket._sock.recv(4096)
                     if not chunk:
                         buf_len = len(self._content_buffer)

@@ -1,7 +1,9 @@
 """Tests for filesystem storage backend."""
 
 import json
+import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -215,6 +217,233 @@ class TestPathTraversalProtection:
         assert raw_path.read_text() == "content"
 
 
+class TestSwapDocs:
+    """Tests for swap_docs atomic document replacement."""
+
+    def test_swap_docs_replaces_target_documents(self, storage: FilesystemStorage) -> None:
+        """swap_docs replaces target project's docs with source project's docs."""
+        storage.create_project("source")
+        storage.create_project("target")
+
+        # Add docs to source
+        doc_a = ParsedDocument(
+            name="new.txt",
+            content="new content",
+            format="txt",
+            metadata={},
+            char_count=11,
+            parse_warnings=[],
+        )
+        storage.store_document("source", doc_a)
+
+        # Add different docs to target
+        doc_b = ParsedDocument(
+            name="old.txt",
+            content="old content",
+            format="txt",
+            metadata={},
+            char_count=11,
+            parse_warnings=[],
+        )
+        storage.store_document("target", doc_b)
+
+        storage.swap_docs("source", "target")
+
+        # Target should have source's docs
+        docs = storage.list_documents("target")
+        assert "new.txt" in docs
+        assert "old.txt" not in docs
+
+    def test_swap_docs_restores_on_failure(self, tmp_path: Path) -> None:
+        """swap_docs restores target docs if swap fails midway."""
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("source")
+        storage.create_project("target")
+
+        doc = ParsedDocument(
+            name="keep.txt",
+            content="must survive",
+            format="txt",
+            metadata={},
+            char_count=12,
+            parse_warnings=[],
+        )
+        storage.store_document("target", doc)
+
+        source_doc = ParsedDocument(
+            name="new.txt",
+            content="new",
+            format="txt",
+            metadata={},
+            char_count=3,
+            parse_warnings=[],
+        )
+        storage.store_document("source", source_doc)
+
+        # Make step 2 fail by patching Path.rename to raise on second call
+        original_rename = Path.rename
+        call_count = [0]
+
+        def failing_rename(self_path, target, *args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 2:
+                raise OSError("Disk error")
+            return original_rename(self_path, target, *args, **kwargs)
+
+        with patch.object(Path, "rename", failing_rename):
+            with pytest.raises(OSError):
+                storage.swap_docs("source", "target")
+
+        # Target should still have the original doc
+        docs = storage.list_documents("target")
+        assert "keep.txt" in docs
+
+    def test_swap_docs_rollback_works_with_stale_backup(self, tmp_path: Path) -> None:
+        """swap_docs rollback restores docs correctly when stale backup exists."""
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("source")
+        storage.create_project("target")
+
+        source_doc = ParsedDocument(
+            name="new.txt",
+            content="new",
+            format="txt",
+            metadata={},
+            char_count=3,
+            parse_warnings=[],
+        )
+        storage.store_document("source", source_doc)
+
+        target_doc = ParsedDocument(
+            name="keep.txt",
+            content="must survive",
+            format="txt",
+            metadata={},
+            char_count=12,
+            parse_warnings=[],
+        )
+        storage.store_document("target", target_doc)
+
+        # Simulate stale backup from a prior crashed swap
+        stale_backup = storage._project_path("target") / "docs_backup"
+        stale_backup.mkdir()
+        (stale_backup / "stale.json").write_text("{}")
+
+        # Make step 2 (rename source→target) fail
+        original_rename = Path.rename
+        call_count = [0]
+
+        def failing_rename(self_path, target, *args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 2:
+                raise OSError("Disk error")
+            return original_rename(self_path, target, *args, **kwargs)
+
+        with patch.object(Path, "rename", failing_rename):
+            with pytest.raises(OSError):
+                storage.swap_docs("source", "target")
+
+        # Rollback must restore original docs correctly
+        docs = storage.list_documents("target")
+        assert "keep.txt" in docs
+
+    def test_swap_docs_restores_backup_when_target_docs_missing(self, tmp_path: Path) -> None:
+        """swap_docs restores docs_backup if target/docs is missing (crash between step 1 and 2)."""
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("source")
+        storage.create_project("target")
+
+        # Store a doc in target, then simulate crash between step 1 and 2:
+        # target/docs was moved to docs_backup, but target/docs was never recreated
+        target_doc = ParsedDocument(
+            name="rescued.txt",
+            content="must survive",
+            format="txt",
+            metadata={},
+            char_count=12,
+            parse_warnings=[],
+        )
+        storage.store_document("target", target_doc)
+
+        target_path = storage._project_path("target")
+        backup_path = target_path / "docs_backup"
+        docs_path = target_path / "docs"
+
+        # Simulate: move docs → docs_backup (step 1 succeeded), then delete docs (step 2 never ran)
+        shutil.move(str(docs_path), str(backup_path))
+        assert not docs_path.exists()
+        assert backup_path.exists()
+
+        # Now store a source doc for the new swap
+        source_doc = ParsedDocument(
+            name="new.txt",
+            content="new",
+            format="txt",
+            metadata={},
+            char_count=3,
+            parse_warnings=[],
+        )
+        storage.store_document("source", source_doc)
+
+        # swap_docs should detect the crash state, restore backup, then proceed
+        storage.swap_docs("source", "target")
+
+        # Target should have the new source docs
+        docs = storage.list_documents("target")
+        assert "new.txt" in docs
+
+    def test_swap_docs_succeeds_when_step3_cleanup_fails(self, tmp_path: Path) -> None:
+        """swap_docs succeeds even if final backup deletion (step 3) fails."""
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("source")
+        storage.create_project("target")
+
+        source_doc = ParsedDocument(
+            name="new.txt",
+            content="new",
+            format="txt",
+            metadata={},
+            char_count=3,
+            parse_warnings=[],
+        )
+        storage.store_document("source", source_doc)
+
+        target_doc = ParsedDocument(
+            name="old.txt",
+            content="old",
+            format="txt",
+            metadata={},
+            char_count=3,
+            parse_warnings=[],
+        )
+        storage.store_document("target", target_doc)
+
+        def failing_rmtree(path, *args, **kwargs):
+            raise OSError("Permission denied")
+
+        with patch("shesha.storage.filesystem.shutil.rmtree", side_effect=failing_rmtree):
+            # Should NOT raise despite rmtree failure
+            storage.swap_docs("source", "target")
+
+        # Target should have new docs
+        docs = storage.list_documents("target")
+        assert "new.txt" in docs
+
+    def test_swap_docs_source_not_found_raises(self, storage: FilesystemStorage) -> None:
+        """swap_docs raises ProjectNotFoundError when source doesn't exist."""
+        storage.create_project("target")
+
+        with pytest.raises(ProjectNotFoundError):
+            storage.swap_docs("nonexistent", "target")
+
+    def test_swap_docs_target_not_found_raises(self, storage: FilesystemStorage) -> None:
+        """swap_docs raises ProjectNotFoundError when target doesn't exist."""
+        storage.create_project("source")
+
+        with pytest.raises(ProjectNotFoundError):
+            storage.swap_docs("source", "nonexistent")
+
+
 class TestTraceOperations:
     """Tests for trace file operations."""
 
@@ -359,3 +588,231 @@ class TestAnalysisOperations:
         """Loading analysis from nonexistent project raises."""
         with pytest.raises(ProjectNotFoundError):
             storage.load_analysis("no-such-project")
+
+    def test_load_analysis_coerces_dict_overview(self, storage: FilesystemStorage) -> None:
+        """load_analysis coerces dict overview to string."""
+        storage.create_project("bad-types")
+        project_path = storage._project_path("bad-types")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": {"summary": "A test app", "details": "more info"},
+            "components": [],
+            "external_dependencies": [],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-types")
+        assert loaded is not None
+        assert isinstance(loaded.overview, str)
+        assert "summary" in loaded.overview
+
+    def test_load_analysis_coerces_dict_items_in_models(self, storage: FilesystemStorage) -> None:
+        """load_analysis coerces dict items in models list to strings."""
+        storage.create_project("bad-models")
+        project_path = storage._project_path("bad-models")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [
+                {
+                    "name": "API",
+                    "path": "api/",
+                    "description": "REST API",
+                    "apis": [],
+                    "models": [{"name": "User", "fields": ["id"]}, "Session"],
+                    "entry_points": ["main.py"],
+                    "internal_dependencies": [],
+                }
+            ],
+            "external_dependencies": [],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-models")
+        assert loaded is not None
+        comp = loaded.components[0]
+        assert comp.models == ["User", "Session"]
+
+    def test_load_analysis_coerces_dict_items_in_entry_points(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """load_analysis coerces dict items in entry_points to strings."""
+        storage.create_project("bad-eps")
+        project_path = storage._project_path("bad-eps")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [
+                {
+                    "name": "API",
+                    "path": "api/",
+                    "description": "REST API",
+                    "apis": [],
+                    "models": [],
+                    "entry_points": [{"path": "main.py", "type": "cli"}],
+                    "internal_dependencies": [],
+                }
+            ],
+            "external_dependencies": [],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-eps")
+        assert loaded is not None
+        comp = loaded.components[0]
+        assert len(comp.entry_points) == 1
+        assert isinstance(comp.entry_points[0], str)
+
+    def test_load_analysis_coerces_dict_items_in_internal_dependencies(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """load_analysis coerces dict items in internal_dependencies."""
+        storage.create_project("bad-deps")
+        project_path = storage._project_path("bad-deps")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [
+                {
+                    "name": "API",
+                    "path": "api/",
+                    "description": "REST API",
+                    "apis": [],
+                    "models": [],
+                    "entry_points": [],
+                    "internal_dependencies": [{"name": "db", "version": "1.0"}],
+                }
+            ],
+            "external_dependencies": [],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-deps")
+        assert loaded is not None
+        comp = loaded.components[0]
+        assert comp.internal_dependencies == ["db"]
+
+    def test_load_analysis_coerces_dict_items_in_used_by(self, storage: FilesystemStorage) -> None:
+        """load_analysis coerces dict items in used_by to strings."""
+        storage.create_project("bad-usedby")
+        project_path = storage._project_path("bad-usedby")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [],
+            "external_dependencies": [
+                {
+                    "name": "Redis",
+                    "type": "database",
+                    "description": "Cache",
+                    "used_by": [{"name": "API", "component": "server"}],
+                }
+            ],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-usedby")
+        assert loaded is not None
+        dep = loaded.external_dependencies[0]
+        assert dep.used_by == ["API"]
+
+    def test_load_analysis_coerces_non_string_component_scalars(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """load_analysis coerces non-string name/path/description in components."""
+        storage.create_project("bad-scalars")
+        project_path = storage._project_path("bad-scalars")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [
+                {
+                    "name": 42,
+                    "path": None,
+                    "description": ["a", "list"],
+                    "apis": [],
+                    "models": [],
+                    "entry_points": [],
+                    "internal_dependencies": [],
+                }
+            ],
+            "external_dependencies": [],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-scalars")
+        assert loaded is not None
+        comp = loaded.components[0]
+        assert isinstance(comp.name, str)
+        assert isinstance(comp.path, str)
+        assert isinstance(comp.description, str)
+
+    def test_load_analysis_coerces_non_string_external_dep_scalars(
+        self, storage: FilesystemStorage
+    ) -> None:
+        """load_analysis coerces non-string name/type/description in external deps."""
+        storage.create_project("bad-dep-scalars")
+        project_path = storage._project_path("bad-dep-scalars")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [],
+            "external_dependencies": [
+                {
+                    "name": 123,
+                    "type": None,
+                    "description": {"detail": "a db"},
+                    "used_by": [],
+                }
+            ],
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-dep-scalars")
+        assert loaded is not None
+        dep = loaded.external_dependencies[0]
+        assert isinstance(dep.name, str)
+        assert isinstance(dep.type, str)
+        assert isinstance(dep.description, str)
+
+    def test_load_analysis_coerces_non_string_caveats(self, storage: FilesystemStorage) -> None:
+        """load_analysis coerces non-string caveats to string."""
+        storage.create_project("bad-caveats")
+        project_path = storage._project_path("bad-caveats")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [],
+            "external_dependencies": [],
+            "caveats": {"warning": "AI generated"},
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-caveats")
+        assert loaded is not None
+        assert isinstance(loaded.caveats, str)
+        assert "AI generated" in loaded.caveats

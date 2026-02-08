@@ -15,7 +15,7 @@ from textual.timer import Timer
 from textual.widgets import Static, TextArea
 from textual.worker import Worker
 
-from shesha.rlm.trace import StepType
+from shesha.rlm.trace import StepType, TokenUsage
 from shesha.tui.commands import CommandRegistry
 from shesha.tui.history import InputHistory
 from shesha.tui.progress import step_display_name
@@ -308,10 +308,12 @@ class SheshaTUI(App[None]):
         """
         my_query_id = self._query_id
 
-        def on_progress(step_type: StepType, iteration: int, content: str) -> None:
+        def on_progress(
+            step_type: StepType, iteration: int, content: str, token_usage: TokenUsage
+        ) -> None:
             if self._query_id != my_query_id:
                 return
-            self._on_progress(step_type, iteration, content)
+            self._on_progress(step_type, iteration, content, token_usage)
 
         def run() -> QueryResult | None:
             try:
@@ -331,7 +333,13 @@ class SheshaTUI(App[None]):
 
         return run
 
-    def _on_progress(self, step_type: StepType, iteration: int, content: str) -> None:
+    def _on_progress(
+        self,
+        step_type: StepType,
+        iteration: int,
+        content: str,
+        token_usage: TokenUsage | None = None,
+    ) -> None:
         """Progress callback from RLM engine (called from worker thread)."""
         if not self._query_in_progress:
             return
@@ -339,8 +347,17 @@ class SheshaTUI(App[None]):
         self._last_iteration = iteration + 1  # Convert 0-indexed to 1-indexed
         step_name = step_display_name(step_type)
         self._last_step_name = step_name
+        info_bar = self.query_one(InfoBar)
+        if token_usage is not None:
+            self._cumulative_prompt_tokens = token_usage.prompt_tokens
+            self._cumulative_completion_tokens = token_usage.completion_tokens
+            self.call_from_thread(
+                info_bar.update_tokens,
+                token_usage.prompt_tokens,
+                token_usage.completion_tokens,
+            )
         self.call_from_thread(
-            self.query_one(InfoBar).update_progress,
+            info_bar.update_progress,
             elapsed,
             self._last_iteration,
             step_name,

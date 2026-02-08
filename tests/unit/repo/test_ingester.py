@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -459,6 +460,20 @@ class TestGitFetchPull:
             call_args = mock_run.call_args[0][0]
             assert "pull" in call_args
 
+    def test_fetch_failure_raises(self, ingester: RepoIngester, tmp_path: Path):
+        """fetch() raises RepoIngestError on non-zero return code."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=128,
+                stderr="fatal: could not read from remote",
+            )
+
+            with pytest.raises(RepoIngestError):
+                ingester.fetch("my-project")
+
     def test_pull_failure_raises(self, ingester: RepoIngester, tmp_path: Path):
         """pull() raises RepoIngestError on failure."""
         repo_path = tmp_path / "repos" / "my-project"
@@ -472,6 +487,220 @@ class TestGitFetchPull:
 
             with pytest.raises(RepoIngestError):
                 ingester.pull("my-project")
+
+
+class TestSubprocessTimeouts:
+    """Tests for subprocess timeout enforcement."""
+
+    def test_clone_has_timeout(self, ingester: RepoIngester):
+        """clone() passes timeout to subprocess.run."""
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+            ingester.clone("https://github.com/org/repo", "my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            assert "timeout" in call_kwargs
+            assert call_kwargs["timeout"] > 0
+
+    def test_pull_has_timeout(self, ingester: RepoIngester, tmp_path: Path):
+        """pull() passes timeout to subprocess.run."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            ingester.pull("my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            assert "timeout" in call_kwargs
+
+    def test_get_remote_sha_has_timeout(self, ingester: RepoIngester):
+        """get_remote_sha() passes timeout to subprocess.run."""
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="abc123\tHEAD\n",
+            )
+
+            ingester.get_remote_sha("https://github.com/org/repo")
+
+            call_kwargs = mock_run.call_args[1]
+            assert "timeout" in call_kwargs
+
+    def test_fetch_has_timeout(self, ingester: RepoIngester, tmp_path: Path):
+        """fetch() passes timeout to subprocess.run."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            ingester.fetch("my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            assert "timeout" in call_kwargs
+
+    def test_get_local_sha_has_timeout(self, ingester: RepoIngester, tmp_path: Path):
+        """get_sha_from_path() passes timeout to subprocess.run."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="abc123\n")
+
+            ingester.get_local_sha("my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            assert "timeout" in call_kwargs
+
+    def test_list_files_has_timeout(self, ingester: RepoIngester, tmp_path: Path):
+        """list_files_from_path() passes timeout to subprocess.run."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="file.py\n")
+
+            ingester.list_files("my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            assert "timeout" in call_kwargs
+
+    def test_get_repo_url_has_timeout(self, ingester: RepoIngester, tmp_path: Path):
+        """get_repo_url() passes timeout to subprocess.run."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="url\n")
+
+            ingester.get_repo_url("my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            assert "timeout" in call_kwargs
+
+    def test_clone_timeout_raises_repo_ingest_error(self, ingester: RepoIngester):
+        """clone() converts TimeoutExpired to RepoIngestError."""
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=300)
+
+            with pytest.raises(RepoIngestError):
+                ingester.clone("https://github.com/org/repo", "my-project")
+
+    def test_pull_timeout_raises_repo_ingest_error(self, ingester: RepoIngester, tmp_path: Path):
+        """pull() converts TimeoutExpired to RepoIngestError."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=120)
+
+            with pytest.raises(RepoIngestError):
+                ingester.pull("my-project")
+
+    def test_fetch_timeout_raises_repo_ingest_error(self, ingester: RepoIngester, tmp_path: Path):
+        """fetch() converts TimeoutExpired to RepoIngestError."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=120)
+
+            with pytest.raises(RepoIngestError):
+                ingester.fetch("my-project")
+
+    def test_list_files_timeout_raises_repo_ingest_error(self, ingester: RepoIngester):
+        """list_files_from_path() raises RepoIngestError on timeout instead of returning []."""
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=30)
+
+            with pytest.raises(RepoIngestError):
+                ingester.list_files_from_path(Path("/fake/repo"))
+
+    def test_get_remote_sha_timeout_returns_none(self, ingester: RepoIngester):
+        """get_remote_sha() returns None on timeout."""
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=30)
+
+            result = ingester.get_remote_sha("https://github.com/org/repo")
+
+            assert result is None
+
+
+class TestTokenInGetRemoteSha:
+    """Tests for token handling in get_remote_sha."""
+
+    def test_get_remote_sha_uses_token_when_provided(self, ingester: RepoIngester):
+        """get_remote_sha uses askpass when token is provided."""
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="abc123\tHEAD\n",
+            )
+
+            ingester.get_remote_sha("https://github.com/org/repo", token="my_token")
+
+            call_kwargs = mock_run.call_args[1]
+            env = call_kwargs.get("env", {})
+            assert "GIT_ASKPASS" in env
+            assert env["GIT_TOKEN"] == "my_token"
+            assert env["GIT_TERMINAL_PROMPT"] == "0"
+
+
+class TestNoPromptEnv:
+    """Tests for GIT_TERMINAL_PROMPT=0 in non-token paths."""
+
+    def test_clone_without_token_sets_no_prompt(self, ingester: RepoIngester):
+        """clone() sets GIT_TERMINAL_PROMPT=0 even without a token."""
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+            ingester.clone("https://github.com/org/repo", "my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            env = call_kwargs.get("env", {})
+            assert env.get("GIT_TERMINAL_PROMPT") == "0"
+
+    def test_get_remote_sha_without_token_sets_no_prompt(self, ingester: RepoIngester):
+        """get_remote_sha() sets GIT_TERMINAL_PROMPT=0 even without a token."""
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="abc123\tHEAD\n")
+
+            ingester.get_remote_sha("https://github.com/org/repo")
+
+            call_kwargs = mock_run.call_args[1]
+            env = call_kwargs.get("env", {})
+            assert env.get("GIT_TERMINAL_PROMPT") == "0"
+
+    def test_fetch_sets_no_prompt(self, ingester: RepoIngester, tmp_path: Path):
+        """fetch() sets GIT_TERMINAL_PROMPT=0 to prevent interactive prompts."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            ingester.fetch("my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            env = call_kwargs.get("env", {})
+            assert env.get("GIT_TERMINAL_PROMPT") == "0"
+
+    def test_pull_sets_no_prompt(self, ingester: RepoIngester, tmp_path: Path):
+        """pull() sets GIT_TERMINAL_PROMPT=0 to prevent interactive prompts."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+            ingester.pull("my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            env = call_kwargs.get("env", {})
+            assert env.get("GIT_TERMINAL_PROMPT") == "0"
 
 
 class TestPathTraversalProtection:

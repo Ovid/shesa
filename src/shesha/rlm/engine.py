@@ -1,5 +1,6 @@
 """RLM engine - the core REPL+LLM loop."""
 
+import copy
 import json
 import re
 import time
@@ -30,7 +31,7 @@ from shesha.sandbox.pool import ContainerPool
 from shesha.storage.base import StorageBackend
 
 # Callback type for progress notifications
-ProgressCallback = Callable[[StepType, int, str], None]
+ProgressCallback = Callable[[StepType, int, str, TokenUsage], None]
 
 
 @dataclass
@@ -103,7 +104,7 @@ class RLMEngine:
         if on_step:
             on_step(step)
         if on_progress:
-            on_progress(StepType.SUBCALL_REQUEST, iteration, step_content)
+            on_progress(StepType.SUBCALL_REQUEST, iteration, step_content, copy.copy(token_usage))
 
         # Check content size limit
         if len(content) > self.max_subcall_content_chars:
@@ -120,7 +121,7 @@ class RLMEngine:
             if on_step:
                 on_step(step)
             if on_progress:
-                on_progress(StepType.SUBCALL_RESPONSE, iteration, error_msg)
+                on_progress(StepType.SUBCALL_RESPONSE, iteration, error_msg, copy.copy(token_usage))
             raise SubcallContentError(error_msg)
 
         # Wrap content in untrusted tags (code-level security boundary)
@@ -145,7 +146,9 @@ class RLMEngine:
         if on_step:
             on_step(step)
         if on_progress:
-            on_progress(StepType.SUBCALL_RESPONSE, iteration, response.content)
+            on_progress(
+                StepType.SUBCALL_RESPONSE, iteration, response.content, copy.copy(token_usage)
+            )
 
         return response.content
 
@@ -200,7 +203,12 @@ class RLMEngine:
         if on_step:
             on_step(step)
         if on_progress:
-            on_progress(StepType.SEMANTIC_VERIFICATION, iteration, "Adversarial verification")
+            on_progress(
+                StepType.SEMANTIC_VERIFICATION,
+                iteration,
+                "Adversarial verification",
+                copy.copy(token_usage),
+            )
 
         sub_llm = LLMClient(model=self.model, api_key=self.api_key)
         response = sub_llm.complete(messages=[{"role": "user", "content": prompt}])
@@ -222,6 +230,7 @@ class RLMEngine:
                 StepType.SEMANTIC_VERIFICATION,
                 iteration,
                 f"Layer 1 complete: {len(findings)} findings",
+                copy.copy(token_usage),
             )
 
         # Layer 2: Code-specific checks (only for code projects)
@@ -262,6 +271,7 @@ class RLMEngine:
                     StepType.SEMANTIC_VERIFICATION,
                     iteration,
                     "Code-specific verification",
+                    copy.copy(token_usage),
                 )
 
             sub_llm2 = LLMClient(model=self.model, api_key=self.api_key)
@@ -284,6 +294,7 @@ class RLMEngine:
                     StepType.SEMANTIC_VERIFICATION,
                     iteration,
                     f"Layer 2 complete: {len(findings)} findings",
+                    copy.copy(token_usage),
                 )
 
         return SemanticVerificationReport(
@@ -369,28 +380,31 @@ class RLMEngine:
         # Initialize conversation
         messages: list[dict[str, str]] = [{"role": "user", "content": question}]
 
-        # Track current iteration for llm_query callback
-        current_iteration = 0
+        # Factory to create a callback with a frozen iteration value.
+        # Without this, a closure over a mutable variable risks capturing
+        # a stale iteration if the callback were ever invoked after the loop
+        # advances (e.g., async execution, deferred calls).
+        def _make_llm_callback(frozen_iteration: int) -> Callable[[str, str], str]:
+            def llm_query_callback(instruction: str, content: str) -> str:
+                return self._handle_llm_query(
+                    instruction,
+                    content,
+                    trace,
+                    token_usage,
+                    frozen_iteration,
+                    on_progress,
+                    on_step=_write_step,
+                )
 
-        # Create executor with callback for llm_query
-        def llm_query_callback(instruction: str, content: str) -> str:
-            return self._handle_llm_query(
-                instruction,
-                content,
-                trace,
-                token_usage,
-                current_iteration,
-                on_progress,
-                on_step=_write_step,
-            )
+            return llm_query_callback
 
         # Acquire executor from pool or create standalone
         if self._pool is not None:
             executor = self._pool.acquire()
-            executor.llm_query_handler = llm_query_callback
+            executor.llm_query_handler = _make_llm_callback(0)
             owns_executor = False
         else:
-            executor = ContainerExecutor(llm_query_handler=llm_query_callback)
+            executor = ContainerExecutor(llm_query_handler=_make_llm_callback(0))
             executor.start()
             owns_executor = True
 
@@ -399,7 +413,7 @@ class RLMEngine:
             executor.setup_context(documents)
 
             for iteration in range(self.max_iterations):
-                current_iteration = iteration
+                executor.llm_query_handler = _make_llm_callback(iteration)
                 # Get LLM response
                 response = llm.complete(messages=messages)
                 token_usage.prompt_tokens += response.prompt_tokens
@@ -413,7 +427,12 @@ class RLMEngine:
                 )
                 _write_step(step)
                 if on_progress:
-                    on_progress(StepType.CODE_GENERATED, iteration, response.content)
+                    on_progress(
+                        StepType.CODE_GENERATED,
+                        iteration,
+                        response.content,
+                        copy.copy(token_usage),
+                    )
 
                 # Extract code blocks
                 code_blocks = extract_code_blocks(response.content)
@@ -455,7 +474,7 @@ class RLMEngine:
                     )
                     _write_step(step)
                     if on_progress:
-                        on_progress(StepType.CODE_OUTPUT, iteration, output)
+                        on_progress(StepType.CODE_OUTPUT, iteration, output, copy.copy(token_usage))
 
                     all_output.append(output)
 
@@ -469,7 +488,12 @@ class RLMEngine:
                         )
                         _write_step(step)
                         if on_progress:
-                            on_progress(StepType.FINAL_ANSWER, iteration, final_answer)
+                            on_progress(
+                                StepType.FINAL_ANSWER,
+                                iteration,
+                                final_answer,
+                                copy.copy(token_usage),
+                            )
                         break
 
                 if final_answer:
@@ -487,7 +511,12 @@ class RLMEngine:
                                 )
                                 _write_step(step)
                                 if on_progress:
-                                    on_progress(StepType.VERIFICATION, iteration, vresult.stdout)
+                                    on_progress(
+                                        StepType.VERIFICATION,
+                                        iteration,
+                                        vresult.stdout,
+                                        copy.copy(token_usage),
+                                    )
                         except Exception as exc:
                             # Verification failure doesn't affect answer delivery,
                             # but record the error for diagnostics.
@@ -502,6 +531,7 @@ class RLMEngine:
                                     StepType.VERIFICATION,
                                     iteration,
                                     f"Verification error: {exc}",
+                                    copy.copy(token_usage),
                                 )
 
                     semantic_verification = None
@@ -529,6 +559,7 @@ class RLMEngine:
                                     StepType.SEMANTIC_VERIFICATION,
                                     iteration,
                                     f"Semantic verification error: {exc}",
+                                    copy.copy(token_usage),
                                 )
 
                     query_result = QueryResult(
@@ -547,7 +578,7 @@ class RLMEngine:
                     executor.stop()
                     self._pool.discard(executor)
                     executor = self._pool.acquire()
-                    executor.llm_query_handler = llm_query_callback
+                    executor.llm_query_handler = _make_llm_callback(iteration)
                     executor.setup_context(documents)
                 elif not executor.is_alive:
                     answer = "[Executor died — cannot continue]"

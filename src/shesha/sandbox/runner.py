@@ -144,8 +144,11 @@ def main() -> None:
                 err = {"status": "error", "error": f"Unknown action: {action}"}
                 print(json.dumps(err), flush=True)
 
-        except json.JSONDecodeError as e:
-            print(json.dumps({"status": "error", "error": f"Invalid JSON: {e}"}), flush=True)
+        except json.JSONDecodeError:
+            # Fail-closed: invalid JSON implies corrupted protocol stream.
+            # Break out rather than continuing to process potentially
+            # malformed data from a compromised or buggy host.
+            break
         except Exception as e:
             print(json.dumps({"status": "error", "error": str(e)}), flush=True)
 

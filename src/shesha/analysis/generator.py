@@ -10,6 +10,8 @@ from shesha.models import (
     AnalysisComponent,
     AnalysisExternalDep,
     RepoAnalysis,
+    coerce_to_str,
+    coerce_to_str_list,
 )
 
 if TYPE_CHECKING:
@@ -100,13 +102,13 @@ class AnalysisGenerator:
         for c in data.get("components", []):
             components.append(
                 AnalysisComponent(
-                    name=c.get("name", "Unknown"),
-                    path=c.get("path", ""),
-                    description=c.get("description", ""),
+                    name=coerce_to_str(c.get("name", "Unknown")),
+                    path=coerce_to_str(c.get("path", "")),
+                    description=coerce_to_str(c.get("description", "")),
                     apis=c.get("apis", []),
-                    models=c.get("models", []),
-                    entry_points=c.get("entry_points", []),
-                    internal_dependencies=c.get("internal_dependencies", []),
+                    models=coerce_to_str_list(c.get("models", [])),
+                    entry_points=coerce_to_str_list(c.get("entry_points", [])),
+                    internal_dependencies=coerce_to_str_list(c.get("internal_dependencies", [])),
                     auth=c.get("auth"),
                     data_persistence=c.get("data_persistence"),
                 )
@@ -117,10 +119,10 @@ class AnalysisGenerator:
         for d in data.get("external_dependencies", []):
             external_deps.append(
                 AnalysisExternalDep(
-                    name=d.get("name", "Unknown"),
-                    type=d.get("type", "external_api"),
-                    description=d.get("description", ""),
-                    used_by=d.get("used_by", []),
+                    name=coerce_to_str(d.get("name", "Unknown")),
+                    type=coerce_to_str(d.get("type", "external_api")),
+                    description=coerce_to_str(d.get("description", "")),
+                    used_by=coerce_to_str_list(d.get("used_by", [])),
                     optional=d.get("optional", False),
                 )
             )
@@ -129,7 +131,7 @@ class AnalysisGenerator:
             version="1",
             generated_at=datetime.now(UTC).isoformat(),
             head_sha=head_sha,
-            overview=data.get("overview", ""),
+            overview=coerce_to_str(data.get("overview", "")),
             components=components,
             external_dependencies=external_deps,
         )

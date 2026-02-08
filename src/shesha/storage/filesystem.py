@@ -9,7 +9,14 @@ from shesha.exceptions import (
     ProjectExistsError,
     ProjectNotFoundError,
 )
-from shesha.models import AnalysisComponent, AnalysisExternalDep, ParsedDocument, RepoAnalysis
+from shesha.models import (
+    AnalysisComponent,
+    AnalysisExternalDep,
+    ParsedDocument,
+    RepoAnalysis,
+    coerce_to_str,
+    coerce_to_str_list,
+)
 from shesha.security.paths import safe_path
 
 
@@ -193,13 +200,13 @@ class FilesystemStorage:
         data = json.loads(analysis_path.read_text())
         components = [
             AnalysisComponent(
-                name=c["name"],
-                path=c["path"],
-                description=c["description"],
+                name=coerce_to_str(c["name"]),
+                path=coerce_to_str(c["path"]),
+                description=coerce_to_str(c["description"]),
                 apis=c["apis"],
-                models=c["models"],
-                entry_points=c["entry_points"],
-                internal_dependencies=c["internal_dependencies"],
+                models=coerce_to_str_list(c["models"]),
+                entry_points=coerce_to_str_list(c["entry_points"]),
+                internal_dependencies=coerce_to_str_list(c["internal_dependencies"]),
                 auth=c.get("auth"),
                 data_persistence=c.get("data_persistence"),
             )
@@ -207,24 +214,72 @@ class FilesystemStorage:
         ]
         external_deps = [
             AnalysisExternalDep(
-                name=d["name"],
-                type=d["type"],
-                description=d["description"],
-                used_by=d["used_by"],
+                name=coerce_to_str(d["name"]),
+                type=coerce_to_str(d["type"]),
+                description=coerce_to_str(d["description"]),
+                used_by=coerce_to_str_list(d["used_by"]),
                 optional=d.get("optional", False),
             )
             for d in data["external_dependencies"]
         ]
-        caveats = data.get("caveats")
+        raw_caveats = data.get("caveats")
+        caveats = coerce_to_str(raw_caveats) if raw_caveats is not None else None
         return RepoAnalysis(
             version=data["version"],
             generated_at=data["generated_at"],
             head_sha=data["head_sha"],
-            overview=data["overview"],
+            overview=coerce_to_str(data["overview"]),
             components=components,
             external_dependencies=external_deps,
             **({"caveats": caveats} if caveats is not None else {}),
         )
+
+    def swap_docs(self, source_project_id: str, target_project_id: str) -> None:
+        """Atomically replace target project's docs with source project's docs.
+
+        Uses rename-based swap with rollback on failure:
+        1. Rename target/docs → target/docs_backup
+        2. Rename source/docs → target/docs
+        3. Delete backup
+
+        If step 2 fails, restores backup to target/docs.
+        """
+        if not self.project_exists(source_project_id):
+            raise ProjectNotFoundError(source_project_id)
+        if not self.project_exists(target_project_id):
+            raise ProjectNotFoundError(target_project_id)
+
+        source_docs = self._project_path(source_project_id) / "docs"
+        target_docs = self._project_path(target_project_id) / "docs"
+        backup_docs = self._project_path(target_project_id) / "docs_backup"
+
+        # Recover from a prior crashed swap (if any).
+        if backup_docs.exists():
+            if not target_docs.exists():
+                # Crash between step 1 and 2: backup has the only copy.
+                # Restore it so the swap can proceed normally.
+                backup_docs.rename(target_docs)
+            else:
+                # Crash after step 2: target/docs has the new data,
+                # backup is stale. Must delete so step 1 rename can proceed.
+                shutil.rmtree(backup_docs)
+
+        # Step 1: Move target docs to backup (atomic on same filesystem)
+        target_docs.rename(backup_docs)
+
+        try:
+            # Step 2: Move source docs to target (atomic on same filesystem)
+            source_docs.rename(target_docs)
+        except Exception:
+            # Restore backup on failure
+            backup_docs.rename(target_docs)
+            raise
+
+        # Step 3: Remove backup (best-effort; next call recovers if this fails)
+        try:
+            shutil.rmtree(backup_docs)
+        except OSError:
+            pass  # Leftover backup will be cleaned up on next swap
 
     def delete_analysis(self, project_id: str) -> None:
         """Delete the codebase analysis for a project."""

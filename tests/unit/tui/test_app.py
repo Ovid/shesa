@@ -288,6 +288,44 @@ class TestQueryGuard:
             assert len(statics) > 0
 
 
+class TestIncrementalTokenDisplay:
+    """Tests for incremental token updates during query execution."""
+
+    async def test_on_progress_updates_cumulative_tokens(self) -> None:
+        """Progress callback with TokenUsage updates app cumulative token fields."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            # Verify initial state
+            assert pilot.app._cumulative_prompt_tokens == 0
+            assert pilot.app._cumulative_completion_tokens == 0
+
+            # Simulate a query in progress and call _on_progress from a worker thread
+            pilot.app._query_in_progress = True
+            pilot.app._query_start_time = 0.0
+            pilot.app._last_iteration = 0
+
+            token_usage = TokenUsage(prompt_tokens=500, completion_tokens=100)
+
+            # Use run_worker to call from a different thread (required by call_from_thread)
+            def worker_fn() -> None:
+                pilot.app._on_progress(StepType.CODE_GENERATED, 0, "some code", token_usage)
+
+            worker = pilot.app.run_worker(worker_fn, thread=True)
+            await worker.wait()
+            await pilot.pause()
+
+            # Cumulative tokens should be updated
+            assert pilot.app._cumulative_prompt_tokens == 500
+            assert pilot.app._cumulative_completion_tokens == 100
+
+            # Info bar should reflect the updated tokens
+            info_bar = pilot.app.query_one(InfoBar)
+            line1, _ = info_bar._state.render_lines()
+            assert "500" in line1
+            assert "100" in line1
+
+
 class TestQueryCancellation:
     """Tests for Esc×2 query cancellation."""
 

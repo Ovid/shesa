@@ -2,6 +2,7 @@
 
 import atexit
 import re
+import uuid
 import weakref
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -457,45 +458,92 @@ class Shesha:
         *,
         is_update: bool,
     ) -> RepoProjectResult:
-        """Ingest files from repository into project."""
-        if not is_update:
-            self._storage.create_project(name)
+        """Ingest files from repository into project.
 
+        For new projects (is_update=False): creates project, ingests files,
+        and deletes the project if ingestion fails.
+
+        For updates (is_update=True): ingests into a staging project, then
+        atomically swaps docs into the target project. If ingestion fails,
+        the staging project is cleaned up and the original is untouched.
+        """
+        # Determine the project to ingest into
+        staging_name = f"_staging_{name}_{uuid.uuid4().hex[:8]}" if is_update else name
         is_local = self._repo_ingester.is_local_path(url)
-        if is_local:
-            repo_path = Path(url).expanduser()
-        else:
-            repo_path = self._repo_ingester.repos_dir / name
 
-        files = self._repo_ingester.list_files_from_path(repo_path, subdir=path)
-        files_ingested = 0
-        files_skipped = 0
-        warnings: list[str] = []
+        try:
+            if not is_update:
+                self._storage.create_project(name)
+            else:
+                self._storage.create_project(staging_name)
 
-        for file_path in files:
-            full_path = repo_path / file_path
-            try:
-                parser = self._parser_registry.find_parser(full_path)
-                if parser is None:
+            if is_local:
+                repo_path = Path(url).expanduser()
+            else:
+                repo_path = self._repo_ingester.repos_dir / name
+
+            files = self._repo_ingester.list_files_from_path(repo_path, subdir=path)
+            files_ingested = 0
+            files_skipped = 0
+            warnings: list[str] = []
+
+            for file_path in files:
+                full_path = repo_path / file_path
+                try:
+                    parser = self._parser_registry.find_parser(full_path)
+                    if parser is None:
+                        files_skipped += 1
+                        continue
+
+                    doc = parser.parse(full_path, include_line_numbers=True, file_path=file_path)
+                    doc = ParsedDocument(
+                        name=file_path,
+                        content=doc.content,
+                        format=doc.format,
+                        metadata=doc.metadata,
+                        char_count=doc.char_count,
+                        parse_warnings=doc.parse_warnings,
+                    )
+                    self._storage.store_document(staging_name, doc)
+                    files_ingested += 1
+                except (ParseError, NoParserError) as e:
                     files_skipped += 1
-                    continue
+                    warnings.append(f"Failed to parse {file_path}: {e}")
+                except Exception as e:
+                    raise RepoIngestError(url, cause=e) from e
 
-                doc = parser.parse(full_path, include_line_numbers=True, file_path=file_path)
-                doc = ParsedDocument(
-                    name=file_path,
-                    content=doc.content,
-                    format=doc.format,
-                    metadata=doc.metadata,
-                    char_count=doc.char_count,
-                    parse_warnings=doc.parse_warnings,
-                )
-                self._storage.store_document(name, doc)
-                files_ingested += 1
-            except (ParseError, NoParserError) as e:
-                files_skipped += 1
-                warnings.append(f"Failed to parse {file_path}: {e}")
-            except Exception as e:
-                raise RepoIngestError(url, cause=e) from e
+            # For updates, apply staging docs to target
+            if is_update:
+                if hasattr(self._storage, "swap_docs"):
+                    # Atomic swap (FilesystemStorage)
+                    self._storage.swap_docs(staging_name, name)
+                else:
+                    # Fallback: copy new docs first, then remove orphans.
+                    # Not atomic — same-named docs are overwritten in place,
+                    # but docs unique to the original are not deleted upfront.
+                    staging_docs = self._storage.load_all_documents(staging_name)
+                    staging_names = {d.name for d in staging_docs}
+                    for doc in staging_docs:
+                        self._storage.store_document(name, doc)
+                    for doc_name in self._storage.list_documents(name):
+                        if doc_name not in staging_names:
+                            self._storage.delete_document(name, doc_name)
+                self._storage.delete_project(staging_name)
+
+        except Exception:
+            # Clean up on failure
+            if is_update:
+                # Delete staging project if it exists, original is untouched
+                if self._storage.project_exists(staging_name):
+                    self._storage.delete_project(staging_name)
+            else:
+                # Delete the partially created project
+                if self._storage.project_exists(name):
+                    self._storage.delete_project(name)
+                # Delete the cloned repo so retry doesn't fail at clone time
+                if not is_local:
+                    self._repo_ingester.delete_repo(name)
+            raise
 
         sha = self._repo_ingester.get_sha_from_path(repo_path)
         if sha:

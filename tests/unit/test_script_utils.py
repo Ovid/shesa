@@ -528,3 +528,74 @@ class TestFormatAnalysisForDisplay:
         assert "PostgreSQL" in output
         assert "(optional)" in output
         assert "Redis" in output
+
+
+class TestFormatPipelineContract:
+    """Contract test: valid RepoAnalysis always produces valid format output."""
+
+    def test_complex_valid_analysis_formats_successfully(self) -> None:
+        """A realistic RepoAnalysis with multiple components formats without error."""
+        from examples.script_utils import format_analysis_as_context, format_analysis_for_display
+        from shesha.models import AnalysisComponent, AnalysisExternalDep, RepoAnalysis
+
+        comp1 = AnalysisComponent(
+            name="API Server",
+            path="api/",
+            description="REST API for user management",
+            apis=[
+                {"type": "rest", "endpoints": ["/users", "/auth", "/health"]},
+                {"type": "websocket", "endpoints": ["/ws/notifications"]},
+            ],
+            models=["User", "Session", "Token"],
+            entry_points=["api/main.py", "api/cli.py"],
+            internal_dependencies=["database", "auth"],
+            auth="JWT",
+            data_persistence="PostgreSQL",
+        )
+        comp2 = AnalysisComponent(
+            name="Worker",
+            path="worker/",
+            description="Background task processor",
+            apis=[],
+            models=["Task", "Job"],
+            entry_points=["worker/main.py"],
+            internal_dependencies=["database"],
+        )
+        dep1 = AnalysisExternalDep(
+            name="PostgreSQL",
+            type="database",
+            description="Primary data store for users and sessions",
+            used_by=["API Server", "Worker"],
+        )
+        dep2 = AnalysisExternalDep(
+            name="Redis",
+            type="cache",
+            description="Session cache and task queue",
+            used_by=["API Server"],
+            optional=True,
+        )
+        analysis = RepoAnalysis(
+            version="1",
+            generated_at="2026-02-08T12:00:00Z",
+            head_sha="deadbeef1234",
+            overview="A microservices application with REST API and background workers.",
+            components=[comp1, comp2],
+            external_dependencies=[dep1, dep2],
+        )
+
+        # Both format functions should produce valid string output
+        context = format_analysis_as_context(analysis)
+        assert isinstance(context, str)
+        assert "API Server" in context
+        assert "Worker" in context
+        assert "PostgreSQL" in context
+        assert "User" in context
+        assert "microservices" in context
+
+        display = format_analysis_for_display(analysis)
+        assert isinstance(display, str)
+        assert "API Server" in display
+        assert "Worker" in display
+        assert "PostgreSQL" in display
+        assert "(optional)" in display
+        assert "Entry points" in display

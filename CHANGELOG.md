@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Strict type validation (`__post_init__`) on `AnalysisComponent`, `AnalysisExternalDep`, and `RepoAnalysis` dataclasses — bad-typed fields now raise `TypeError` at construction time
+- `coerce_to_str()` and `coerce_to_str_list()` helpers in `models.py` for safe type coercion at storage/generation boundaries
+
+### Fixed
+
+- `load_analysis()` and `AnalysisGenerator.generate()` now coerce all validated string fields (scalars via `coerce_to_str()`, lists via `coerce_to_str_list()`) before constructing analysis models, preventing `TypeError` crashes from LLM-generated or stored data
+- `_send_raw()` now wraps `OSError`/`TimeoutError` from socket `sendall()` as `ProtocolError` and restores the previous socket timeout after each send
+- Fixed mutable closure in RLM engine where `llm_query` callback captured loop variable by reference
+- Repo ingestion is now atomic: updates use stage-then-swap to prevent mixed state on failure, new project creation cleans up on failure
+- Successful repo updates now remove orphaned documents that no longer exist in the repository
+
+### Security
+
+- Added tmpfs mounts to container security config (default `/tmp` with 64MB limit, noexec)
+- Added send timeout and payload size limit (50 MB) to container executor protocol
+- Tied read deadline to execution timeout to prevent slow-drip DoS via long MAX_READ_DURATION gap
+- Sandbox runner now exits on invalid JSON input (fail-closed) instead of continuing
+- Added timeouts to all git subprocess calls to prevent indefinite hangs
+- Added `GIT_TERMINAL_PROMPT=0` to non-token git operations to prevent interactive prompts
+- Fixed `get_remote_sha()` to use authentication token when provided
+
 ## [0.6.0] - 2026-02-08
 
 ### Added

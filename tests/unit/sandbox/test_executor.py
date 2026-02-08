@@ -945,6 +945,171 @@ class TestIsAlive:
         assert executor.is_alive is False
 
 
+class TestSendTimeout:
+    """Tests for send timeout on _send_raw."""
+
+    def test_send_raw_sets_socket_timeout(self):
+        """_send_raw sets a timeout on the socket before sending."""
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.gettimeout.return_value = 30.0
+        executor._socket = mock_socket
+
+        executor._send_raw("test data", timeout=10)
+
+        # First settimeout sets send timeout, second restores previous
+        calls = mock_socket._sock.settimeout.call_args_list
+        assert calls[0][0][0] == 10
+        mock_socket._sock.sendall.assert_called_once()
+
+    def test_send_raw_uses_default_timeout(self):
+        """_send_raw uses default timeout when none specified."""
+        from shesha.sandbox.executor import DEFAULT_SEND_TIMEOUT
+
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.gettimeout.return_value = 30.0
+        executor._socket = mock_socket
+
+        executor._send_raw("test data")
+
+        calls = mock_socket._sock.settimeout.call_args_list
+        # First call sets send timeout (default), second restores previous
+        assert calls[0][0][0] == DEFAULT_SEND_TIMEOUT
+        assert DEFAULT_SEND_TIMEOUT > 0
+
+
+class TestPayloadSizeLimit:
+    """Tests for payload size limit on _send_raw."""
+
+    def test_send_raw_rejects_oversized_payload(self):
+        """_send_raw raises ProtocolError when payload exceeds MAX_PAYLOAD_SIZE."""
+        from shesha.sandbox.executor import MAX_PAYLOAD_SIZE, ProtocolError
+
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        executor._socket = mock_socket
+
+        oversized_data = "x" * (MAX_PAYLOAD_SIZE + 100)
+
+        with pytest.raises(ProtocolError, match="[Pp]ayload"):
+            executor._send_raw(oversized_data)
+
+        # Should not have sent anything
+        mock_socket._sock.sendall.assert_not_called()
+
+    def test_max_payload_size_constant_exists(self):
+        """MAX_PAYLOAD_SIZE constant is defined."""
+        from shesha.sandbox.executor import MAX_PAYLOAD_SIZE
+
+        assert MAX_PAYLOAD_SIZE == 50 * 1024 * 1024  # 50 MB
+
+
+class TestSendRawSocketErrors:
+    """Tests for socket error handling in _send_raw."""
+
+    def test_send_raw_wraps_os_error_as_protocol_error(self):
+        """_send_raw wraps OSError from sendall as ProtocolError."""
+        from shesha.sandbox.executor import ProtocolError
+
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.sendall.side_effect = OSError("Connection reset")
+        executor._socket = mock_socket
+
+        with pytest.raises(ProtocolError, match="Connection reset"):
+            executor._send_raw("test data")
+
+    def test_send_raw_wraps_timeout_error_as_protocol_error(self):
+        """_send_raw wraps TimeoutError from sendall as ProtocolError."""
+        from shesha.sandbox.executor import ProtocolError
+
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.sendall.side_effect = TimeoutError("Send timed out")
+        executor._socket = mock_socket
+
+        with pytest.raises(ProtocolError, match="Send timed out"):
+            executor._send_raw("test data")
+
+    def test_send_raw_restores_previous_timeout(self):
+        """_send_raw restores the previous socket timeout after sending."""
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.gettimeout.return_value = 30.0
+        executor._socket = mock_socket
+
+        executor._send_raw("test data", timeout=5)
+
+        # Should restore previous timeout after send
+        calls = mock_socket._sock.settimeout.call_args_list
+        assert len(calls) == 2
+        assert calls[0][0][0] == 5  # Set send timeout
+        assert calls[1][0][0] == 30.0  # Restore previous
+
+    def test_send_raw_restores_timeout_on_error(self):
+        """_send_raw restores the previous timeout even when sendall fails."""
+        from shesha.sandbox.executor import ProtocolError
+
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.gettimeout.return_value = 30.0
+        mock_socket._sock.sendall.side_effect = OSError("Broken pipe")
+        executor._socket = mock_socket
+
+        with pytest.raises(ProtocolError):
+            executor._send_raw("test data", timeout=5)
+
+        # Should still restore previous timeout
+        calls = mock_socket._sock.settimeout.call_args_list
+        assert len(calls) == 2
+        assert calls[1][0][0] == 30.0
+
+
+class TestEffectiveDeadline:
+    """Tests for deadline tied to execution timeout."""
+
+    def test_read_line_deadline_respects_execution_timeout(self):
+        """_read_line deadline is bounded by timeout parameter, not just MAX_READ_DURATION."""
+        from shesha.sandbox.executor import ContainerExecutor, ProtocolError
+
+        mock_socket = MagicMock()
+
+        # Use a very short timeout (5 seconds)
+        # If deadline is tied to timeout, it should fire based on timeout+10,
+        # not the hardcoded MAX_READ_DURATION (300s)
+
+        call_count = [0]
+
+        def mock_recv(size):
+            call_count[0] += 1
+            if call_count[0] < 100:
+                return b"x"  # Drip data without newline
+            return b""
+
+        mock_socket._sock.recv = mock_recv
+        mock_socket._sock.settimeout = MagicMock()
+
+        executor = ContainerExecutor()
+        executor._socket = mock_socket
+        executor._raw_buffer = b""
+        executor._content_buffer = b""
+
+        # Patch time to simulate passing just 16 seconds (should exceed timeout=5+10=15)
+        start_time = 1000.0
+        mono_calls = [0]
+
+        def mock_monotonic():
+            mono_calls[0] += 1
+            if mono_calls[0] <= 2:
+                return start_time
+            return start_time + 16  # 16s exceeds effective deadline of 15s (5+10)
+
+        with patch("shesha.sandbox.executor.time.monotonic", mock_monotonic):
+            with pytest.raises(ProtocolError):
+                executor._read_line(timeout=5)
+
+
 class TestResetNamespace:
     """Tests for namespace reset in executor."""
 

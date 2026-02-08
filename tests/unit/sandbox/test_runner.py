@@ -101,6 +101,45 @@ class TestResetAction:
         assert llm_query_check["stdout"] == "True\n", "llm_query should still exist"
 
 
+class TestRunnerInvalidJson:
+    """Tests for runner handling of invalid JSON input."""
+
+    def test_runner_exits_on_invalid_json(self) -> None:
+        """Runner breaks out of main loop on JSONDecodeError (fail-closed)."""
+        import io
+        import sys
+
+        from shesha.sandbox.runner import main
+
+        commands = [
+            json.dumps({"action": "ping"}) + "\n",
+            "this is not valid json\n",
+            json.dumps({"action": "ping"}) + "\n",  # Should NOT be processed
+        ]
+        stdin = io.StringIO("".join(commands))
+        stdout = io.StringIO()
+
+        old_stdin = sys.stdin
+        old_stdout = sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            main()
+        finally:
+            sys.stdin = old_stdin
+            sys.stdout = old_stdout
+
+        output_lines = stdout.getvalue().strip().split("\n")
+        # First ping should succeed
+        first = json.loads(output_lines[0])
+        assert first["status"] == "ok"
+        # Runner should have stopped after invalid JSON — no third ping response
+        assert len(output_lines) == 1, (
+            f"Expected only 1 response (runner should exit on invalid JSON), "
+            f"got {len(output_lines)}: {output_lines}"
+        )
+
+
 class TestLlmQueryErrorHandling:
     """Tests for llm_query() error response handling."""
 

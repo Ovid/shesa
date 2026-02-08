@@ -30,6 +30,11 @@ dev = [
     "types-PyYAML>=6.0",
     "types-docker>=7.0",
     "textual>=1.0",
+    "datasets",
+    "pandas",
+    "tqdm",
+    "matplotlib",
+    "python-dateutil",
 ]
 tui = [
     "textual>=1.0",
