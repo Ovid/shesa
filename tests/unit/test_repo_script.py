@@ -15,7 +15,13 @@ class TestParseArgs:
         args = parse_args([])
         assert args.repo is None
         assert not args.update
-        assert not args.verbose
+
+    def test_no_verbose_flag(self) -> None:
+        """--verbose flag should no longer exist."""
+        from examples.repo import parse_args
+
+        with pytest.raises(SystemExit):
+            parse_args(["--verbose"])
 
     def test_repo_positional(self) -> None:
         """Repo URL should be captured as positional arg."""
@@ -37,13 +43,6 @@ class TestParseArgs:
 
         args = parse_args(["https://github.com/user/repo", "--update"])
         assert args.update
-
-    def test_verbose_flag(self) -> None:
-        """--verbose flag should be captured."""
-        from examples.repo import parse_args
-
-        args = parse_args(["https://github.com/user/repo", "--verbose"])
-        assert args.verbose
 
     def test_pristine_flag_default_false(self) -> None:
         """--pristine flag defaults to False."""
@@ -328,235 +327,6 @@ class TestHandleUpdates:
         assert result is mock_result
 
 
-class TestRunInteractiveLoop:
-    """Tests for run_interactive_loop function."""
-
-    def test_quit_exits_loop(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Typing 'quit' should exit the loop."""
-        from examples.repo import run_interactive_loop
-
-        mock_project = MagicMock()
-        mock_shesha = MagicMock()
-
-        with patch("builtins.input", return_value="quit"):
-            run_interactive_loop(
-                mock_project, verbose=False, project_name="test-project", shesha=mock_shesha
-            )
-
-        captured = capsys.readouterr()
-        assert "Goodbye!" in captured.out
-        mock_project.query.assert_not_called()
-
-    def test_exit_exits_loop(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Typing 'exit' should exit the loop."""
-        from examples.repo import run_interactive_loop
-
-        mock_project = MagicMock()
-        mock_shesha = MagicMock()
-
-        with patch("builtins.input", return_value="exit"):
-            run_interactive_loop(
-                mock_project, verbose=False, project_name="test-project", shesha=mock_shesha
-            )
-
-        captured = capsys.readouterr()
-        assert "Goodbye!" in captured.out
-
-    def test_empty_input_continues(self) -> None:
-        """Empty input should continue loop without query."""
-        from examples.repo import run_interactive_loop
-
-        mock_project = MagicMock()
-        mock_shesha = MagicMock()
-
-        # First empty, then quit
-        with patch("builtins.input", side_effect=["", "quit"]):
-            run_interactive_loop(
-                mock_project, verbose=False, project_name="test-project", shesha=mock_shesha
-            )
-
-        mock_project.query.assert_not_called()
-
-    def test_query_is_made(self) -> None:
-        """Questions should trigger project.query."""
-        from examples.repo import run_interactive_loop
-
-        mock_result = MagicMock()
-        mock_result.answer = "The answer is 42"
-        mock_result.execution_time = 1.5
-        mock_result.token_usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
-        mock_result.trace = MagicMock(steps=[])
-
-        mock_project = MagicMock()
-        mock_project.query.return_value = mock_result
-        mock_shesha = MagicMock()
-
-        with patch("builtins.input", side_effect=["What is X?", "quit"]):
-            run_interactive_loop(
-                mock_project, verbose=False, project_name="test-project", shesha=mock_shesha
-            )
-
-        mock_project.query.assert_called_once()
-
-    def test_help_shows_help_text(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Typing 'help' should show help text without querying."""
-        from examples.repo import run_interactive_loop
-
-        mock_project = MagicMock()
-        mock_shesha = MagicMock()
-
-        with patch("builtins.input", side_effect=["help", "quit"]):
-            run_interactive_loop(
-                mock_project, verbose=False, project_name="test-project", shesha=mock_shesha
-            )
-
-        captured = capsys.readouterr()
-        assert "Commands:" in captured.out
-        assert "help, ?" in captured.out
-        assert "write" in captured.out
-        assert "quit, exit" in captured.out
-        mock_project.query.assert_not_called()
-
-    def test_analysis_context_prepended_to_first_query(self) -> None:
-        """When analysis_context is set, it should be prepended to the query."""
-        from examples.repo import run_interactive_loop
-
-        mock_result = MagicMock()
-        mock_result.answer = "The answer"
-        mock_result.execution_time = 1.0
-        mock_result.token_usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
-        mock_result.trace = MagicMock(steps=[])
-
-        mock_project = MagicMock()
-        mock_project.query.return_value = mock_result
-        mock_shesha = MagicMock()
-
-        with patch("builtins.input", side_effect=["What is X?", "quit"]):
-            run_interactive_loop(
-                mock_project,
-                verbose=False,
-                project_name="test",
-                shesha=mock_shesha,
-                analysis_context="=== Codebase Analysis ===\nOverview\n===",
-            )
-
-        # The query should contain the analysis context followed by the question
-        call_args = mock_project.query.call_args
-        question = call_args[0][0]
-        assert question.startswith("=== Codebase Analysis ===")
-        assert "What is X?" in question
-
-    def test_analysis_context_prepended_to_followup_with_history(self) -> None:
-        """Analysis context should be prepended even with conversation history."""
-        from examples.repo import run_interactive_loop
-
-        mock_result = MagicMock()
-        mock_result.answer = "Answer"
-        mock_result.execution_time = 1.0
-        mock_result.token_usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
-        mock_result.trace = MagicMock(steps=[])
-
-        mock_project = MagicMock()
-        mock_project.query.return_value = mock_result
-        mock_shesha = MagicMock()
-
-        with patch("builtins.input", side_effect=["Q1?", "Q2?", "quit"]):
-            run_interactive_loop(
-                mock_project,
-                verbose=False,
-                project_name="test",
-                shesha=mock_shesha,
-                analysis_context="=== Analysis ===\nInfo\n===",
-            )
-
-        # Second query should have analysis + history + question
-        second_call = mock_project.query.call_args_list[1]
-        question = second_call[0][0]
-        assert question.startswith("=== Analysis ===")
-        assert "Previous conversation:" in question
-        assert "Q2?" in question
-
-    def test_no_analysis_context_no_prefix(self) -> None:
-        """When analysis_context is None, query should not have analysis prefix."""
-        from examples.repo import run_interactive_loop
-
-        mock_result = MagicMock()
-        mock_result.answer = "Answer"
-        mock_result.execution_time = 1.0
-        mock_result.token_usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
-        mock_result.trace = MagicMock(steps=[])
-
-        mock_project = MagicMock()
-        mock_project.query.return_value = mock_result
-        mock_shesha = MagicMock()
-
-        with patch("builtins.input", side_effect=["What is X?", "quit"]):
-            run_interactive_loop(
-                mock_project,
-                verbose=False,
-                project_name="test",
-                shesha=mock_shesha,
-            )
-
-        call_args = mock_project.query.call_args
-        question = call_args[0][0]
-        assert question == "What is X?"
-
-    def test_analysis_context_prints_note(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """When analysis_context is set, should print a note on entry."""
-        from examples.repo import run_interactive_loop
-
-        mock_project = MagicMock()
-        mock_shesha = MagicMock()
-
-        with patch("builtins.input", return_value="quit"):
-            run_interactive_loop(
-                mock_project,
-                verbose=False,
-                project_name="test",
-                shesha=mock_shesha,
-                analysis_context="=== Analysis ===\nInfo\n===",
-            )
-
-        captured = capsys.readouterr()
-        assert "Using codebase analysis as context" in captured.out
-        assert "--pristine" in captured.out
-
-    def test_no_analysis_context_no_note(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """When analysis_context is None, should NOT print the note."""
-        from examples.repo import run_interactive_loop
-
-        mock_project = MagicMock()
-        mock_shesha = MagicMock()
-
-        with patch("builtins.input", return_value="quit"):
-            run_interactive_loop(
-                mock_project,
-                verbose=False,
-                project_name="test",
-                shesha=mock_shesha,
-            )
-
-        captured = capsys.readouterr()
-        assert "Using codebase analysis" not in captured.out
-
-    def test_question_mark_shows_help_text(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Typing '?' should show help text without querying."""
-        from examples.repo import run_interactive_loop
-
-        mock_project = MagicMock()
-        mock_shesha = MagicMock()
-
-        with patch("builtins.input", side_effect=["?", "quit"]):
-            run_interactive_loop(
-                mock_project, verbose=False, project_name="test-project", shesha=mock_shesha
-            )
-
-        captured = capsys.readouterr()
-        assert "Commands:" in captured.out
-        mock_project.query.assert_not_called()
-
-
 class TestMain:
     """Tests for main function."""
 
@@ -603,8 +373,8 @@ class TestMain:
         captured = capsys.readouterr()
         assert "SHESHA_API_KEY" in captured.out
 
-    def test_picker_existing_project_checks_for_updates(self) -> None:
-        """Selecting existing project via picker should check for updates."""
+    def test_picker_existing_project_launches_tui(self) -> None:
+        """Selecting existing project via picker should launch TUI."""
         import os
         import sys
 
@@ -614,6 +384,7 @@ class TestMain:
         mock_result.status = "unchanged"
         mock_result.files_ingested = 10
         mock_result.project = MagicMock()
+        mock_result.project.project_id = "existing-project"
 
         mock_shesha = MagicMock()
         mock_shesha.list_projects.return_value = ["existing-project"]
@@ -624,11 +395,17 @@ class TestMain:
             with patch.dict(os.environ, {"SHESHA_API_KEY": "test-key"}, clear=True):
                 with patch("examples.repo.Shesha", return_value=mock_shesha):
                     with patch("examples.repo.SheshaConfig"):
-                        with patch("builtins.input", side_effect=["1", "quit"]):
-                            main()
+                        with patch("examples.repo.SheshaTUI") as mock_tui_class:
+                            mock_tui = MagicMock()
+                            mock_tui_class.return_value = mock_tui
+                            with patch("builtins.input", return_value="1"):
+                                main()
 
         # Should check for updates when loading existing project
         mock_shesha.check_repo_for_updates.assert_called_once_with("existing-project")
+        # Should create TUI and run it
+        mock_tui_class.assert_called_once()
+        mock_tui.run.assert_called_once()
 
     def test_picker_existing_project_with_update_flag_applies_updates(
         self, capsys: pytest.CaptureFixture[str]
@@ -662,8 +439,11 @@ class TestMain:
             with patch.dict(os.environ, {"SHESHA_API_KEY": "test-key"}, clear=True):
                 with patch("examples.repo.Shesha", return_value=mock_shesha):
                     with patch("examples.repo.SheshaConfig"):
-                        with patch("builtins.input", side_effect=["1", "quit"]):
-                            main()
+                        with patch("examples.repo.SheshaTUI") as mock_tui_class:
+                            mock_tui = MagicMock()
+                            mock_tui_class.return_value = mock_tui
+                            with patch("builtins.input", return_value="1"):
+                                main()
 
         # Should apply updates when --update flag is set
         mock_result.apply_updates.assert_called_once()
@@ -681,6 +461,7 @@ class TestMain:
         mock_result.status = "created"
         mock_result.files_ingested = 10
         mock_result.project = MagicMock()
+        mock_result.project.project_id = "new-repo"
 
         mock_shesha = MagicMock()
         mock_shesha.list_projects.return_value = ["existing-project"]
@@ -691,15 +472,123 @@ class TestMain:
             with patch.dict(os.environ, {"SHESHA_API_KEY": "test-key"}, clear=True):
                 with patch("examples.repo.Shesha", return_value=mock_shesha):
                     with patch("examples.repo.SheshaConfig"):
-                        with patch(
-                            "builtins.input",
-                            side_effect=["https://github.com/new/repo", "quit"],
-                        ):
-                            main()
+                        with patch("examples.repo.SheshaTUI") as mock_tui_class:
+                            mock_tui = MagicMock()
+                            mock_tui_class.return_value = mock_tui
+                            with patch(
+                                "builtins.input",
+                                return_value="https://github.com/new/repo",
+                            ):
+                                main()
 
         # Should use create_project_from_repo for new URL, NOT get_project
         mock_shesha.create_project_from_repo.assert_called_once_with("https://github.com/new/repo")
         mock_shesha.get_project.assert_not_called()
+
+    def test_tui_created_with_analysis_context(self) -> None:
+        """TUI should be created with analysis_context when analysis exists."""
+        import os
+        import sys
+
+        from examples.repo import main
+
+        mock_result = MagicMock()
+        mock_result.status = "unchanged"
+        mock_result.files_ingested = 10
+        mock_result.project = MagicMock()
+        mock_result.project.project_id = "test-project"
+
+        mock_analysis = MagicMock()
+        mock_analysis.overview = "Test overview"
+        mock_analysis.components = []
+        mock_analysis.external_dependencies = []
+
+        mock_shesha = MagicMock()
+        mock_shesha.list_projects.return_value = ["test-project"]
+        mock_shesha.check_repo_for_updates.return_value = mock_result
+        mock_shesha.get_analysis.return_value = mock_analysis
+        mock_shesha.get_analysis_status.return_value = "current"
+
+        with patch.object(sys, "argv", ["repo.py"]):
+            with patch.dict(os.environ, {"SHESHA_API_KEY": "test-key"}, clear=True):
+                with patch("examples.repo.Shesha", return_value=mock_shesha):
+                    with patch("examples.repo.SheshaConfig"):
+                        with patch("examples.repo.SheshaTUI") as mock_tui_class:
+                            mock_tui = MagicMock()
+                            mock_tui_class.return_value = mock_tui
+                            with patch("builtins.input", return_value="1"):
+                                main()
+
+        # TUI should be created with analysis_context
+        call_kwargs = mock_tui_class.call_args[1]
+        assert call_kwargs["analysis_context"] is not None
+        assert "Test overview" in call_kwargs["analysis_context"]
+
+    def test_tui_created_without_analysis_context_when_pristine(self) -> None:
+        """TUI should be created without analysis_context when --pristine is set."""
+        import os
+        import sys
+
+        from examples.repo import main
+
+        mock_result = MagicMock()
+        mock_result.status = "unchanged"
+        mock_result.files_ingested = 10
+        mock_result.project = MagicMock()
+        mock_result.project.project_id = "test-project"
+
+        mock_shesha = MagicMock()
+        mock_shesha.list_projects.return_value = ["test-project"]
+        mock_shesha.check_repo_for_updates.return_value = mock_result
+        mock_shesha.get_analysis_status.return_value = "current"
+
+        with patch.object(sys, "argv", ["repo.py", "--pristine"]):
+            with patch.dict(os.environ, {"SHESHA_API_KEY": "test-key"}, clear=True):
+                with patch("examples.repo.Shesha", return_value=mock_shesha):
+                    with patch("examples.repo.SheshaConfig"):
+                        with patch("examples.repo.SheshaTUI") as mock_tui_class:
+                            mock_tui = MagicMock()
+                            mock_tui_class.return_value = mock_tui
+                            with patch("builtins.input", return_value="1"):
+                                main()
+
+        # TUI should be created with analysis_context=None
+        call_kwargs = mock_tui_class.call_args[1]
+        assert call_kwargs["analysis_context"] is None
+
+    def test_tui_registers_analysis_commands(self) -> None:
+        """TUI should have /analysis and /analyze commands registered."""
+        import os
+        import sys
+
+        from examples.repo import main
+
+        mock_result = MagicMock()
+        mock_result.status = "unchanged"
+        mock_result.files_ingested = 10
+        mock_result.project = MagicMock()
+        mock_result.project.project_id = "test-project"
+
+        mock_shesha = MagicMock()
+        mock_shesha.list_projects.return_value = ["test-project"]
+        mock_shesha.check_repo_for_updates.return_value = mock_result
+        mock_shesha.get_analysis.return_value = None
+
+        with patch.object(sys, "argv", ["repo.py"]):
+            with patch.dict(os.environ, {"SHESHA_API_KEY": "test-key"}, clear=True):
+                with patch("examples.repo.Shesha", return_value=mock_shesha):
+                    with patch("examples.repo.SheshaConfig"):
+                        with patch("examples.repo.SheshaTUI") as mock_tui_class:
+                            mock_tui = MagicMock()
+                            mock_tui_class.return_value = mock_tui
+                            with patch("builtins.input", return_value="1"):
+                                main()
+
+        # Should register /analysis and /analyze commands
+        register_calls = mock_tui.register_command.call_args_list
+        registered_names = [call[0][0] for call in register_calls]
+        assert "/analysis" in registered_names
+        assert "/analyze" in registered_names
 
     def test_show_picker_shows_missing_marker(self, capsys: pytest.CaptureFixture[str]) -> None:
         """show_picker marks projects with missing local repos."""
