@@ -250,21 +250,21 @@ class FilesystemStorage:
             if not target_docs.exists():
                 # Crash between step 1 and 2: backup has the only copy.
                 # Restore it so the swap can proceed normally.
-                shutil.move(str(backup_docs), str(target_docs))
+                backup_docs.rename(target_docs)
             else:
                 # Crash after step 2: target/docs has the new data,
                 # backup is stale. Safe to delete.
                 shutil.rmtree(backup_docs)
 
-        # Step 1: Move target docs to backup
-        shutil.move(str(target_docs), str(backup_docs))
+        # Step 1: Move target docs to backup (atomic on same filesystem)
+        target_docs.rename(backup_docs)
 
         try:
-            # Step 2: Move source docs to target
-            shutil.move(str(source_docs), str(target_docs))
+            # Step 2: Move source docs to target (atomic on same filesystem)
+            source_docs.rename(target_docs)
         except Exception:
             # Restore backup on failure
-            shutil.move(str(backup_docs), str(target_docs))
+            backup_docs.rename(target_docs)
             raise
 
         # Step 3: Remove backup

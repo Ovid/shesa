@@ -280,17 +280,17 @@ class TestSwapDocs:
         )
         storage.store_document("source", source_doc)
 
-        # Make the rename fail by patching shutil.move to raise on second call
-        original_move = shutil.move
+        # Make step 2 fail by patching Path.rename to raise on second call
+        original_rename = Path.rename
         call_count = [0]
 
-        def failing_move(src, dst, *args, **kwargs):
+        def failing_rename(self_path, target, *args, **kwargs):
             call_count[0] += 1
             if call_count[0] == 2:
                 raise OSError("Disk error")
-            return original_move(src, dst, *args, **kwargs)
+            return original_rename(self_path, target, *args, **kwargs)
 
-        with patch("shesha.storage.filesystem.shutil.move", side_effect=failing_move):
+        with patch.object(Path, "rename", failing_rename):
             with pytest.raises(OSError):
                 storage.swap_docs("source", "target")
 
@@ -329,17 +329,17 @@ class TestSwapDocs:
         stale_backup.mkdir()
         (stale_backup / "stale.json").write_text("{}")
 
-        # Make step 2 (move source→target) fail
-        original_move = shutil.move
+        # Make step 2 (rename source→target) fail
+        original_rename = Path.rename
         call_count = [0]
 
-        def failing_move(src, dst, *args, **kwargs):
+        def failing_rename(self_path, target, *args, **kwargs):
             call_count[0] += 1
             if call_count[0] == 2:
                 raise OSError("Disk error")
-            return original_move(src, dst, *args, **kwargs)
+            return original_rename(self_path, target, *args, **kwargs)
 
-        with patch("shesha.storage.filesystem.shutil.move", side_effect=failing_move):
+        with patch.object(Path, "rename", failing_rename):
             with pytest.raises(OSError):
                 storage.swap_docs("source", "target")
 
