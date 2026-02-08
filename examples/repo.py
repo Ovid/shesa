@@ -75,7 +75,7 @@ from shesha.exceptions import ProjectNotFoundError, RepoIngestError
 try:
     from shesha.tui import SheshaTUI
     from shesha.tui.widgets.output_area import OutputArea
-except ImportError:
+except ModuleNotFoundError:
     if __name__ == "__main__":
         print("This example requires the TUI extra: pip install shesha[tui]")
         sys.exit(1)

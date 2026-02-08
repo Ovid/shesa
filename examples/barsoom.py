@@ -86,7 +86,7 @@ from shesha.rlm.trace import StepType
 # Guard TUI import: textual is an optional dependency (shesha[tui]).
 try:
     from shesha.tui import SheshaTUI
-except ImportError:
+except ModuleNotFoundError:
     if __name__ == "__main__":
         print("This example requires the TUI extra: pip install shesha[tui]")
         sys.exit(1)
