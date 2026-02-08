@@ -318,6 +318,25 @@ class TestParseVerificationResponse:
         assert len(result) == 1
         assert result[0].finding_id == "F1"
 
+    def test_json_in_code_block_without_trailing_newline(self) -> None:
+        """Parses JSON in code block when no newline before closing fence."""
+        data = {
+            "findings": [
+                {
+                    "finding_id": "F1",
+                    "original_claim": "claim",
+                    "confidence": "high",
+                    "reason": "reason",
+                    "evidence_classification": "direct_quote",
+                    "flags": [],
+                }
+            ]
+        }
+        text = f"```json\n{json.dumps(data)}```"
+        result = parse_verification_response(text)
+        assert len(result) == 1
+        assert result[0].finding_id == "F1"
+
     def test_invalid_json_raises_value_error(self) -> None:
         """Raises ValueError when no valid JSON is found."""
         with pytest.raises(ValueError):

@@ -119,7 +119,7 @@ def gather_cited_documents(answer: str, documents: list[str], doc_names: list[st
     return "\n\n---\n\n".join(sections)
 
 
-_CODE_BLOCK_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n```", re.DOTALL)
+_CODE_BLOCK_RE = re.compile(r"```(?:json)?\s*\n(.*?)\s*```", re.DOTALL)
 
 
 def _try_parse_findings(text: str) -> list[FindingVerification] | None:
