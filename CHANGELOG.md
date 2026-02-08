@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-02-09
+
 ### Added
 
 - Strict type validation (`__post_init__`) on `AnalysisComponent`, `AnalysisExternalDep`, and `RepoAnalysis` dataclasses — bad-typed fields now raise `TypeError` at construction time
