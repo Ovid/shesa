@@ -122,7 +122,8 @@ class SheshaTUI(App[None]):
             handler: Callable receiving the argument string.
             description: Short description for help/completions.
             threaded: If True, handler runs in a worker thread to avoid
-                blocking the UI.
+                blocking the UI. Threaded handlers must use
+                ``app.call_from_thread()`` for any widget updates.
         """
         self._command_registry.register(name, handler, description, threaded=threaded)
 
