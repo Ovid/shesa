@@ -1,5 +1,7 @@
 """Tests for TUI conversation session."""
 
+import pytest
+
 from shesha.tui.session import ConversationSession
 
 
