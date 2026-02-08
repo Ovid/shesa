@@ -513,9 +513,17 @@ class Shesha:
                 except Exception as e:
                     raise RepoIngestError(url, cause=e) from e
 
-            # For updates, swap staging docs into target atomically
-            if is_update and isinstance(self._storage, FilesystemStorage):
-                self._storage.swap_docs(staging_name, name)
+            # For updates, apply staging docs to target
+            if is_update:
+                if hasattr(self._storage, "swap_docs"):
+                    # Atomic swap (FilesystemStorage)
+                    self._storage.swap_docs(staging_name, name)
+                else:
+                    # Fallback: delete old docs, copy new docs (non-atomic)
+                    for doc_name in self._storage.list_documents(name):
+                        self._storage.delete_document(name, doc_name)
+                    for doc in self._storage.load_all_documents(staging_name):
+                        self._storage.store_document(name, doc)
                 self._storage.delete_project(staging_name)
 
         except Exception:

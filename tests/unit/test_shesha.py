@@ -8,6 +8,7 @@ import pytest
 from shesha import Shesha
 from shesha.exceptions import ParseError, ProjectNotFoundError, RepoError, RepoIngestError
 from shesha.models import RepoProjectResult
+from shesha.storage.filesystem import FilesystemStorage
 
 
 @pytest.fixture
@@ -652,6 +653,76 @@ class TestAtomicIngestion:
 
                 # The user's unrelated project must still exist
                 assert shesha._storage.project_exists("_staging_my-project")
+
+    def test_update_works_with_custom_storage_backend(self, tmp_path: Path):
+        """Updates apply docs correctly even with a non-FilesystemStorage backend."""
+        from shesha.storage.base import StorageBackend
+
+        # Use a FilesystemStorage but wrap it so isinstance check fails
+        real_storage = FilesystemStorage(root_path=tmp_path)
+
+        class CustomStorage:
+            """Wrapper that delegates to FilesystemStorage but isn't one."""
+
+            def __init__(self, inner: FilesystemStorage):
+                self._inner = inner
+
+            def __getattr__(self, name: str) -> object:
+                return getattr(self._inner, name)
+
+        custom: StorageBackend = CustomStorage(real_storage)  # type: ignore[assignment]
+
+        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
+            with patch("shesha.shesha.RepoIngester") as mock_ingester_cls:
+                mock_ingester = MagicMock()
+                mock_ingester_cls.return_value = mock_ingester
+
+                mock_ingester.is_local_path.return_value = True
+                mock_ingester.get_saved_sha.return_value = "old_sha"
+                mock_ingester.get_sha_from_path.return_value = "new_sha"
+                mock_ingester.list_files_from_path.return_value = ["new_file.py"]
+                mock_ingester.repos_dir = tmp_path / "repos"
+
+                shesha = Shesha(model="test-model", storage_path=tmp_path, storage=custom)
+                real_storage.create_project("custom-project")
+
+                from shesha.models import ParsedDocument
+
+                old_doc = ParsedDocument(
+                    name="old.txt",
+                    content="old",
+                    format="txt",
+                    metadata={},
+                    char_count=3,
+                    parse_warnings=[],
+                )
+                real_storage.store_document("custom-project", old_doc)
+
+                result = shesha.create_project_from_repo(
+                    url="/path/to/local/repo",
+                    name="custom-project",
+                )
+
+                assert result.status == "updates_available"
+
+                with patch.object(shesha._parser_registry, "find_parser") as mock_find:
+                    mock_parser = MagicMock()
+                    mock_parser.parse.return_value = MagicMock(
+                        name="new_file.py",
+                        content="new",
+                        format="py",
+                        metadata={},
+                        char_count=3,
+                        parse_warnings=[],
+                    )
+                    mock_find.return_value = mock_parser
+
+                    result.apply_updates()
+
+                # New doc should exist, old should be gone
+                docs = real_storage.list_documents("custom-project")
+                assert "new_file.py" in docs
+                assert "old.txt" not in docs
 
 
 class TestIngestRepoErrorHandling:
