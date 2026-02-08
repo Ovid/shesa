@@ -54,6 +54,16 @@ class TestArgumentParsing:
         assert args.setup is True
         assert args.verbose is True
 
+    def test_parse_args_verify_default_none(self) -> None:
+        """--verify defaults to None so config file settings are preserved."""
+        args = parse_args([])
+        assert args.verify is None
+
+    def test_parse_args_verify_flag(self) -> None:
+        """--verify flag sets verify=True."""
+        args = parse_args(["--verify"])
+        assert args.verify is True
+
 
 class TestBooksMapping:
     """Test the BOOKS constant."""

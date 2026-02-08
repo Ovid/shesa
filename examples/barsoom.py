@@ -146,6 +146,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--verify",
         action="store_true",
+        default=None,
         help=(
             "Run post-analysis semantic verification. Produces higher-accuracy "
             "results by adversarially reviewing all findings. Note: this can "

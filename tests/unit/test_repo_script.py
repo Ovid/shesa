@@ -59,6 +59,20 @@ class TestParseArgs:
         args = parse_args(["https://github.com/user/repo", "--pristine"])
         assert args.pristine
 
+    def test_verify_default_none(self) -> None:
+        """--verify defaults to None so config file settings are preserved."""
+        from examples.repo import parse_args
+
+        args = parse_args([])
+        assert args.verify is None
+
+    def test_verify_flag(self) -> None:
+        """--verify flag sets verify=True."""
+        from examples.repo import parse_args
+
+        args = parse_args(["https://github.com/user/repo", "--verify"])
+        assert args.verify is True
+
 
 class TestShowPicker:
     """Tests for show_picker function."""
