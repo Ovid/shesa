@@ -70,8 +70,14 @@ from script_utils import (
 
 from shesha import Shesha, SheshaConfig
 from shesha.exceptions import ProjectNotFoundError, RepoIngestError
-from shesha.tui import SheshaTUI
-from shesha.tui.widgets.output_area import OutputArea
+
+# Guard TUI imports: textual is an optional dependency (shesha[tui]).
+try:
+    from shesha.tui import SheshaTUI
+    from shesha.tui.widgets.output_area import OutputArea
+except ImportError:
+    print("This example requires the TUI extra: pip install shesha[tui]")
+    sys.exit(1)
 
 # Storage path for repo projects (not "repos" - that collides with RepoIngester's subdirectory)
 STORAGE_PATH = Path.home() / ".shesha" / "repo-explorer"
