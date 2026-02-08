@@ -1,0 +1,1 @@
+"""Status info bar widget."""

@@ -1,0 +1,1 @@
+"""Scrolling output area widget."""
