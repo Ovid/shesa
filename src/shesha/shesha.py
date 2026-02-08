@@ -470,11 +470,10 @@ class Shesha:
         # Determine the project to ingest into
         staging_name = f"_staging_{name}_{uuid.uuid4().hex[:8]}" if is_update else name
 
-        if not is_update:
-            self._storage.create_project(name)
-
         try:
-            if is_update:
+            if not is_update:
+                self._storage.create_project(name)
+            else:
                 self._storage.create_project(staging_name)
 
             is_local = self._repo_ingester.is_local_path(url)
