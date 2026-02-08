@@ -334,8 +334,11 @@ class SheshaTUI(App[None]):
         return run
 
     def _on_progress(
-        self, step_type: StepType, iteration: int, content: str,
-        token_usage: TokenUsage | None = None
+        self,
+        step_type: StepType,
+        iteration: int,
+        content: str,
+        token_usage: TokenUsage | None = None,
     ) -> None:
         """Progress callback from RLM engine (called from worker thread)."""
         if not self._query_in_progress:

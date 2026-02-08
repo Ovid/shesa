@@ -102,9 +102,9 @@ class AnalysisGenerator:
         for c in data.get("components", []):
             components.append(
                 AnalysisComponent(
-                    name=c.get("name", "Unknown"),
-                    path=c.get("path", ""),
-                    description=c.get("description", ""),
+                    name=coerce_to_str(c.get("name", "Unknown")),
+                    path=coerce_to_str(c.get("path", "")),
+                    description=coerce_to_str(c.get("description", "")),
                     apis=c.get("apis", []),
                     models=coerce_to_str_list(c.get("models", [])),
                     entry_points=coerce_to_str_list(c.get("entry_points", [])),
@@ -119,10 +119,10 @@ class AnalysisGenerator:
         for d in data.get("external_dependencies", []):
             external_deps.append(
                 AnalysisExternalDep(
-                    name=d.get("name", "Unknown"),
-                    type=d.get("type", "external_api"),
-                    description=d.get("description", ""),
-                    used_by=d.get("used_by", []),
+                    name=coerce_to_str(d.get("name", "Unknown")),
+                    type=coerce_to_str(d.get("type", "external_api")),
+                    description=coerce_to_str(d.get("description", "")),
+                    used_by=coerce_to_str_list(d.get("used_by", [])),
                     optional=d.get("optional", False),
                 )
             )

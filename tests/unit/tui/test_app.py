@@ -309,9 +309,7 @@ class TestIncrementalTokenDisplay:
 
             # Use run_worker to call from a different thread (required by call_from_thread)
             def worker_fn() -> None:
-                pilot.app._on_progress(
-                    StepType.CODE_GENERATED, 0, "some code", token_usage
-                )
+                pilot.app._on_progress(StepType.CODE_GENERATED, 0, "some code", token_usage)
 
             worker = pilot.app.run_worker(worker_fn, thread=True)
             await worker.wait()
