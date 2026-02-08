@@ -18,9 +18,9 @@ The Barsoom series consists of 7 novels:
 Features:
     - Automatic setup on first run (uploads all 7 novels)
     - Conversation history for follow-up questions
-    - Session transcript export with "write" command
-    - In-session help with "help" or "?" command
-    - Verbose mode with execution stats and progress
+    - Session transcript export with /write command
+    - In-session help with /help command
+    - Real-time progress and token stats in the info bar
     - Non-interactive mode for scripted queries
 
 Usage:
@@ -32,9 +32,6 @@ Usage:
 
     # Single query (non-interactive)
     python examples/barsoom.py --prompt "Who is Dejah Thoris?"
-
-    # Verbose mode with execution stats
-    python examples/barsoom.py --verbose
 
 Environment Variables:
     SHESHA_API_KEY: Required. API key for your LLM provider.
@@ -48,15 +45,15 @@ Example:
     ...
     Setup complete! 7 novels loaded.
 
-    Ask questions about the Barsoom series. Type "quit" or "exit" to leave.
+    Ask questions about the Barsoom series. Type /help for commands.
 
     > Who is the son of Dejah Thoris?
     [Thought for 29 seconds]
     The son of Dejah Thoris and John Carter is **Carthoris of Helium**.
 
     # Save session transcript
-    > write                    # Auto-generates timestamped filename
-    > write my-research.md     # Custom filename
+    > /write                    # Auto-generates timestamped filename
+    > /write my-research.md     # Custom filename
 """
 
 import argparse
@@ -74,35 +71,18 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from script_utils import (
     ThinkingSpinner,
-    format_history_prefix,
     format_progress,
     format_stats,
     format_thought_time,
     format_verified_output,
     install_urllib3_cleanup_hook,
-    is_exit_command,
-    is_help_command,
-    is_write_command,
-    parse_write_command,
-    should_warn_history_size,
-    write_session,
 )
 
 from shesha import Shesha
 from shesha.config import SheshaConfig
 from shesha.exceptions import ProjectNotFoundError
 from shesha.rlm.trace import StepType
-
-INTERACTIVE_HELP = """\
-Shesha Barsoom Explorer - Ask questions about the Barsoom novel series.
-
-Commands:
-  help, ?              Show this help message
-  write                Save session transcript (auto-generated filename)
-  write <filename>     Save session transcript to specified file
-  quit, exit           Leave the session
-
-Tip: Use --verbose flag for execution stats after each answer."""
+from shesha.tui import SheshaTUI
 
 BOOKS = {
     "barsoom-1.txt": "A Princess of Mars",
@@ -124,19 +104,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     Returns:
         Parsed arguments namespace with:
             - setup: Force re-upload of novels even if project exists
-            - verbose: Show execution stats after each answer
             - prompt: Single query for non-interactive mode (optional)
+            - verify: Enable semantic verification of results
     """
     parser = argparse.ArgumentParser(description="Explore the Barsoom novels using Shesha RLM")
     parser.add_argument(
         "--setup",
         action="store_true",
         help="Force re-upload of novels (even if project exists)",
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Show execution stats after each answer",
     )
     parser.add_argument(
         "--prompt",
@@ -203,10 +178,7 @@ def main() -> None:
     1. Validates environment (SHESHA_API_KEY required)
     2. Initializes Shesha with local storage configuration
     3. Sets up the project on first run or if --setup is passed
-    4. Handles single query (--prompt) or enters interactive loop
-
-    The interactive loop maintains conversation history for follow-up
-    questions and warns when history grows large.
+    4. Handles single query (--prompt) or launches TUI for interactive mode
 
     Raises:
         SystemExit: If SHESHA_API_KEY is not set or project cannot be loaded.
@@ -254,11 +226,10 @@ def main() -> None:
             query_start_time = time.time()
 
             def on_progress(step_type: StepType, iteration: int, content: str) -> None:
-                if args.verbose:
-                    spinner.stop()
-                    elapsed = time.time() - query_start_time
-                    print(format_progress(step_type, iteration, content, elapsed_seconds=elapsed))
-                    spinner.start()
+                spinner.stop()
+                elapsed = time.time() - query_start_time
+                print(format_progress(step_type, iteration, content, elapsed_seconds=elapsed))
+                spinner.start()
 
             result = project.query(args.prompt, on_progress=on_progress)
             spinner.stop()
@@ -271,9 +242,8 @@ def main() -> None:
                 print(result.answer)
             print()
 
-            if args.verbose:
-                print(format_stats(result.execution_time, result.token_usage, result.trace))
-                print()
+            print(format_stats(result.execution_time, result.token_usage, result.trace))
+            print()
 
         except Exception as e:
             spinner.stop()
@@ -281,99 +251,9 @@ def main() -> None:
             sys.exit(1)
         return
 
-    print()
-    print("Ask questions about the Barsoom series.")
-    print('Type "help" or "?" for commands.')
-    print()
-
-    # Conversation history for follow-up questions
-    history: list[tuple[str, str, str]] = []
-
-    # Interactive loop
-    while True:
-        try:
-            user_input = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nGoodbye!")
-            break
-
-        if not user_input:
-            continue
-
-        if is_exit_command(user_input):
-            print("Goodbye!")
-            break
-
-        if is_help_command(user_input):
-            print(INTERACTIVE_HELP)
-            print()
-            continue
-
-        if is_write_command(user_input):
-            if not history:
-                print("Nothing to save - no exchanges yet.")
-                print()
-                continue
-            try:
-                filename = parse_write_command(user_input)
-                path = write_session(history, PROJECT_NAME, filename)
-                print(f"Session saved to {path} ({len(history)} exchanges)")
-            except OSError as e:
-                print(f"Error saving session: {e}")
-            print()
-            continue
-
-        # Check if history is getting large
-        if should_warn_history_size(history):
-            print(f"Warning: Conversation history is large ({len(history)} exchanges).")
-            try:
-                clear = input("Clear history? (y/n): ").strip().lower()
-                if clear == "y":
-                    history.clear()
-                    print("History cleared.")
-            except (EOFError, KeyboardInterrupt):
-                pass  # User cancelled, continue with existing history
-
-        try:
-            spinner = ThinkingSpinner()
-            spinner.start()
-            query_start_time = time.time()
-
-            # Progress callback for verbose mode
-            def on_progress(step_type: StepType, iteration: int, content: str) -> None:
-                if args.verbose:
-                    spinner.stop()
-                    elapsed = time.time() - query_start_time
-                    print(format_progress(step_type, iteration, content, elapsed_seconds=elapsed))
-                    spinner.start()
-
-            # Prepend conversation history for context
-            prefix = format_history_prefix(history)
-            full_question = f"{prefix}{user_input}" if prefix else user_input
-            result = project.query(full_question, on_progress=on_progress)
-            spinner.stop()
-
-            elapsed = time.time() - query_start_time
-            print(format_thought_time(elapsed))
-            if result.semantic_verification is not None:
-                print(format_verified_output(result.answer, result.semantic_verification))
-            else:
-                print(result.answer)
-            print()
-
-            # Store exchange in history
-            stats = format_stats(result.execution_time, result.token_usage, result.trace)
-            history.append((user_input, result.answer, stats))
-
-            if args.verbose:
-                print(format_stats(result.execution_time, result.token_usage, result.trace))
-                print()
-
-        except Exception as e:
-            spinner.stop()
-            print(f"Error: {e}")
-            print('Try again or type "quit" to exit.')
-            print()
+    # Interactive mode - launch TUI
+    tui = SheshaTUI(project=project, project_name=PROJECT_NAME)
+    tui.run()
 
 
 if __name__ == "__main__":
