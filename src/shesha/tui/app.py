@@ -188,7 +188,14 @@ class SheshaTUI(App[None]):
         self._hide_completions()
 
     def on_input_area_query_cancelled(self, event: InputArea.QueryCancelled) -> None:
-        """Handle query cancellation from double-escape."""
+        """Handle query cancellation from double-escape.
+
+        Note: Worker.cancel() cannot interrupt a blocking thread — the
+        underlying project.query() call keeps running to completion.
+        We set _query_cancelled so that _on_query_complete, _on_query_error,
+        and _on_progress silently discard any results that arrive after
+        cancellation. The flag is reset when the next query starts.
+        """
         self._query_cancelled = True
         if self._worker_handle is not None:
             self._worker_handle.cancel()
@@ -283,7 +290,13 @@ class SheshaTUI(App[None]):
     def _make_query_runner(
         self, full_question: str, display_question: str
     ) -> Callable[[], QueryResult | None]:
-        """Return a callable that runs the query (for worker thread)."""
+        """Return a callable that runs the query (for worker thread).
+
+        The returned function checks _query_cancelled before posting
+        results back to the main thread. This is necessary because
+        Worker.cancel() cannot interrupt a blocking project.query()
+        call — see on_input_area_query_cancelled for details.
+        """
 
         def run() -> QueryResult | None:
             try:
