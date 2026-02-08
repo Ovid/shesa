@@ -28,15 +28,40 @@ class InputArea(TextArea):
         height: auto;
         min-height: 1;
         max-height: 10;
+        border: none;
+        border-top: solid $surface-darken-2;
+    }
+    InputArea:focus {
+        border: none;
         border-top: solid $accent;
     }
     """
 
     BINDINGS = []  # Override default TextArea bindings
 
+    class CompletionNavigate(Message):
+        """Posted when user navigates the completion popup."""
+
+        def __init__(self, direction: str) -> None:
+            super().__init__()
+            self.direction = direction
+
+    class CompletionAccept(Message):
+        """Posted when user accepts a completion."""
+
+    class CompletionDismiss(Message):
+        """Posted when user dismisses the completion popup."""
+
+    class FocusToggle(Message):
+        """Posted when user presses Tab to toggle focus between panes."""
+
+    class QueryCancelled(Message):
+        """Posted when user double-escapes to cancel a query."""
+
     def __init__(self) -> None:
         super().__init__(language=None, show_line_numbers=False)
         self._query_in_progress = False
+        self._completion_active = False
 
     @property
     def query_in_progress(self) -> bool:
@@ -47,8 +72,46 @@ class InputArea(TextArea):
     def query_in_progress(self, value: bool) -> None:
         self._query_in_progress = value
 
+    @property
+    def completion_active(self) -> bool:
+        """Whether completion popup is active."""
+        return self._completion_active
+
+    @completion_active.setter
+    def completion_active(self, value: bool) -> None:
+        self._completion_active = value
+
     async def _on_key(self, event: events.Key) -> None:
         """Handle key events."""
+        # Completion key handling takes priority when active
+        if self._completion_active:
+            if event.key in ("tab", "enter"):
+                event.prevent_default()
+                event.stop()
+                self.post_message(InputArea.CompletionAccept())
+                return
+            if event.key == "down":
+                event.prevent_default()
+                event.stop()
+                self.post_message(InputArea.CompletionNavigate("next"))
+                return
+            if event.key == "up":
+                event.prevent_default()
+                event.stop()
+                self.post_message(InputArea.CompletionNavigate("prev"))
+                return
+            if event.key == "escape":
+                event.prevent_default()
+                event.stop()
+                self.post_message(InputArea.CompletionDismiss())
+                return
+
+        if event.key == "tab":
+            event.prevent_default()
+            event.stop()
+            self.post_message(InputArea.FocusToggle())
+            return
+
         if event.key == "enter":
             event.prevent_default()
             event.stop()
@@ -72,6 +135,3 @@ class InputArea(TextArea):
 
         # Let TextArea handle everything else (including shift+enter for newline)
         await super()._on_key(event)
-
-    class QueryCancelled(Message):
-        """Posted when user double-escapes to cancel a query."""

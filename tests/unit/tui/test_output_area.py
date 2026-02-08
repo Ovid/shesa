@@ -50,6 +50,27 @@ class TestOutputArea:
             output.markdown_enabled = False
             assert output.markdown_enabled is False
 
+    async def test_add_system_markdown_renders_markdown_when_enabled(self) -> None:
+        """System markdown renders with Markdown widget when enabled."""
+        async with OutputAreaApp().run_test() as pilot:
+            output = pilot.app.query_one(OutputArea)
+            output.markdown_enabled = True
+            output.add_system_markdown("## Heading\n\nSome **bold** text")
+            markdown_widgets = output.query("Markdown")
+            assert len(markdown_widgets) > 0
+
+    async def test_add_system_markdown_renders_static_when_disabled(self) -> None:
+        """System markdown renders with Static widget when markdown disabled."""
+        async with OutputAreaApp().run_test() as pilot:
+            output = pilot.app.query_one(OutputArea)
+            output.markdown_enabled = False
+            output.add_system_markdown("## Heading\n\nSome **bold** text")
+            # Should have Static but no Markdown
+            markdown_widgets = output.query("Markdown")
+            assert len(markdown_widgets) == 0
+            static_widgets = output.query("Static")
+            assert len(static_widgets) > 0
+
     async def test_scroll_to_bottom_on_add(self) -> None:
         """Adding content scrolls to bottom."""
         async with OutputAreaApp().run_test() as pilot:

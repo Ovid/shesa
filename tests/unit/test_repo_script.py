@@ -557,7 +557,7 @@ class TestMain:
         assert call_kwargs["analysis_context"] is None
 
     def test_tui_registers_analysis_commands(self) -> None:
-        """TUI should have /analysis and /analyze commands registered."""
+        """TUI should have /summary and /analyze commands registered."""
         import os
         import sys
 
@@ -584,10 +584,10 @@ class TestMain:
                             with patch("builtins.input", return_value="1"):
                                 main()
 
-        # Should register /analysis and /analyze commands
+        # Should register /summary and /analyze commands
         register_calls = mock_tui.register_command.call_args_list
         registered_names = [call[0][0] for call in register_calls]
-        assert "/analysis" in registered_names
+        assert "/summary" in registered_names
         assert "/analyze" in registered_names
 
     def test_show_picker_shows_missing_marker(self, capsys: pytest.CaptureFixture[str]) -> None:

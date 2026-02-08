@@ -53,3 +53,15 @@ class OutputArea(VerticalScroll):
         widget = Static(text, classes="system-message")
         self.mount(widget)
         self.scroll_end(animate=False)
+
+    def add_system_markdown(self, text: str) -> None:
+        """Add a system message with markdown rendering support.
+
+        Respects the markdown_enabled toggle: renders with Markdown
+        when on, Static when off.
+        """
+        if self.markdown_enabled:
+            self.mount(Markdown(text))
+        else:
+            self.mount(Static(text, classes="system-message"))
+        self.scroll_end(animate=False)

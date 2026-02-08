@@ -6,16 +6,19 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.css.query import NoMatches
 from textual.timer import Timer
+from textual.widgets import TextArea
 
 from shesha.rlm.trace import StepType
 from shesha.tui.commands import CommandRegistry
 from shesha.tui.history import InputHistory
 from shesha.tui.progress import step_display_name
 from shesha.tui.session import ConversationSession
+from shesha.tui.widgets.completion_popup import CompletionPopup
 from shesha.tui.widgets.info_bar import InfoBar
 from shesha.tui.widgets.input_area import InputArea, InputSubmitted
 from shesha.tui.widgets.output_area import OutputArea
@@ -89,9 +92,10 @@ class SheshaTUI(App[None]):
         self._command_registry.register(name, handler, description)
 
     def compose(self) -> ComposeResult:
-        """Create the 3-pane layout."""
+        """Create the app layout."""
         yield OutputArea()
         yield InfoBar(project_name=self._project_name)
+        yield CompletionPopup()
         yield InputArea()
 
     def on_mount(self) -> None:
@@ -101,8 +105,58 @@ class SheshaTUI(App[None]):
         except NoMatches:
             pass  # InputArea not yet mounted; focus will be set later
 
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """Update completion popup when input text changes."""
+        raw_text = self.query_one(InputArea).text
+        text = raw_text.strip()
+        # Only complete bare slash-prefixed tokens with no spaces
+        if text.startswith("/") and " " not in raw_text:
+            matches = self._command_registry.completions(text)
+            if matches:
+                self.query_one(CompletionPopup).show_items(matches)
+                self.query_one(InputArea).completion_active = True
+                return
+        self._hide_completions()
+
+    def on_input_area_completion_navigate(self, event: InputArea.CompletionNavigate) -> None:
+        """Handle completion navigation."""
+        popup = self.query_one(CompletionPopup)
+        if event.direction == "next":
+            popup.select_next()
+        else:
+            popup.select_prev()
+
+    def on_input_area_completion_accept(self, event: InputArea.CompletionAccept) -> None:
+        """Handle completion acceptance."""
+        value = self.query_one(CompletionPopup).selected_value
+        self._hide_completions()
+        if value:
+            self.query_one(InputArea).text = value + " "
+
+    def on_input_area_completion_dismiss(self, event: InputArea.CompletionDismiss) -> None:
+        """Handle completion dismissal."""
+        self._hide_completions()
+
+    def on_input_area_focus_toggle(self, event: InputArea.FocusToggle) -> None:
+        """Handle focus toggle from InputArea — move focus to OutputArea."""
+        self.query_one(OutputArea).focus()
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle app-level key events."""
+        # Tab from OutputArea toggles focus back to InputArea
+        if event.key == "tab" and self.query_one(OutputArea).has_focus:
+            event.prevent_default()
+            event.stop()
+            self.query_one(InputArea).focus()
+
+    def _hide_completions(self) -> None:
+        """Hide the completion popup and deactivate completion mode."""
+        self.query_one(CompletionPopup).hide()
+        self.query_one(InputArea).completion_active = False
+
     def on_input_submitted(self, event: InputSubmitted) -> None:
         """Handle user input submission."""
+        self._hide_completions()
         text = event.text
 
         # Check if it's a command

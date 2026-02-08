@@ -9,7 +9,7 @@ Features:
     - Interactive picker for previously indexed repositories
     - Automatic update detection and application
     - Textual-based TUI with rich output, progress tracking, and token stats
-    - Slash commands: /help, /write, /analysis, /analyze, /quit
+    - Slash commands: /help, /write, /summary, /analyze, /quit
     - Session transcript export with /write command
 
 Usage:
@@ -438,14 +438,14 @@ def main() -> None:
     )
 
     # Register custom commands
-    def handle_analysis(args: str) -> None:
+    def handle_summary(args: str) -> None:
         analysis = shesha.get_analysis(project.project_id)
         if analysis is None:
             tui.query_one(OutputArea).add_system_message(
                 "No analysis. Use /analyze to generate."
             )
         else:
-            tui.query_one(OutputArea).add_system_message(
+            tui.query_one(OutputArea).add_system_markdown(
                 format_analysis_for_display(analysis)
             )
 
@@ -454,12 +454,12 @@ def main() -> None:
         try:
             shesha.generate_analysis(project.project_id)
             tui.query_one(OutputArea).add_system_message(
-                "Analysis complete. Use /analysis to view."
+                "Analysis complete. Use /summary to view."
             )
         except Exception as e:
             tui.query_one(OutputArea).add_system_message(f"Error: {e}")
 
-    tui.register_command("/analysis", handle_analysis, "Show codebase analysis")
+    tui.register_command("/summary", handle_summary, "Show codebase analysis")
     tui.register_command("/analyze", handle_analyze, "Generate/regenerate analysis")
     tui.run()
 

@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Renamed `/analysis` command to `/summary` in `repo.py` to avoid confusion with `/analyze`
+- `/summary` output now renders as markdown when markdown mode is enabled
+- Tab key toggles focus between output area and input area, with border highlight showing active pane
 - Example commands now require `/` prefix (e.g., `/help`, `/write`, `/quit`) instead of bare words
 - `--verbose` flag removed from `barsoom.py` and `repo.py` (info bar shows progress by default)
 
