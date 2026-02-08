@@ -121,7 +121,7 @@ def format_analysis_as_context(analysis: "RepoAnalysis") -> str:
     Returns:
         Formatted string suitable for prepending to user queries.
     """
-    lines = ["=== Codebase Analysis ===", analysis.overview]
+    lines = ["=== Codebase Analysis ===", str(analysis.overview)]
 
     if analysis.components:
         lines.append("")
@@ -136,7 +136,7 @@ def format_analysis_as_context(analysis: "RepoAnalysis") -> str:
                         strs = [str(e) if not isinstance(e, str) else e for e in endpoints[:5]]
                         lines.append(f"  APIs ({api_type}): {', '.join(strs)}")
             if comp.models:
-                lines.append(f"  Models: {', '.join(comp.models)}")
+                lines.append(f"  Models: {', '.join(str(m) for m in comp.models)}")
 
     if analysis.external_dependencies:
         lines.append("")
