@@ -519,7 +519,8 @@ class Shesha:
                     self._storage.swap_docs(staging_name, name)
                 else:
                     # Fallback: copy new docs first, then remove orphans.
-                    # Not atomic, but preserves originals if copy fails partway.
+                    # Not atomic — same-named docs are overwritten in place,
+                    # but docs unique to the original are not deleted upfront.
                     staging_docs = self._storage.load_all_documents(staging_name)
                     staging_names = {d.name for d in staging_docs}
                     for doc in staging_docs:
