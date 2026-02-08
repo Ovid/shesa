@@ -222,7 +222,8 @@ class FilesystemStorage:
             )
             for d in data["external_dependencies"]
         ]
-        caveats = data.get("caveats")
+        raw_caveats = data.get("caveats")
+        caveats = coerce_to_str(raw_caveats) if raw_caveats is not None else None
         return RepoAnalysis(
             version=data["version"],
             generated_at=data["generated_at"],

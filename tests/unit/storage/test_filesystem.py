@@ -795,3 +795,24 @@ class TestAnalysisOperations:
         assert isinstance(dep.name, str)
         assert isinstance(dep.type, str)
         assert isinstance(dep.description, str)
+
+    def test_load_analysis_coerces_non_string_caveats(self, storage: FilesystemStorage) -> None:
+        """load_analysis coerces non-string caveats to string."""
+        storage.create_project("bad-caveats")
+        project_path = storage._project_path("bad-caveats")
+        analysis_path = project_path / "_analysis.json"
+        data = {
+            "version": "1",
+            "generated_at": "2026-02-06T10:30:00Z",
+            "head_sha": "abc123",
+            "overview": "Test",
+            "components": [],
+            "external_dependencies": [],
+            "caveats": {"warning": "AI generated"},
+        }
+        analysis_path.write_text(json.dumps(data))
+
+        loaded = storage.load_analysis("bad-caveats")
+        assert loaded is not None
+        assert isinstance(loaded.caveats, str)
+        assert "AI generated" in loaded.caveats
