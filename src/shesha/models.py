@@ -78,7 +78,7 @@ def coerce_to_str_list(items: list[Any]) -> list[str]:
         if isinstance(item, str):
             result.append(item)
         elif isinstance(item, dict) and "name" in item:
-            result.append(item["name"])
+            result.append(coerce_to_str(item["name"]))
         else:
             result.append(json.dumps(item))
     return result

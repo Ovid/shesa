@@ -548,3 +548,12 @@ class TestCoercionHelpers:
         assert result[0] == "User"
         assert result[1] == "Session"
         assert isinstance(result[2], str)
+
+    def test_coerce_to_str_list_with_non_string_name_value(self) -> None:
+        """Dict with 'name' key whose value is not a string is coerced."""
+        from shesha.models import coerce_to_str_list
+
+        result = coerce_to_str_list([{"name": 42}, {"name": ["a", "b"]}])
+        assert all(isinstance(r, str) for r in result)
+        assert result[0] == "42"
+        assert result[1] == '["a", "b"]'
