@@ -337,10 +337,11 @@ class RepoIngester:
         url = f"repo at {repo_path}"
 
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["git", "fetch", "origin"],
                 cwd=repo_path,
                 capture_output=True,
+                text=True,
                 timeout=GIT_FETCH_TIMEOUT,
                 env=self._no_prompt_env(),
             )
@@ -348,6 +349,9 @@ class RepoIngester:
             raise RepoIngestError(
                 url, RuntimeError(f"Git fetch timed out after {GIT_FETCH_TIMEOUT}s")
             )
+
+        if result.returncode != 0:
+            raise RepoIngestError(url, RuntimeError(result.stderr))
 
     def pull(self, project_id: str) -> None:
         """Pull updates from remote.

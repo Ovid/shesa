@@ -460,6 +460,20 @@ class TestGitFetchPull:
             call_args = mock_run.call_args[0][0]
             assert "pull" in call_args
 
+    def test_fetch_failure_raises(self, ingester: RepoIngester, tmp_path: Path):
+        """fetch() raises RepoIngestError on non-zero return code."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=128,
+                stderr="fatal: could not read from remote",
+            )
+
+            with pytest.raises(RepoIngestError):
+                ingester.fetch("my-project")
+
     def test_pull_failure_raises(self, ingester: RepoIngester, tmp_path: Path):
         """pull() raises RepoIngestError on failure."""
         repo_path = tmp_path / "repos" / "my-project"
