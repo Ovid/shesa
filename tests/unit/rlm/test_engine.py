@@ -178,7 +178,9 @@ class TestRLMEngine:
         # Track callback invocations
         progress_calls: list[tuple[StepType, int]] = []
 
-        def on_progress(step_type: StepType, iteration: int, content: str) -> None:
+        def on_progress(
+            step_type: StepType, iteration: int, content: str, token_usage: TokenUsage
+        ) -> None:
             progress_calls.append((step_type, iteration))
 
         engine = RLMEngine(model="test-model")
@@ -194,6 +196,100 @@ class TestRLMEngine:
         assert StepType.CODE_GENERATED in step_types
         assert StepType.CODE_OUTPUT in step_types
         assert StepType.FINAL_ANSWER in step_types
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_on_progress_receives_token_usage_snapshot(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """on_progress callback receives a TokenUsage snapshot with cumulative tokens."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Done")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="output",
+            stderr="",
+            error=None,
+            final_answer="Done",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        # Track TokenUsage received in callbacks
+        received_usages: list[TokenUsage] = []
+
+        def on_progress(
+            step_type: StepType, iteration: int, content: str, token_usage: TokenUsage
+        ) -> None:
+            received_usages.append(token_usage)
+
+        engine = RLMEngine(model="test-model")
+        engine.query(
+            documents=["Doc content"],
+            question="Test?",
+            on_progress=on_progress,
+        )
+
+        # Every callback should have received a TokenUsage
+        assert len(received_usages) > 0
+        # The last callback should reflect the accumulated tokens
+        last = received_usages[-1]
+        assert last.prompt_tokens >= 100
+        assert last.completion_tokens >= 50
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_on_progress_token_usage_is_snapshot_not_reference(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """TokenUsage passed to on_progress is a copy, not a mutable reference."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("Done")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="output",
+            stderr="",
+            error=None,
+            final_answer="Done",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        received_usages: list[TokenUsage] = []
+
+        def on_progress(
+            step_type: StepType, iteration: int, content: str, token_usage: TokenUsage
+        ) -> None:
+            received_usages.append(token_usage)
+
+        engine = RLMEngine(model="test-model")
+        engine.query(
+            documents=["Doc content"],
+            question="Test?",
+            on_progress=on_progress,
+        )
+
+        # All received TokenUsage objects should be distinct instances
+        ids = [id(u) for u in received_usages]
+        assert len(set(ids)) == len(ids), "TokenUsage objects should be copies, not same reference"
 
     @patch("shesha.rlm.engine.LLMClient")
     def test_engine_acquires_executor_from_pool(

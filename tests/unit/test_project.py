@@ -8,7 +8,7 @@ import pytest
 from shesha.exceptions import EngineNotConfiguredError
 from shesha.models import ParsedDocument
 from shesha.project import Project
-from shesha.rlm.trace import StepType
+from shesha.rlm.trace import StepType, TokenUsage
 
 
 @pytest.fixture
@@ -115,7 +115,9 @@ class TestProject:
         )
 
         # Create a callback
-        def on_progress(step_type: StepType, iteration: int, content: str) -> None:
+        def on_progress(
+            step_type: StepType, iteration: int, content: str, token_usage: "TokenUsage"
+        ) -> None:
             pass
 
         project.query("test question", on_progress=on_progress)
