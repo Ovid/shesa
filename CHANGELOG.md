@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Added tmpfs mounts to container security config (default `/tmp` with 64MB limit, noexec)
+- Added send timeout and payload size limit (50 MB) to container executor protocol
+- Tied read deadline to execution timeout to prevent slow-drip DoS via long MAX_READ_DURATION gap
+- Sandbox runner now exits on invalid JSON input (fail-closed) instead of continuing
+- Added timeouts to all git subprocess calls to prevent indefinite hangs
+- Added `GIT_TERMINAL_PROMPT=0` to non-token git operations to prevent interactive prompts
+- Fixed `get_remote_sha()` to use authentication token when provided
+
+### Fixed
+
+- Fixed mutable closure in RLM engine where `llm_query` callback captured loop variable by reference
+- Repo ingestion is now atomic: updates use stage-then-swap to prevent mixed state on failure, new project creation cleans up on failure
+- Successful repo updates now remove orphaned documents that no longer exist in the repository
+
 ## [0.6.0] - 2026-02-08
 
 ### Added
