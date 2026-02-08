@@ -298,6 +298,55 @@ class TestSwapDocs:
         docs = storage.list_documents("target")
         assert "keep.txt" in docs
 
+    def test_swap_docs_rollback_works_with_stale_backup(self, tmp_path: Path) -> None:
+        """swap_docs rollback restores docs correctly when stale backup exists."""
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("source")
+        storage.create_project("target")
+
+        source_doc = ParsedDocument(
+            name="new.txt",
+            content="new",
+            format="txt",
+            metadata={},
+            char_count=3,
+            parse_warnings=[],
+        )
+        storage.store_document("source", source_doc)
+
+        target_doc = ParsedDocument(
+            name="keep.txt",
+            content="must survive",
+            format="txt",
+            metadata={},
+            char_count=12,
+            parse_warnings=[],
+        )
+        storage.store_document("target", target_doc)
+
+        # Simulate stale backup from a prior crashed swap
+        stale_backup = storage._project_path("target") / "docs_backup"
+        stale_backup.mkdir()
+        (stale_backup / "stale.json").write_text("{}")
+
+        # Make step 2 (move source→target) fail
+        original_move = shutil.move
+        call_count = [0]
+
+        def failing_move(src, dst, *args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 2:
+                raise OSError("Disk error")
+            return original_move(src, dst, *args, **kwargs)
+
+        with patch("shesha.storage.filesystem.shutil.move", side_effect=failing_move):
+            with pytest.raises(OSError):
+                storage.swap_docs("source", "target")
+
+        # Rollback must restore original docs correctly
+        docs = storage.list_documents("target")
+        assert "keep.txt" in docs
+
     def test_swap_docs_source_not_found_raises(self, storage: FilesystemStorage) -> None:
         """swap_docs raises ProjectNotFoundError when source doesn't exist."""
         storage.create_project("target")
