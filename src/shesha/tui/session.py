@@ -46,7 +46,7 @@ class ConversationSession:
             lines.append(f"Q{i}: {q}")
             lines.append(f"A{i}: {a}")
             lines.append("")
-        lines.append("Current question:")
+        lines.append("Current question:\n")
         return "\n".join(lines)
 
     def should_warn_history_size(self) -> bool:

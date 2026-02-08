@@ -25,7 +25,7 @@ class TestConversationSession:
         prefix = session.format_history_prefix()
         assert "Q1: Who is X?" in prefix
         assert "A1: X is Y." in prefix
-        assert "Current question:" in prefix
+        assert prefix.endswith("Current question:\n")
 
     def test_should_warn_by_exchanges(self) -> None:
         """Warns when exchange count exceeds threshold."""
