@@ -518,11 +518,15 @@ class Shesha:
                     # Atomic swap (FilesystemStorage)
                     self._storage.swap_docs(staging_name, name)
                 else:
-                    # Fallback: delete old docs, copy new docs (non-atomic)
-                    for doc_name in self._storage.list_documents(name):
-                        self._storage.delete_document(name, doc_name)
-                    for doc in self._storage.load_all_documents(staging_name):
+                    # Fallback: copy new docs first, then remove orphans.
+                    # Not atomic, but preserves originals if copy fails partway.
+                    staging_docs = self._storage.load_all_documents(staging_name)
+                    staging_names = {d.name for d in staging_docs}
+                    for doc in staging_docs:
                         self._storage.store_document(name, doc)
+                    for doc_name in self._storage.list_documents(name):
+                        if doc_name not in staging_names:
+                            self._storage.delete_document(name, doc_name)
                 self._storage.delete_project(staging_name)
 
         except Exception:

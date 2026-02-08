@@ -253,7 +253,7 @@ class FilesystemStorage:
                 backup_docs.rename(target_docs)
             else:
                 # Crash after step 2: target/docs has the new data,
-                # backup is stale. Safe to delete.
+                # backup is stale. Must delete so step 1 rename can proceed.
                 shutil.rmtree(backup_docs)
 
         # Step 1: Move target docs to backup (atomic on same filesystem)
@@ -267,8 +267,11 @@ class FilesystemStorage:
             backup_docs.rename(target_docs)
             raise
 
-        # Step 3: Remove backup
-        shutil.rmtree(backup_docs)
+        # Step 3: Remove backup (best-effort; next call recovers if this fails)
+        try:
+            shutil.rmtree(backup_docs)
+        except OSError:
+            pass  # Leftover backup will be cleaned up on next swap
 
     def delete_analysis(self, project_id: str) -> None:
         """Delete the codebase analysis for a project."""

@@ -724,6 +724,106 @@ class TestAtomicIngestion:
                 assert "new_file.py" in docs
                 assert "old.txt" not in docs
 
+    def test_fallback_update_preserves_originals_on_mid_copy_failure(self, tmp_path: Path):
+        """Non-atomic fallback preserves original docs if store_document fails mid-copy."""
+
+        # Use a FilesystemStorage but wrap it so hasattr(_, "swap_docs") is False
+        real_storage = FilesystemStorage(root_path=tmp_path)
+
+        class CustomStorage:
+            """Wrapper without swap_docs — forces non-atomic fallback."""
+
+            def __init__(self, inner: FilesystemStorage):
+                self._inner = inner
+
+            def __getattr__(self, name: str) -> object:
+                if name == "swap_docs":
+                    raise AttributeError(name)
+                return getattr(self._inner, name)
+
+        custom = CustomStorage(real_storage)
+
+        with patch("shesha.shesha.docker"), patch("shesha.shesha.ContainerPool"):
+            with patch("shesha.shesha.RepoIngester") as mock_ingester_cls:
+                mock_ingester = MagicMock()
+                mock_ingester_cls.return_value = mock_ingester
+
+                mock_ingester.is_local_path.return_value = True
+                mock_ingester.get_saved_sha.return_value = "old_sha"
+                mock_ingester.get_sha_from_path.return_value = "new_sha"
+                mock_ingester.list_files_from_path.return_value = [
+                    "good.py",
+                    "bad.py",
+                ]
+                mock_ingester.repos_dir = tmp_path / "repos"
+
+                shesha = Shesha(
+                    model="test-model",
+                    storage_path=tmp_path,
+                    storage=custom,  # type: ignore[arg-type]
+                )
+                real_storage.create_project("fallback-project")
+
+                from shesha.models import ParsedDocument
+
+                original_doc = ParsedDocument(
+                    name="original.txt",
+                    content="must survive",
+                    format="txt",
+                    metadata={},
+                    char_count=12,
+                    parse_warnings=[],
+                )
+                real_storage.store_document("fallback-project", original_doc)
+
+                result = shesha.create_project_from_repo(
+                    url="/path/to/local/repo",
+                    name="fallback-project",
+                )
+
+                assert result.status == "updates_available"
+
+                # Make store_document fail on second call to target project
+                original_store = real_storage.store_document
+                call_count = [0]
+
+                def failing_store(project_id, doc, **kwargs):
+                    if project_id == "fallback-project":
+                        call_count[0] += 1
+                        if call_count[0] == 2:
+                            raise OSError("Disk full")
+                    return original_store(project_id, doc, **kwargs)
+
+                with patch.object(shesha._parser_registry, "find_parser") as mock_find:
+                    mock_parser = MagicMock()
+                    mock_parser.parse.side_effect = [
+                        MagicMock(
+                            name="good.py",
+                            content="good",
+                            format="py",
+                            metadata={},
+                            char_count=4,
+                            parse_warnings=[],
+                        ),
+                        MagicMock(
+                            name="bad.py",
+                            content="bad",
+                            format="py",
+                            metadata={},
+                            char_count=3,
+                            parse_warnings=[],
+                        ),
+                    ]
+                    mock_find.return_value = mock_parser
+
+                    with patch.object(real_storage, "store_document", side_effect=failing_store):
+                        with pytest.raises(OSError, match="Disk full"):
+                            result.apply_updates()
+
+                # Original doc should still exist (not deleted before copy)
+                docs = real_storage.list_documents("fallback-project")
+                assert "original.txt" in docs
+
 
 class TestIngestRepoErrorHandling:
     """Tests for _ingest_repo error handling."""

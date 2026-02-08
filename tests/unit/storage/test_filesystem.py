@@ -392,6 +392,43 @@ class TestSwapDocs:
         docs = storage.list_documents("target")
         assert "new.txt" in docs
 
+    def test_swap_docs_succeeds_when_step3_cleanup_fails(self, tmp_path: Path) -> None:
+        """swap_docs succeeds even if final backup deletion (step 3) fails."""
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("source")
+        storage.create_project("target")
+
+        source_doc = ParsedDocument(
+            name="new.txt",
+            content="new",
+            format="txt",
+            metadata={},
+            char_count=3,
+            parse_warnings=[],
+        )
+        storage.store_document("source", source_doc)
+
+        target_doc = ParsedDocument(
+            name="old.txt",
+            content="old",
+            format="txt",
+            metadata={},
+            char_count=3,
+            parse_warnings=[],
+        )
+        storage.store_document("target", target_doc)
+
+        def failing_rmtree(path, *args, **kwargs):
+            raise OSError("Permission denied")
+
+        with patch("shesha.storage.filesystem.shutil.rmtree", side_effect=failing_rmtree):
+            # Should NOT raise despite rmtree failure
+            storage.swap_docs("source", "target")
+
+        # Target should have new docs
+        docs = storage.list_documents("target")
+        assert "new.txt" in docs
+
     def test_swap_docs_source_not_found_raises(self, storage: FilesystemStorage) -> None:
         """swap_docs raises ProjectNotFoundError when source doesn't exist."""
         storage.create_project("target")
