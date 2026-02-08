@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from textual.widgets import Static
+
 
 @dataclass
 class InfoBarState:
@@ -51,3 +53,59 @@ class InfoBarState:
         )
         line2 = f"Phase: {self._phase_line}"
         return line1, line2
+
+
+class InfoBar(Static):
+    """Textual widget displaying the info bar.
+
+    Two-line status bar showing project info, token counts, and phase.
+    """
+
+    DEFAULT_CSS = """
+    InfoBar {
+        height: 2;
+        padding: 0 1;
+        border-top: solid $accent;
+        border-bottom: solid $accent;
+    }
+    """
+
+    def __init__(self, project_name: str) -> None:
+        super().__init__("")
+        self._state = InfoBarState(project_name=project_name)
+        self._refresh_content()
+
+    def _refresh_content(self) -> None:
+        """Re-render from state."""
+        line1, line2 = self._state.render_lines()
+        self.update(f"{line1}\n{line2}")
+
+    def update_tokens(self, prompt: int, completion: int) -> None:
+        """Update token display."""
+        self._state.set_tokens(prompt, completion)
+        self._refresh_content()
+
+    def update_thinking(self, elapsed: float) -> None:
+        """Show thinking state."""
+        self._state.set_thinking(elapsed)
+        self._refresh_content()
+
+    def update_progress(self, elapsed: float, iteration: int, step: str) -> None:
+        """Show progress state."""
+        self._state.set_progress(elapsed, iteration, step)
+        self._refresh_content()
+
+    def update_done(self, elapsed: float, iterations: int) -> None:
+        """Show done state."""
+        self._state.set_done(elapsed, iterations)
+        self._refresh_content()
+
+    def update_cancelled(self) -> None:
+        """Show cancelled state."""
+        self._state.set_cancelled()
+        self._refresh_content()
+
+    def reset_phase(self) -> None:
+        """Reset to ready state."""
+        self._state.reset()
+        self._refresh_content()
