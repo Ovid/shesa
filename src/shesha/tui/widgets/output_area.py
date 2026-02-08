@@ -31,7 +31,7 @@ class OutputArea(VerticalScroll):
 
     def add_user_message(self, text: str) -> None:
         """Add a user message to the output."""
-        widget = Static(f"> {text}", classes="user-message")
+        widget = Static(f"\u276f {text}", classes="user-message")
         self.mount(widget)
         self.scroll_end(animate=False)
 

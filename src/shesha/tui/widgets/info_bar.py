@@ -24,8 +24,9 @@ class InfoBarState:
         self._completion_tokens = completion
 
     def set_thinking(self, elapsed: float) -> None:
-        """Set phase to Thinking with elapsed time."""
-        self._phase_line = f"[{elapsed:.1f}s] Thinking..."
+        """Set phase to Thinking with animated dots."""
+        dots = int(elapsed * 3) % 3 + 1
+        self._phase_line = f"[{elapsed:.1f}s] Thinking{'.' * dots}{' ' * (3 - dots)}"
 
     def set_progress(self, elapsed: float, iteration: int, step: str) -> None:
         """Set phase to a specific iteration/step."""
@@ -63,7 +64,7 @@ class InfoBar(Static):
 
     DEFAULT_CSS = """
     InfoBar {
-        height: 2;
+        height: auto;
         padding: 0 1;
         border: solid $accent;
     }
