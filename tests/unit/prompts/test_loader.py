@@ -116,6 +116,62 @@ def test_loader_raises_when_file_missing(tmp_path: Path):
     assert "Required prompt file not found" in str(exc_info.value)
 
 
+def test_loader_succeeds_without_optional_verify_files(tmp_path: Path):
+    """PromptLoader loads successfully when optional verify templates are absent."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    (prompts_dir / "system.md").write_text(
+        "Doc count: {doc_count}, chars: {total_chars:,}\n"
+        "Sizes: {doc_sizes_list}\n"
+        "Limit: {max_subcall_chars:,}"
+    )
+    (prompts_dir / "subcall.md").write_text(
+        "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
+    )
+    (prompts_dir / "code_required.md").write_text("Write code now.")
+
+    # Should NOT raise — verify templates are optional
+    loader = PromptLoader(prompts_dir=prompts_dir)
+    assert loader.prompts_dir == prompts_dir
+
+
+def test_loader_render_verify_adversarial_raises_when_not_loaded(tmp_path: Path):
+    """render_verify_adversarial_prompt raises when template was not loaded."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    (prompts_dir / "system.md").write_text(
+        "{doc_count}{total_chars:,}{doc_sizes_list}{max_subcall_chars:,}"
+    )
+    (prompts_dir / "subcall.md").write_text(
+        "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
+    )
+    (prompts_dir / "code_required.md").write_text("Write code.")
+
+    loader = PromptLoader(prompts_dir=prompts_dir)
+    with pytest.raises(FileNotFoundError, match="verify_adversarial.md"):
+        loader.render_verify_adversarial_prompt(findings="f", documents="d")
+
+
+def test_loader_render_verify_code_raises_when_not_loaded(tmp_path: Path):
+    """render_verify_code_prompt raises when template was not loaded."""
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+
+    (prompts_dir / "system.md").write_text(
+        "{doc_count}{total_chars:,}{doc_sizes_list}{max_subcall_chars:,}"
+    )
+    (prompts_dir / "subcall.md").write_text(
+        "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
+    )
+    (prompts_dir / "code_required.md").write_text("Write code.")
+
+    loader = PromptLoader(prompts_dir=prompts_dir)
+    with pytest.raises(FileNotFoundError, match="verify_code.md"):
+        loader.render_verify_code_prompt(previous_results="p", findings="f", documents="d")
+
+
 def test_loader_loads_verify_adversarial(valid_prompts_dir: Path):
     """PromptLoader loads verify_adversarial.md template."""
     loader = PromptLoader(prompts_dir=valid_prompts_dir)

@@ -10,6 +10,7 @@ class PromptSchema:
 
     required: set[str]
     optional: set[str]
+    required_file: bool = True
 
 
 PROMPT_SCHEMAS: dict[str, PromptSchema] = {
@@ -28,10 +29,12 @@ PROMPT_SCHEMAS: dict[str, PromptSchema] = {
     "verify_adversarial.md": PromptSchema(
         required={"findings", "documents"},
         optional=set(),
+        required_file=False,
     ),
     "verify_code.md": PromptSchema(
         required={"previous_results", "findings", "documents"},
         optional=set(),
+        required_file=False,
     ),
 }
 

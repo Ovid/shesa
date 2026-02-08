@@ -71,14 +71,17 @@ class PromptLoader:
         if not self.prompts_dir.exists():
             raise FileNotFoundError(f"Prompts directory not found: {self.prompts_dir}")
 
-        for filename in PROMPT_SCHEMAS:
+        for filename, schema in PROMPT_SCHEMAS.items():
             filepath = self.prompts_dir / filename
             if not filepath.exists():
-                raise FileNotFoundError(
-                    f"Required prompt file not found: {filepath}\n\n"
-                    f"Expected files: {', '.join(sorted(PROMPT_SCHEMAS.keys()))}\n"
-                    f"Prompts directory: {self.prompts_dir}"
-                )
+                if schema.required_file:
+                    required_files = sorted(k for k, s in PROMPT_SCHEMAS.items() if s.required_file)
+                    raise FileNotFoundError(
+                        f"Required prompt file not found: {filepath}\n\n"
+                        f"Expected files: {', '.join(required_files)}\n"
+                        f"Prompts directory: {self.prompts_dir}"
+                    )
+                continue
 
             content = filepath.read_text()
             validate_prompt(filename, content)
@@ -112,6 +115,11 @@ class PromptLoader:
 
     def render_verify_adversarial_prompt(self, findings: str, documents: str) -> str:
         """Render the adversarial verification prompt."""
+        if "verify_adversarial.md" not in self._prompts:
+            raise FileNotFoundError(
+                "verify_adversarial.md not found in prompts directory. "
+                "This template is required when --verify is enabled."
+            )
         return self._prompts["verify_adversarial.md"].format(
             findings=findings,
             documents=documents,
@@ -121,6 +129,11 @@ class PromptLoader:
         self, previous_results: str, findings: str, documents: str
     ) -> str:
         """Render the code-specific verification prompt."""
+        if "verify_code.md" not in self._prompts:
+            raise FileNotFoundError(
+                "verify_code.md not found in prompts directory. "
+                "This template is required when --verify is enabled."
+            )
         return self._prompts["verify_code.md"].format(
             previous_results=previous_results,
             findings=findings,

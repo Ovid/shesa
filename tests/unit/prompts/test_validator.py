@@ -103,6 +103,7 @@ def test_verify_adversarial_schema_defined():
     schema = PROMPT_SCHEMAS["verify_adversarial.md"]
     assert schema.required == {"findings", "documents"}
     assert schema.optional == set()
+    assert schema.required_file is False
 
 
 def test_verify_code_schema_defined():
@@ -111,6 +112,13 @@ def test_verify_code_schema_defined():
     schema = PROMPT_SCHEMAS["verify_code.md"]
     assert schema.required == {"previous_results", "findings", "documents"}
     assert schema.optional == set()
+    assert schema.required_file is False
+
+
+def test_core_schemas_are_required_files():
+    """Core prompt schemas (system, subcall, code_required) are required files."""
+    for name in ("system.md", "subcall.md", "code_required.md"):
+        assert PROMPT_SCHEMAS[name].required_file is True
 
 
 def test_validate_verify_adversarial_passes_valid():
