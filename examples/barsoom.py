@@ -82,7 +82,13 @@ from shesha import Shesha
 from shesha.config import SheshaConfig
 from shesha.exceptions import ProjectNotFoundError
 from shesha.rlm.trace import StepType
-from shesha.tui import SheshaTUI
+
+# Guard TUI import: textual is an optional dependency (shesha[tui]).
+try:
+    from shesha.tui import SheshaTUI
+except ImportError:
+    print("This example requires the TUI extra: pip install shesha[tui]")
+    sys.exit(1)
 
 BOOKS = {
     "barsoom-1.txt": "A Princess of Mars",
