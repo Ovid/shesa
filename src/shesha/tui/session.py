@@ -79,5 +79,5 @@ class ConversationSession:
             filename = f"session-{timestamp}.md"
         filepath = Path(filename)
         filepath.parent.mkdir(parents=True, exist_ok=True)
-        filepath.write_text(self.format_transcript())
+        filepath.write_text(self.format_transcript(), encoding="utf-8")
         return str(filepath)
