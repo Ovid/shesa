@@ -129,6 +129,12 @@ class InputArea(TextArea):
             self.post_message(InputArea.HistoryNavigate("next"))
             return
 
+        if event.key == "shift+enter":
+            event.prevent_default()
+            event.stop()
+            self.insert("\n")
+            return
+
         if event.key == "enter":
             event.prevent_default()
             event.stop()

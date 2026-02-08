@@ -175,6 +175,17 @@ class TestInputArea:
             await pilot.press("escape")
             assert ("query_cancelled",) in pilot.app.completion_messages
 
+    async def test_shift_enter_inserts_newline(self) -> None:
+        """Shift+Enter inserts a newline instead of submitting."""
+        async with InputAreaApp().run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.focus()
+            input_area.text = "hello"
+            await pilot.press("shift+enter")
+            await pilot.pause()
+            assert "\n" in input_area.text
+            assert pilot.app.submitted_texts == []
+
     async def test_focus_border_shown(self) -> None:
         """InputArea shows a border when focused."""
         async with InputAreaApp().run_test() as pilot:
