@@ -89,6 +89,7 @@ class SheshaTUI(App[None]):
         self._input_history = InputHistory()
         self._session = ConversationSession(project_name=project_name)
         self._query_in_progress = False
+        self._query_cancelled = False
         self._query_start_time = 0.0
         self._last_iteration = 0
         self._last_step_name = ""
@@ -188,6 +189,7 @@ class SheshaTUI(App[None]):
 
     def on_input_area_query_cancelled(self, event: InputArea.QueryCancelled) -> None:
         """Handle query cancellation from double-escape."""
+        self._query_cancelled = True
         if self._worker_handle is not None:
             self._worker_handle.cancel()
             self._worker_handle = None
@@ -251,6 +253,7 @@ class SheshaTUI(App[None]):
     def _run_query(self, question: str) -> None:
         """Execute a query in a worker thread."""
         self._query_in_progress = True
+        self._query_cancelled = False
         self.query_one(InputArea).query_in_progress = True
         self._query_start_time = time.time()
         self._last_iteration = 0
@@ -288,16 +291,20 @@ class SheshaTUI(App[None]):
                     full_question,
                     on_progress=self._on_progress,
                 )
-                self.call_from_thread(self._on_query_complete, result, display_question)
+                if not self._query_cancelled:
+                    self.call_from_thread(self._on_query_complete, result, display_question)
                 return result
             except Exception as exc:
-                self.call_from_thread(self._on_query_error, str(exc))
+                if not self._query_cancelled:
+                    self.call_from_thread(self._on_query_error, str(exc))
                 return None
 
         return run
 
     def _on_progress(self, step_type: StepType, iteration: int, content: str) -> None:
         """Progress callback from RLM engine (called from worker thread)."""
+        if self._query_cancelled:
+            return
         elapsed = time.time() - self._query_start_time
         self._last_iteration = iteration + 1  # Convert 0-indexed to 1-indexed
         step_name = step_display_name(step_type)
@@ -322,6 +329,8 @@ class SheshaTUI(App[None]):
 
     def _on_query_complete(self, result: QueryResult, question: str) -> None:
         """Handle completed query (called on main thread)."""
+        if self._query_cancelled:
+            return
         self._stop_query()
 
         # Update tokens
@@ -352,6 +361,8 @@ class SheshaTUI(App[None]):
 
     def _on_query_error(self, error_msg: str) -> None:
         """Handle query error (called on main thread)."""
+        if self._query_cancelled:
+            return
         self._stop_query()
         self.query_one(OutputArea).add_system_message(f"Error: {error_msg}")
         self.query_one(InfoBar).reset_phase()
