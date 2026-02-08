@@ -455,15 +455,19 @@ def main() -> None:
                 format_analysis_for_display(analysis)
             )
 
+    def _post_message(msg: str) -> None:
+        """Post a system message to the output area (thread-safe)."""
+        tui.call_from_thread(
+            tui.query_one(OutputArea).add_system_message, msg
+        )
+
     def handle_analyze(args: str) -> None:
-        tui.query_one(OutputArea).add_system_message("Generating analysis...")
+        _post_message("Generating analysis...")
         try:
             shesha.generate_analysis(project.project_id)
-            tui.query_one(OutputArea).add_system_message(
-                "Analysis complete. Use /summary to view."
-            )
+            _post_message("Analysis complete. Use /summary to view.")
         except Exception as e:
-            tui.query_one(OutputArea).add_system_message(f"Error: {e}")
+            _post_message(f"Error: {e}")
 
     tui.register_command("/summary", handle_summary, "Show codebase analysis")
     tui.register_command(
