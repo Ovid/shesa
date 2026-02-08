@@ -65,7 +65,7 @@ class TestContainerSecurityConfig:
         config = ContainerSecurityConfig(tmpfs={"/tmp": "size=128m"})
         assert config.tmpfs == {"/tmp": "size=128m"}
 
-    def test_tmpfs_none_disables(self) -> None:
+    def test_tmpfs_empty_dict_disables(self) -> None:
         """Passing empty dict disables tmpfs."""
         config = ContainerSecurityConfig(tmpfs={})
         assert config.tmpfs == {}
