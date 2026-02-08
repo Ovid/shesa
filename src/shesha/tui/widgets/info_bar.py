@@ -65,8 +65,7 @@ class InfoBar(Static):
     InfoBar {
         height: 2;
         padding: 0 1;
-        border-top: solid $accent;
-        border-bottom: solid $accent;
+        border: solid $accent;
     }
     """
 

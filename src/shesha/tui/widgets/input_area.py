@@ -29,11 +29,9 @@ class InputArea(TextArea):
         min-height: 1;
         max-height: 10;
         border: none;
-        border-top: solid $surface-darken-2;
     }
     InputArea:focus {
         border: none;
-        border-top: solid $accent;
     }
     """
 

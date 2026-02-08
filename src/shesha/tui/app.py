@@ -9,9 +9,10 @@ from typing import TYPE_CHECKING
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.css.query import NoMatches
 from textual.timer import Timer
-from textual.widgets import TextArea
+from textual.widgets import Static, TextArea
 
 from shesha.rlm.trace import StepType
 from shesha.tui.commands import CommandRegistry
@@ -45,6 +46,17 @@ class SheshaTUI(App[None]):
     Screen {{
         layout: vertical;
         border: solid {SHESHA_TEAL};
+    }}
+    #input-row {{
+        height: auto;
+        min-height: 1;
+        max-height: 10;
+    }}
+    #prompt {{
+        width: 2;
+        min-height: 1;
+        color: {SHESHA_TEAL};
+        padding-top: 1;
     }}
     """
 
@@ -96,7 +108,9 @@ class SheshaTUI(App[None]):
         yield OutputArea()
         yield InfoBar(project_name=self._project_name)
         yield CompletionPopup()
-        yield InputArea()
+        with Horizontal(id="input-row"):
+            yield Static("\u276f", id="prompt")
+            yield InputArea()
 
     def on_mount(self) -> None:
         """Focus the input area on startup."""
