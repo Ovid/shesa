@@ -18,7 +18,7 @@ class InputSubmitted(Message):
 class InputArea(TextArea):
     """Input widget for the TUI prompt.
 
-    Enter submits, Shift+Enter inserts newline.
+    Enter submits, Alt+Enter (or Shift+Enter) inserts newline.
     Trailing backslashes on lines are treated as continuation markers
     and stripped before submission.
     """
@@ -31,7 +31,7 @@ class InputArea(TextArea):
         border: none;
     }
     InputArea:focus {
-        border: solid #00bcd4;
+        border: none;
     }
     """
 
@@ -129,7 +129,7 @@ class InputArea(TextArea):
             self.post_message(InputArea.HistoryNavigate("next"))
             return
 
-        if event.key == "shift+enter":
+        if event.key in ("shift+enter", "alt+enter"):
             event.prevent_default()
             event.stop()
             self.insert("\n")

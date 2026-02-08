@@ -53,6 +53,9 @@ class SheshaTUI(App[None]):
         min-height: 1;
         max-height: 10;
     }}
+    #input-row:focus-within {{
+        border: solid {SHESHA_TEAL};
+    }}
     #prompt {{
         width: 2;
         height: 1;
@@ -137,7 +140,7 @@ class SheshaTUI(App[None]):
             yield InputArea()
         yield Static(
             "Tab: switch panes \u2502 \u2191\u2193: history"
-            " \u2502 Esc\u00d72: cancel \u2502 /: commands",
+            " \u2502 Alt+\u23ce: newline \u2502 Esc\u00d72: cancel \u2502 /: commands",
             id="help-bar",
         )
 

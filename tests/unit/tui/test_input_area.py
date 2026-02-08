@@ -186,11 +186,13 @@ class TestInputArea:
             assert "\n" in input_area.text
             assert pilot.app.submitted_texts == []
 
-    async def test_focus_border_shown(self) -> None:
-        """InputArea shows a border when focused."""
+    async def test_alt_enter_inserts_newline(self) -> None:
+        """Alt+Enter inserts a newline instead of submitting."""
         async with InputAreaApp().run_test() as pilot:
             input_area = pilot.app.query_one(InputArea)
             input_area.focus()
+            input_area.text = "hello"
+            await pilot.press("alt+enter")
             await pilot.pause()
-            border = input_area.styles.border
-            assert any(edge[0] not in ("", "none", "hidden") for edge in border)
+            assert "\n" in input_area.text
+            assert pilot.app.submitted_texts == []
