@@ -369,28 +369,31 @@ class RLMEngine:
         # Initialize conversation
         messages: list[dict[str, str]] = [{"role": "user", "content": question}]
 
-        # Track current iteration for llm_query callback
-        current_iteration = 0
+        # Factory to create a callback with a frozen iteration value.
+        # Without this, a closure over a mutable variable risks capturing
+        # a stale iteration if the callback were ever invoked after the loop
+        # advances (e.g., async execution, deferred calls).
+        def _make_llm_callback(frozen_iteration: int) -> Callable[[str, str], str]:
+            def llm_query_callback(instruction: str, content: str) -> str:
+                return self._handle_llm_query(
+                    instruction,
+                    content,
+                    trace,
+                    token_usage,
+                    frozen_iteration,
+                    on_progress,
+                    on_step=_write_step,
+                )
 
-        # Create executor with callback for llm_query
-        def llm_query_callback(instruction: str, content: str) -> str:
-            return self._handle_llm_query(
-                instruction,
-                content,
-                trace,
-                token_usage,
-                current_iteration,
-                on_progress,
-                on_step=_write_step,
-            )
+            return llm_query_callback
 
         # Acquire executor from pool or create standalone
         if self._pool is not None:
             executor = self._pool.acquire()
-            executor.llm_query_handler = llm_query_callback
+            executor.llm_query_handler = _make_llm_callback(0)
             owns_executor = False
         else:
-            executor = ContainerExecutor(llm_query_handler=llm_query_callback)
+            executor = ContainerExecutor(llm_query_handler=_make_llm_callback(0))
             executor.start()
             owns_executor = True
 
@@ -399,7 +402,7 @@ class RLMEngine:
             executor.setup_context(documents)
 
             for iteration in range(self.max_iterations):
-                current_iteration = iteration
+                executor.llm_query_handler = _make_llm_callback(iteration)
                 # Get LLM response
                 response = llm.complete(messages=messages)
                 token_usage.prompt_tokens += response.prompt_tokens
@@ -547,7 +550,7 @@ class RLMEngine:
                     executor.stop()
                     self._pool.discard(executor)
                     executor = self._pool.acquire()
-                    executor.llm_query_handler = llm_query_callback
+                    executor.llm_query_handler = _make_llm_callback(iteration)
                     executor.setup_context(documents)
                 elif not executor.is_alive:
                     answer = "[Executor died — cannot continue]"
