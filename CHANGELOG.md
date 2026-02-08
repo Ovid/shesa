@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-02-08
+
 ### Added
 
 - Interactive TUI (Text User Interface) for `barsoom.py` and `repo.py` examples, inspired by Claude Code's interface. Features: 3-pane layout (scrolling output, live info bar, input area), markdown rendering toggle, slash commands with auto-complete, input history, dark/light theme toggle, real-time progress display replacing `--verbose` flag. Install with `pip install shesha[tui]`.
@@ -23,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Interactive loop helper functions from `script_utils.py` (history formatting, command parsing, session writing -- absorbed into TUI modules)
 
-## [0.5.0] - 2-26-02-08
+## [0.5.0] - 2026-02-08
 
 ### Added
 
