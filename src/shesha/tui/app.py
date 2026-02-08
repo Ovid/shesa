@@ -89,7 +89,7 @@ class SheshaTUI(App[None]):
         self._input_history = InputHistory()
         self._session = ConversationSession(project_name=project_name)
         self._query_in_progress = False
-        self._query_cancelled = False
+        self._query_id = 0
         self._query_start_time = 0.0
         self._last_iteration = 0
         self._last_step_name = ""
@@ -192,11 +192,11 @@ class SheshaTUI(App[None]):
 
         Note: Worker.cancel() cannot interrupt a blocking thread — the
         underlying project.query() call keeps running to completion.
-        We set _query_cancelled so that _on_query_complete, _on_query_error,
-        and _on_progress silently discard any results that arrive after
-        cancellation. The flag is reset when the next query starts.
+        We bump _query_id so that _on_query_complete, _on_query_error,
+        and _on_progress silently discard any results whose captured
+        query_id no longer matches the current one.
         """
-        self._query_cancelled = True
+        self._query_id += 1
         if self._worker_handle is not None:
             self._worker_handle.cancel()
             self._worker_handle = None
@@ -266,8 +266,8 @@ class SheshaTUI(App[None]):
 
     def _run_query(self, question: str) -> None:
         """Execute a query in a worker thread."""
+        self._query_id += 1
         self._query_in_progress = True
-        self._query_cancelled = False
         self.query_one(InputArea).query_in_progress = True
         self._query_start_time = time.time()
         self._last_iteration = 0
@@ -299,31 +299,41 @@ class SheshaTUI(App[None]):
     ) -> Callable[[], QueryResult | None]:
         """Return a callable that runs the query (for worker thread).
 
-        The returned function checks _query_cancelled before posting
-        results back to the main thread. This is necessary because
-        Worker.cancel() cannot interrupt a blocking project.query()
-        call — see on_input_area_query_cancelled for details.
+        The returned function captures _query_id at creation time and
+        checks it before posting results back to the main thread. If
+        the ID has changed (due to cancellation or a new query), the
+        stale worker's results are silently discarded. This is necessary
+        because Worker.cancel() cannot interrupt a blocking
+        project.query() call.
         """
+        my_query_id = self._query_id
+
+        def on_progress(step_type: StepType, iteration: int, content: str) -> None:
+            if self._query_id != my_query_id:
+                return
+            self._on_progress(step_type, iteration, content)
 
         def run() -> QueryResult | None:
             try:
                 result = self._project.query(
                     full_question,
-                    on_progress=self._on_progress,
+                    on_progress=on_progress,
                 )
-                if not self._query_cancelled:
-                    self.call_from_thread(self._on_query_complete, result, display_question)
+                if self._query_id == my_query_id:
+                    self.call_from_thread(
+                        self._on_query_complete, my_query_id, result, display_question
+                    )
                 return result
             except Exception as exc:
-                if not self._query_cancelled:
-                    self.call_from_thread(self._on_query_error, str(exc))
+                if self._query_id == my_query_id:
+                    self.call_from_thread(self._on_query_error, my_query_id, str(exc))
                 return None
 
         return run
 
     def _on_progress(self, step_type: StepType, iteration: int, content: str) -> None:
         """Progress callback from RLM engine (called from worker thread)."""
-        if self._query_cancelled:
+        if not self._query_in_progress:
             return
         elapsed = time.time() - self._query_start_time
         self._last_iteration = iteration + 1  # Convert 0-indexed to 1-indexed
@@ -347,9 +357,9 @@ class SheshaTUI(App[None]):
         else:
             info_bar.update_progress(elapsed, self._last_iteration, self._last_step_name)
 
-    def _on_query_complete(self, result: QueryResult, question: str) -> None:
+    def _on_query_complete(self, query_id: int, result: QueryResult, question: str) -> None:
         """Handle completed query (called on main thread)."""
-        if self._query_cancelled:
+        if self._query_id != query_id:
             return
         self._stop_query()
 
@@ -379,9 +389,9 @@ class SheshaTUI(App[None]):
         # Reset to ready after brief delay
         self.set_timer(2.0, info_bar.reset_phase)
 
-    def _on_query_error(self, error_msg: str) -> None:
+    def _on_query_error(self, query_id: int, error_msg: str) -> None:
         """Handle query error (called on main thread)."""
-        if self._query_cancelled:
+        if self._query_id != query_id:
             return
         self._stop_query()
         self.query_one(OutputArea).add_system_message(f"Error: {error_msg}")

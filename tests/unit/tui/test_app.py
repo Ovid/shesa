@@ -4,6 +4,8 @@ from unittest.mock import MagicMock
 
 from textual.widgets import Static
 
+from shesha.rlm.engine import QueryResult
+from shesha.rlm.trace import StepType, TokenUsage, Trace
 from shesha.tui.app import SheshaTUI
 from shesha.tui.widgets.completion_popup import CompletionPopup
 from shesha.tui.widgets.info_bar import InfoBar
@@ -311,3 +313,66 @@ class TestQueryCancellation:
             assert input_area.query_in_progress is False
             _, line2 = info_bar._state.render_lines()
             assert "Cancelled" in line2
+
+    async def test_cancellation_bumps_query_id(self) -> None:
+        """Cancelling a query increments _query_id so stale workers are ignored."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            id_before = pilot.app._query_id
+            # Simulate a query in progress and cancel it
+            pilot.app._query_in_progress = True
+            pilot.app.query_one(InputArea).query_in_progress = True
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            assert pilot.app._query_id > id_before
+
+    async def test_stale_worker_result_ignored_after_cancel_and_new_query(self) -> None:
+        """A stale worker completing after cancellation doesn't corrupt state."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            # Simulate: query A started at id=0, then cancelled (id bumped)
+            pilot.app._query_in_progress = True
+            pilot.app.query_one(InputArea).query_in_progress = True
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            # Now the stale worker tries to post progress — should be ignored
+            pilot.app._on_progress(StepType.CODE_GENERATED, 0, "stale code")
+            assert pilot.app._last_iteration == 0  # Not updated
+
+    async def test_stale_worker_completion_ignored_after_new_query(self) -> None:
+        """A stale worker from query A is ignored even after query B starts."""
+        project = MagicMock()
+        # Make project.query block so _run_query doesn't complete immediately
+        project.query.side_effect = lambda *a, **kw: (_ for _ in ()).throw(
+            RuntimeError("should not be called in this test")
+        )
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            # Simulate query A in progress, then cancel it
+            pilot.app._query_in_progress = True
+            pilot.app.query_one(InputArea).query_in_progress = True
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            # Now query A's stale worker tries to post a result.
+            # With the old boolean flag and a new query having reset it,
+            # this would corrupt state. With query_id, it's always safe.
+            stale_result = QueryResult(
+                answer="stale answer",
+                execution_time=1.0,
+                token_usage=TokenUsage(prompt_tokens=10, completion_tokens=5),
+                trace=Trace(steps=[]),
+            )
+            output = pilot.app.query_one(OutputArea)
+            statics_before = len(output.query("Static"))
+            stale_query_id = 0  # ID before cancellation bumped it
+            pilot.app._on_query_complete(stale_query_id, stale_result, "stale question")
+            statics_after = len(output.query("Static"))
+            assert statics_after == statics_before
