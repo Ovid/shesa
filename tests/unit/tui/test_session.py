@@ -72,13 +72,13 @@ class TestConversationSession:
         content = Path(path).read_text()
         assert "test" in content
 
-    def test_write_transcript_auto_filename(self, tmp_path: object) -> None:
+    def test_write_transcript_auto_filename(
+        self, tmp_path: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Write transcript with None filename auto-generates name."""
-        import os
         from pathlib import Path
 
-        tmp = Path(str(tmp_path))
-        os.chdir(tmp)
+        monkeypatch.chdir(Path(str(tmp_path)))
         session = ConversationSession(project_name="test")
         session.add_exchange("q", "a", "s")
         path = session.write_transcript(None)
