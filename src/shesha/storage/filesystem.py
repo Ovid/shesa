@@ -245,11 +245,16 @@ class FilesystemStorage:
         target_docs = self._project_path(target_project_id) / "docs"
         backup_docs = self._project_path(target_project_id) / "docs_backup"
 
-        # Clean up stale backup from a prior crashed swap (if any).
-        # A leftover means the previous swap completed steps 1+2 but not
-        # cleanup, so target/docs already has the correct data.
+        # Recover from a prior crashed swap (if any).
         if backup_docs.exists():
-            shutil.rmtree(backup_docs)
+            if not target_docs.exists():
+                # Crash between step 1 and 2: backup has the only copy.
+                # Restore it so the swap can proceed normally.
+                shutil.move(str(backup_docs), str(target_docs))
+            else:
+                # Crash after step 2: target/docs has the new data,
+                # backup is stale. Safe to delete.
+                shutil.rmtree(backup_docs)
 
         # Step 1: Move target docs to backup
         shutil.move(str(target_docs), str(backup_docs))

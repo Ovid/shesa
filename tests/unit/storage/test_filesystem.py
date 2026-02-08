@@ -347,6 +347,51 @@ class TestSwapDocs:
         docs = storage.list_documents("target")
         assert "keep.txt" in docs
 
+    def test_swap_docs_restores_backup_when_target_docs_missing(self, tmp_path: Path) -> None:
+        """swap_docs restores docs_backup if target/docs is missing (crash between step 1 and 2)."""
+        storage = FilesystemStorage(root_path=tmp_path)
+        storage.create_project("source")
+        storage.create_project("target")
+
+        # Store a doc in target, then simulate crash between step 1 and 2:
+        # target/docs was moved to docs_backup, but target/docs was never recreated
+        target_doc = ParsedDocument(
+            name="rescued.txt",
+            content="must survive",
+            format="txt",
+            metadata={},
+            char_count=12,
+            parse_warnings=[],
+        )
+        storage.store_document("target", target_doc)
+
+        target_path = storage._project_path("target")
+        backup_path = target_path / "docs_backup"
+        docs_path = target_path / "docs"
+
+        # Simulate: move docs → docs_backup (step 1 succeeded), then delete docs (step 2 never ran)
+        shutil.move(str(docs_path), str(backup_path))
+        assert not docs_path.exists()
+        assert backup_path.exists()
+
+        # Now store a source doc for the new swap
+        source_doc = ParsedDocument(
+            name="new.txt",
+            content="new",
+            format="txt",
+            metadata={},
+            char_count=3,
+            parse_warnings=[],
+        )
+        storage.store_document("source", source_doc)
+
+        # swap_docs should detect the crash state, restore backup, then proceed
+        storage.swap_docs("source", "target")
+
+        # Target should have the new source docs
+        docs = storage.list_documents("target")
+        assert "new.txt" in docs
+
     def test_swap_docs_source_not_found_raises(self, storage: FilesystemStorage) -> None:
         """swap_docs raises ProjectNotFoundError when source doesn't exist."""
         storage.create_project("target")
