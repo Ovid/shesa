@@ -13,6 +13,13 @@ from urllib.parse import urlparse
 from shesha.exceptions import AuthenticationError, RepoIngestError
 from shesha.security.paths import safe_path
 
+# Timeouts for git subprocess calls (seconds)
+GIT_CLONE_TIMEOUT = 300
+GIT_PULL_TIMEOUT = 120
+GIT_FETCH_TIMEOUT = 120
+GIT_LS_REMOTE_TIMEOUT = 30
+GIT_LOCAL_TIMEOUT = 30
+
 
 class RepoIngester:
     """Handles git repository cloning, updating, and file extraction."""
@@ -33,6 +40,13 @@ class RepoIngester:
     def _repo_path(self, project_id: str) -> Path:
         """Get safe path for a project's repo directory."""
         return safe_path(self.repos_dir, project_id)
+
+    @staticmethod
+    def _no_prompt_env() -> dict[str, str]:
+        """Return env dict with GIT_TERMINAL_PROMPT=0 to prevent interactive prompts."""
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        return env
 
     def is_local_path(self, url: str) -> bool:
         """Check if url is a local filesystem path."""
@@ -97,15 +111,23 @@ class RepoIngester:
         repo_path.mkdir(parents=True, exist_ok=True)
 
         cmd = ["git", "clone", "--depth=1", url, str(repo_path)]
-        env = None
 
         if token:
             env, askpass_path = self._create_askpass(token)
         else:
+            env = self._no_prompt_env()
             askpass_path = None
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, env=env, timeout=GIT_CLONE_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            if repo_path.exists():
+                shutil.rmtree(repo_path)
+            raise RepoIngestError(
+                url, RuntimeError(f"Git clone timed out after {GIT_CLONE_TIMEOUT}s")
+            )
         finally:
             if askpass_path is not None:
                 askpass_path.unlink(missing_ok=True)
@@ -183,7 +205,22 @@ class RepoIngester:
     def get_remote_sha(self, url: str, token: str | None = None) -> str | None:
         """Get the HEAD SHA from remote repository."""
         cmd = ["git", "ls-remote", url, "HEAD"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if token:
+            env, askpass_path = self._create_askpass(token)
+        else:
+            env = self._no_prompt_env()
+            askpass_path = None
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, env=env, timeout=GIT_LS_REMOTE_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            return None
+        finally:
+            if askpass_path is not None:
+                askpass_path.unlink(missing_ok=True)
 
         if result.returncode != 0:
             return None
@@ -204,12 +241,16 @@ class RepoIngester:
         if not repo_path.exists():
             return None
 
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=GIT_LOCAL_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return None
 
         if result.returncode != 0:
             return None
@@ -226,12 +267,16 @@ class RepoIngester:
         if not repo_path.exists():
             return None
 
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=GIT_LOCAL_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return None
 
         if result.returncode != 0:
             return None
@@ -265,12 +310,16 @@ class RepoIngester:
         if subdir:
             cmd.append(subdir)
 
-        result = subprocess.run(
-            cmd,
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=GIT_LOCAL_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return []
 
         if result.returncode != 0:
             return []
@@ -286,6 +335,7 @@ class RepoIngester:
             ["git", "fetch", "origin"],
             cwd=repo_path,
             capture_output=True,
+            timeout=GIT_FETCH_TIMEOUT,
         )
 
     def pull(self, project_id: str) -> None:
@@ -297,12 +347,18 @@ class RepoIngester:
         repo_path = self._repo_path(project_id)
         url = f"repo at {repo_path}"
 
-        result = subprocess.run(
-            ["git", "pull", "--ff-only"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["git", "pull", "--ff-only"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=GIT_PULL_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            raise RepoIngestError(
+                url, RuntimeError(f"Git pull timed out after {GIT_PULL_TIMEOUT}s")
+            )
 
         if result.returncode != 0:
             raise RepoIngestError(url, RuntimeError(result.stderr))
