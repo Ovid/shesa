@@ -342,6 +342,7 @@ class RepoIngester:
                 cwd=repo_path,
                 capture_output=True,
                 timeout=GIT_FETCH_TIMEOUT,
+                env=self._no_prompt_env(),
             )
         except subprocess.TimeoutExpired:
             raise RepoIngestError(
@@ -364,6 +365,7 @@ class RepoIngester:
                 capture_output=True,
                 text=True,
                 timeout=GIT_PULL_TIMEOUT,
+                env=self._no_prompt_env(),
             )
         except subprocess.TimeoutExpired:
             raise RepoIngestError(

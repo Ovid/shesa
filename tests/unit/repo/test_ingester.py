@@ -652,6 +652,34 @@ class TestNoPromptEnv:
             env = call_kwargs.get("env", {})
             assert env.get("GIT_TERMINAL_PROMPT") == "0"
 
+    def test_fetch_sets_no_prompt(self, ingester: RepoIngester, tmp_path: Path):
+        """fetch() sets GIT_TERMINAL_PROMPT=0 to prevent interactive prompts."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            ingester.fetch("my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            env = call_kwargs.get("env", {})
+            assert env.get("GIT_TERMINAL_PROMPT") == "0"
+
+    def test_pull_sets_no_prompt(self, ingester: RepoIngester, tmp_path: Path):
+        """pull() sets GIT_TERMINAL_PROMPT=0 to prevent interactive prompts."""
+        repo_path = tmp_path / "repos" / "my-project"
+        repo_path.mkdir(parents=True)
+
+        with patch("shesha.repo.ingester.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+            ingester.pull("my-project")
+
+            call_kwargs = mock_run.call_args[1]
+            env = call_kwargs.get("env", {})
+            assert env.get("GIT_TERMINAL_PROMPT") == "0"
+
 
 class TestPathTraversalProtection:
     """Tests for path traversal protection in RepoIngester."""
