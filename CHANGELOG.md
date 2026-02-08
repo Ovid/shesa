@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- TUI input area widget with Enter-to-submit, continuation line support, and escape-to-clear
-
 ## [0.5.0] - 2-26-02-08
 
 ### Added
