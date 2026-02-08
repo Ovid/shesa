@@ -134,18 +134,21 @@ def _try_parse_findings(text: str) -> list[FindingVerification] | None:
         return None
     if not isinstance(data, dict) or "findings" not in data:
         return None
-    findings: list[FindingVerification] = []
-    for item in data["findings"]:
-        findings.append(
-            FindingVerification(
-                finding_id=item["finding_id"],
-                original_claim=item["original_claim"],
-                confidence=item["confidence"],
-                reason=item["reason"],
-                evidence_classification=item["evidence_classification"],
-                flags=item.get("flags", []),
+    try:
+        findings: list[FindingVerification] = []
+        for item in data["findings"]:
+            findings.append(
+                FindingVerification(
+                    finding_id=item["finding_id"],
+                    original_claim=item["original_claim"],
+                    confidence=item["confidence"],
+                    reason=item["reason"],
+                    evidence_classification=item["evidence_classification"],
+                    flags=item.get("flags", []),
+                )
             )
-        )
+    except (KeyError, TypeError):
+        return None
     return findings
 
 

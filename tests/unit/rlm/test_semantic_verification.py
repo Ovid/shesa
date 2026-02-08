@@ -347,6 +347,26 @@ class TestParseVerificationResponse:
         with pytest.raises(ValueError):
             parse_verification_response(json.dumps({"results": []}))
 
+    def test_missing_required_field_raises_value_error(self) -> None:
+        """Raises ValueError when a finding is missing a required field."""
+        data = {
+            "findings": [
+                {
+                    "finding_id": "F1",
+                    "original_claim": "claim",
+                    # missing "confidence", "reason", "evidence_classification"
+                }
+            ]
+        }
+        with pytest.raises(ValueError):
+            parse_verification_response(json.dumps(data))
+
+    def test_non_dict_finding_raises_value_error(self) -> None:
+        """Raises ValueError when a finding entry is not a dict."""
+        data = {"findings": ["not a dict", 42]}
+        with pytest.raises(ValueError):
+            parse_verification_response(json.dumps(data))
+
     def test_missing_flags_defaults_to_empty_list(self) -> None:
         """Missing flags field defaults to empty list."""
         data = {
