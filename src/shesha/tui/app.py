@@ -252,6 +252,13 @@ class SheshaTUI(App[None]):
                     handler(args)
             return
 
+        # Reject new queries while one is already running
+        if self._query_in_progress:
+            self.query_one(OutputArea).add_system_message(
+                "A query is already running. Press Esc twice to cancel it first."
+            )
+            return
+
         # It's a query -- add to history and execute
         self._input_history.add(text)
         self.query_one(OutputArea).add_user_message(text)

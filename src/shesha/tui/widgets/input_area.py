@@ -161,5 +161,5 @@ class InputArea(TextArea):
                 self.post_message(InputArea.QueryCancelled())
             return
 
-        # Let TextArea handle everything else (including shift+enter for newline)
+        # Let TextArea handle everything else
         await super()._on_key(event)

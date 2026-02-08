@@ -234,6 +234,58 @@ class TestHistoryNavigation:
             assert input_area.text == ""
 
 
+class TestQueryGuard:
+    """Tests that new queries are rejected while one is in progress."""
+
+    async def test_query_rejected_while_in_progress(self) -> None:
+        """Submitting a query while one is running shows a system message."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            output = pilot.app.query_one(OutputArea)
+            # Simulate a query already running
+            pilot.app._query_in_progress = True
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "another question"
+            await pilot.press("enter")
+            await pilot.pause()
+            # Should show a system message about query in progress
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("already running" in t.lower() for t in texts)
+
+    async def test_query_not_added_to_history_while_in_progress(self) -> None:
+        """A rejected query should not be added to input history."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._query_in_progress = True
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "rejected query"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert "rejected query" not in list(pilot.app._input_history._entries)
+
+    async def test_commands_still_work_while_query_in_progress(self) -> None:
+        """Commands like /help should still work during a running query."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._query_in_progress = True
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "/help"
+            # First enter accepts the completion
+            await pilot.press("enter")
+            await pilot.pause()
+            # Second enter submits the command
+            await pilot.press("enter")
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            # Should have command output, not rejection message
+            assert len(statics) > 0
+
+
 class TestQueryCancellation:
     """Tests for Esc×2 query cancellation."""
 
