@@ -53,6 +53,13 @@ class InputArea(TextArea):
     class FocusToggle(Message):
         """Posted when user presses Tab to toggle focus between panes."""
 
+    class HistoryNavigate(Message):
+        """Posted when user navigates input history with up/down arrows."""
+
+        def __init__(self, direction: str) -> None:
+            super().__init__()
+            self.direction = direction
+
     class QueryCancelled(Message):
         """Posted when user double-escapes to cancel a query."""
 
@@ -108,6 +115,18 @@ class InputArea(TextArea):
             event.prevent_default()
             event.stop()
             self.post_message(InputArea.FocusToggle())
+            return
+
+        if event.key == "up":
+            event.prevent_default()
+            event.stop()
+            self.post_message(InputArea.HistoryNavigate("prev"))
+            return
+
+        if event.key == "down":
+            event.prevent_default()
+            event.stop()
+            self.post_message(InputArea.HistoryNavigate("next"))
             return
 
         if event.key == "enter":

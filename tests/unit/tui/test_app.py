@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock
 
+from textual.widgets import Static
+
 from shesha.tui.app import SheshaTUI
 from shesha.tui.widgets.completion_popup import CompletionPopup
 from shesha.tui.widgets.info_bar import InfoBar
@@ -159,3 +161,73 @@ class TestFocusToggle:
         app = SheshaTUI(project=project, project_name="test")
         async with app.run_test() as pilot:
             assert pilot.app.query_one(InputArea).has_focus
+
+
+class TestHelpBar:
+    """Tests for the help bar below the input area."""
+
+    async def test_help_bar_exists(self) -> None:
+        """App includes a help bar with keyboard hints."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            help_bar = pilot.app.query_one("#help-bar", Static)
+            text = str(help_bar.render())
+            assert "Tab" in text
+            assert "history" in text.lower()
+
+
+class TestHistoryNavigation:
+    """Tests for up/down arrow key input history."""
+
+    async def test_up_arrow_fills_previous_input(self) -> None:
+        """Up arrow fills the input with the previous history entry."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            # Submit a query (add to history manually since no real query runs)
+            pilot.app._input_history.add("first question")
+            pilot.app._input_history.add("second question")
+            # Up arrow should show most recent
+            await pilot.press("up")
+            await pilot.pause()
+            assert input_area.text == "second question"
+            # Up again shows older
+            await pilot.press("up")
+            await pilot.pause()
+            assert input_area.text == "first question"
+
+    async def test_down_arrow_navigates_forward(self) -> None:
+        """Down arrow navigates forward through history."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            pilot.app._input_history.add("first")
+            pilot.app._input_history.add("second")
+            # Go back twice
+            await pilot.press("up")
+            await pilot.pause()
+            await pilot.press("up")
+            await pilot.pause()
+            assert input_area.text == "first"
+            # Forward once
+            await pilot.press("down")
+            await pilot.pause()
+            assert input_area.text == "second"
+
+    async def test_down_past_end_clears_input(self) -> None:
+        """Down arrow past end of history clears the input."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            pilot.app._input_history.add("query")
+            await pilot.press("up")
+            await pilot.pause()
+            assert input_area.text == "query"
+            # Down past end clears
+            await pilot.press("down")
+            await pilot.pause()
+            assert input_area.text == ""

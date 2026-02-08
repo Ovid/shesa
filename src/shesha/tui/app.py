@@ -60,6 +60,11 @@ class SheshaTUI(App[None]):
     #input-row InputArea {{
         width: 1fr;
     }}
+    #help-bar {{
+        height: 1;
+        color: $text-muted;
+        padding: 0 1;
+    }}
     """
 
     BINDINGS = [
@@ -114,6 +119,11 @@ class SheshaTUI(App[None]):
         with Horizontal(id="input-row"):
             yield Static("\u276f", id="prompt")
             yield InputArea()
+        yield Static(
+            "Tab: switch panes \u2502 \u2191\u2193: history"
+            " \u2502 Shift+Enter: newline \u2502 /: commands",
+            id="help-bar",
+        )
 
     def on_mount(self) -> None:
         """Focus the input area on startup."""
@@ -156,6 +166,17 @@ class SheshaTUI(App[None]):
     def on_input_area_completion_dismiss(self, event: InputArea.CompletionDismiss) -> None:
         """Handle completion dismissal."""
         self._hide_completions()
+
+    def on_input_area_history_navigate(self, event: InputArea.HistoryNavigate) -> None:
+        """Handle history navigation from InputArea."""
+        input_area = self.query_one(InputArea)
+        if event.direction == "prev":
+            entry = self._input_history.previous()
+        else:
+            entry = self._input_history.next()
+        text = entry or ""
+        input_area.text = text
+        input_area.move_cursor((0, len(text)))
 
     def on_input_area_focus_toggle(self, event: InputArea.FocusToggle) -> None:
         """Handle focus toggle from InputArea — move focus to OutputArea."""

@@ -10,11 +10,13 @@ class InputAreaApp(App[None]):
 
     submitted_texts: list[str]
     completion_messages: list[object]
+    history_messages: list[str]
 
     def __init__(self) -> None:
         super().__init__()
         self.submitted_texts = []
         self.completion_messages = []
+        self.history_messages = []
 
     def compose(self) -> ComposeResult:
         yield InputArea()
@@ -33,6 +35,9 @@ class InputAreaApp(App[None]):
 
     def on_input_area_focus_toggle(self, event: InputArea.FocusToggle) -> None:
         self.completion_messages.append(("focus_toggle",))
+
+    def on_input_area_history_navigate(self, event: InputArea.HistoryNavigate) -> None:
+        self.history_messages.append(event.direction)
 
 
 class TestInputArea:
@@ -135,3 +140,15 @@ class TestInputArea:
             input_area.completion_active = False
             await pilot.press("tab")
             assert ("focus_toggle",) in pilot.app.completion_messages
+
+    async def test_up_posts_history_prev_when_completion_inactive(self) -> None:
+        """Up arrow posts HistoryNavigate('prev') when completion is not active."""
+        async with InputAreaApp().run_test() as pilot:
+            await pilot.press("up")
+            assert "prev" in pilot.app.history_messages
+
+    async def test_down_posts_history_next_when_completion_inactive(self) -> None:
+        """Down arrow posts HistoryNavigate('next') when completion is not active."""
+        async with InputAreaApp().run_test() as pilot:
+            await pilot.press("down")
+            assert "next" in pilot.app.history_messages
