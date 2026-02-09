@@ -750,3 +750,87 @@ classification code and injects a corrective message. Risks overfitting to OOLON
 
 **Recommendation: Start with Option A** — it's the cheapest experiment and gives the
 most signal about whether the problem is model-specific or architectural.
+
+---
+
+## Fix #4: Force sub-calls via structural alignment with reference RLM
+
+**Status: Design complete — awaiting implementation**
+
+**Design doc:** `docs/plans/2026-02-09-force-subcalls-design.md`
+
+### Rationale
+
+After 3 prompt rewrites and 4 runs, the conclusion is clear: prompt encouragement
+alone doesn't work. gpt-5.2 has a strong code-first bias that persists regardless of
+wording. The reference RLM doesn't just *encourage* sub-calls — it creates
+**architectural forcing functions** that make `llm_query()` the path of least
+resistance.
+
+Comparing Shesha against the reference (`rlm/`) reveals structural gaps that remove
+these forcing functions. This fix closes the three most impactful ones.
+
+### Changes (3 structural fixes)
+
+**1. REPL output truncation: 50K → 20K per code block** (HIGH IMPACT)
+
+The reference truncates each code block output to 20K chars
+(`rlm/rlm/utils/parsing.py:67`). Shesha allows 50K combined. At 8K OOLONG scale
+(19K chars context), `print(context[0])` shows everything — the model has no reason
+to delegate. With 20K per code block:
+- 8K scale (19K chars): borderline, reinforcing truncation warning
+- 16K+ scale (39K+ chars): definitively truncated, forcing `llm_query()` usage
+
+When truncation occurs, append:
+> `[Output truncated to 20,000 of {N} characters. Use llm_query() to analyze
+> content you cannot see.]`
+
+**2. Iteration-0 safeguard** (HIGH IMPACT)
+
+The reference prevents the model from jumping to `FINAL()` on iteration 0
+(`rlm/rlm/utils/prompts.py:136`). Shesha's first message is the bare question —
+the model routinely produces a final answer in 1 iteration (~8s, zero sub-calls).
+
+Prepend to first user message:
+> "You have not interacted with the REPL environment or seen your prompt / context
+> yet. Your next action should be to look through and figure out how to answer the
+> prompt, so don't just provide a final answer yet."
+
+**3. Context metadata as assistant message** (MEDIUM IMPACT)
+
+The reference sends context metadata as a fake assistant message
+(`rlm/rlm/utils/prompts.py:119-122`), priming the model to "continue working"
+rather than start fresh. Shesha bakes this into the system prompt.
+
+Remove metadata from system prompt. Inject as first assistant message:
+> "Your context is a list of {doc_count} documents with {total_chars} total
+> characters, and is broken up into chunks of char lengths: {chunk_lengths}."
+
+### Hypothesis
+
+The reference RLM's architecture creates three forcing functions that Shesha lacks:
+1. Truncation makes `llm_query()` *necessary* (can't see full output)
+2. Iteration-0 guard prevents shortcuts (must explore first)
+3. Assistant priming sets expectation of continued work (not one-shot answer)
+
+With all three in place, the model should:
+- Actually iterate (>1 iteration per query)
+- Use `llm_query()` / `llm_query_batched()` for semantic classification
+- Produce correct label frequencies instead of header-string counts
+
+### What we're NOT doing this round
+
+- Code echo in feedback (LOW-MEDIUM)
+- Max-iterations graceful fallback (LOW)
+- Model swap experiment (deferred — fix architecture first)
+
+### How to validate
+
+```bash
+docker build -t shesha-sandbox src/shesha/sandbox/
+python oolong/run_oolong_and_pairs.py --model openai/gpt-5-mini
+```
+
+**Success criteria:** Model uses `llm_query()`/`llm_query_batched()` for semantic
+classification (visible in traces). Score improvement expected but behavioral shift
+is the primary signal.
