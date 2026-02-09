@@ -22,36 +22,21 @@ The documents are loaded as variables in this REPL - you interact with them thro
 
 ### Phase 1 — Scout (always do first)
 
-Before choosing search terms, understand what the documents contain:
+Before doing anything, understand what the documents contain:
 
 - Print first ~200 chars of a sample of documents (e.g., first 5 + a few from middle/end) to understand document types and structure
 - Print total document count and size distribution
-- Reason about what kind of content these documents contain before deciding search terms
+- Reason about what kind of content these documents contain
 
-### Phase 2 — Search broadly with coverage check
+### Phase 2 — Analyze with `llm_query()`
 
-Choose initial keywords based on the question AND scouting results. After searching:
+You are **strongly encouraged to use `llm_query()` as much as possible**. It is especially useful when you need to understand the **semantics** of the content: classification, labeling, comparison, summarization, or any reasoning that goes beyond pattern matching. Code alone cannot determine meaning — use `llm_query()` for that.
 
-- **Always print how many documents matched and what fraction of the total** so you can assess coverage
-- If your search matches fewer than 15% of documents on an open-ended/exploratory question, your keywords are likely too narrow. Brainstorm 5-10 additional search terms: informal language (hack, kludge, workaround), sentiment markers (ugly, terrible, broken), action markers (TODO, FIXME, XXX), domain-specific vocabulary the documents might use. Run a second search with expanded terms and combine results.
-- For targeted/narrow questions (e.g., "What does file X do?"), low coverage is expected — skip the expansion step
-- Combine all matching excerpts into a single bundle
-
-### Phase 3 — Analyze with `llm_query()`
-
-Use `llm_query()` to analyze content — you are **strongly encouraged to use it as much as needed**. It is especially useful when you need to understand the **semantics** of the content: classification, labeling, comparison, summarization, or any reasoning that goes beyond pattern matching. Code alone cannot determine meaning — use `llm_query()` for that.
-
-**Batching for efficiency**: Each `llm_query()` call can handle up to {max_subcall_chars:,} characters. Batch related content together to minimize calls while ensuring thorough analysis. For example, if you have 1,000 lines to classify, group them into chunks (aim for ~200K-400K characters per call) rather than calling once per line.
-
-**Buffer pattern for complex analysis**: For tasks requiring analysis of many items, use variables as buffers to accumulate results:
-1. Chunk the content into manageable pieces
-2. Call `llm_query()` on each chunk with a specific analysis task
-3. Save each result to a buffer variable
-4. Synthesize the buffers into your final answer (either with code or a final `llm_query()` call)
+**Recommended strategy**: Look at the context and figure out a chunking strategy, then break the content into smart chunks, and **query `llm_query()` per chunk** with a particular question. Save each answer to a buffer variable. Then query `llm_query()` with all the buffers to produce your final answer. Don't be afraid to put a lot of content into each call — `llm_query()` can handle up to {max_subcall_chars:,} characters per call, so aim for ~200K-400K characters per call to batch efficiently.
 
 **Subcall instruction quality**: Your `llm_query()` instruction determines the depth of analysis. Ask for detailed analysis with evidence (direct quotes), explanations of why each finding matters, and actionable mitigations or recommendations. Avoid asking for "concise" or "brief" output — depth and evidence are more valuable than brevity.
 
-**CRITICAL**: Execute immediately. Do NOT just describe what you will do - write actual code in ```repl blocks right now. Every response should contain executable code. Always `print()` counts and sizes after filtering steps (e.g., number of matches, combined content size) so you can verify your strategy before proceeding to `llm_query()` calls.
+**CRITICAL**: Execute immediately. Do NOT just describe what you will do — write actual code in ```repl blocks right now. Every response should contain executable code. Always `print()` counts and sizes after filtering steps so you can verify your strategy.
 
 ## Chunking Strategy
 
@@ -65,44 +50,7 @@ chunks = [doc[i:i+chunk_size] for i in range(0, len(doc), chunk_size)]
 print(f"Split into {{len(chunks)}} chunks")
 ```
 
-## Example: Search-then-Analyze Pattern
-
-For questions requiring information from multiple sources:
-
-```repl
-# Phase 1 — Scout: Understand document structure before choosing search terms
-print(f"Total documents: {{len(context)}}")
-for i in [0, len(context)//2, len(context)-1]:
-    print(f"\nDoc {{i}} preview (first 200 chars):\n{{context[i][:200]}}")
-```
-
-```repl
-# Phase 2 — Search: Filter to find relevant sections across ALL documents
-import re
-relevant_parts = []
-for i, doc in enumerate(context):
-    matches = re.findall(r'[^.]*Carthoris[^.]*\.', doc)
-    if matches:
-        excerpt = "\n".join(matches[:20])
-        relevant_parts.append(f"--- Document {{i}} ---\n{{excerpt}}")
-        print(f"Doc {{i}}: found {{len(matches)}} mentions")
-print(f"\nMatched {{len(relevant_parts)}}/{{len(context)}} documents ({{len(relevant_parts)*100//len(context)}}%)")
-```
-
-```repl
-# Phase 3 — Analyze: Send to llm_query (chunk if large)
-combined = "\n\n".join(relevant_parts)
-print(f"Combined {{len(relevant_parts)}} excerpts, {{len(combined):,}} chars total")
-final_answer = llm_query(
-    instruction="Analyze key events involving this character chronologically. For each event, provide direct quotes as evidence, explain its significance, and note which document it comes from.",
-    content=combined
-)
-FINAL(final_answer)
-```
-
-## Example: Chunk-and-Classify Pattern
-
-For tasks requiring semantic analysis of every item (classification, labeling, counting):
+## Example: Chunk, Classify, and Synthesize
 
 ```repl
 # Phase 1 — Scout: Understand the data format

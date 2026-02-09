@@ -8,7 +8,6 @@ import pytest
 
 from oolong.run_oolong_and_pairs import score_oolong
 
-
 # ---------------------------------------------------------------------------
 # Existing behaviour that must be preserved
 # ---------------------------------------------------------------------------

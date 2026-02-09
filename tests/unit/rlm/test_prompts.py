@@ -317,35 +317,27 @@ def _render_default_prompt() -> str:
     )
 
 
-def test_system_prompt_contains_multi_phase_guidance():
-    """System prompt describes scout, search, and analyze phases."""
+def test_system_prompt_contains_scout_and_analyze_phases():
+    """System prompt describes scout and analyze phases."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 
-    # Must mention all three phases
+    # Must mention scout and analyze phases
     assert "scout" in prompt_lower
-    assert "search" in prompt_lower
     assert "analyze" in prompt_lower
 
 
-def test_system_prompt_contains_keyword_expansion_guidance():
-    """System prompt guides LLM to brainstorm additional search terms."""
+def test_system_prompt_recommends_chunk_classify_synthesize():
+    """System prompt teaches the chunk → llm_query per chunk → buffer → synthesize strategy."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 
-    # Must mention expanding or brainstorming keywords/terms
-    assert "brainstorm" in prompt_lower or "expand" in prompt_lower
-    # Must give examples of informal/alternative search terms
-    assert "hack" in prompt_lower or "workaround" in prompt_lower or "todo" in prompt_lower
-
-
-def test_system_prompt_contains_coverage_verification():
-    """System prompt instructs LLM to check how many documents matched."""
-    prompt = _render_default_prompt()
-    prompt_lower = prompt.lower()
-
-    # Must instruct to check match count or fraction/percentage
-    assert "fraction" in prompt_lower or "percent" in prompt_lower or "coverage" in prompt_lower
+    # Must describe the chunking strategy
+    assert "chunk" in prompt_lower
+    # Must describe querying per chunk
+    assert "per chunk" in prompt_lower or "each chunk" in prompt_lower
+    # Must describe buffer/synthesize pattern
+    assert "buffer" in prompt_lower
 
 
 def test_system_prompt_error_handling_uses_try_except():

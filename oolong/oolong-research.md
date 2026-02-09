@@ -6,6 +6,11 @@ Shesha's RLM scores 0% on OOLONG (trec_coarse) with gpt-5.2. The paper reports
 ~68% for RLM(GPT-5) on the same benchmark. Something is fundamentally wrong with
 how the RLM explores these tasks.
 
+Goal is NOT to increase our OOLONG score. It's to increase our accuracy. That
+will naturally increase our OOLONG score.
+
+You must ALWAYS update this doc with our current research.
+
 ## What OOLONG Requires
 
 The trec_coarse split contains 188 general-knowledge questions per context window.
@@ -145,9 +150,9 @@ This still encourages sub-calls — just batched efficiently.
 - Source priority (code > docs)
 - Document-grounded answer requirement
 
-## Fix Applied
+## Fix #1: Remove sub-call minimization from system prompt
 
-**Status: Complete (prompt change) — needs OOLONG re-run to validate**
+**Status: Applied (commit 8023a6f) — validated, insufficient**
 
 ### What changed
 
@@ -186,9 +191,224 @@ Key additions:
 - Document-grounded answer requirement
 - Subcall instruction quality guidance (avoid brevity, ask for depth)
 
-### Next steps
+---
 
-1. Re-run OOLONG benchmark to validate the fix
-2. Compare traces — model should now use `llm_query()` for classification
-3. If scores improve, this confirms the root cause
-4. Consider cost impact — more sub-calls = higher API cost per query
+## Run #2 Results (2026-02-09 08:08, post-fix #1)
+
+**Score: ~27% (6.75/25)** — up from 0%, but far from the paper's ~68%.
+
+All 25 oolong questions + 1 pairs task completed before keyboard interrupt.
+
+### Full results
+
+| ID | Gold | Predicted | Score | Category |
+|----|------|-----------|-------|----------|
+| 13000009 | human being | cannot be determined from the provided text | 0.0 | label |
+| 13000010 | more common than | same frequency as | 0.0 | comparison |
+| 13000011 | more common than | same frequency as | 0.0 | comparison |
+| 13000012 | less common than | same frequency as | 0.0 | comparison |
+| 13000013 | less common than | same frequency as | 0.0 | comparison |
+| 13000014 | less common than | less common than abbreviation | **1.0** | comparison |
+| 13000015 | less common than | same frequency as | 0.0 | comparison |
+| 13000016 | less common than | same frequency as | 0.0 | comparison |
+| 13000017 | less common than | less common than abbreviation | **1.0** | comparison |
+| 13000018 | less common than | same frequency as | 0.0 | comparison |
+| 13000019 | less common than | same frequency as | 0.0 | comparison |
+| 13000020 | less common than | less common than abbreviation | **1.0** | comparison |
+| 13000021 | less common than | same frequency as | 0.0 | comparison |
+| 13000022 | less common than | less common than abbreviation | **1.0** | comparison |
+| 13000023 | [28] | 0 | 0.0 | count |
+| 13000024 | [23] | 2 | 0.0 | count |
+| 13000025 | [20] | 2 | 0.0 | count |
+| 13000026 | [35] | 0 | 0.0 | count |
+| 13000027 | [40] | 2 | 0.0 | count |
+| 13000028 | [42] | 0 | 0.0 | count |
+| 13000029 | [94706] | User: 94706 | **1.0** | user-id |
+| 13000030 | human being | human | 0.0 | label |
+| 13000031 | human being | human being | **1.0** | label |
+| 13000032 | [1] | 0 | 0.75 | count |
+| 13000033 | [90816] | (long refusal) | 0.0 | user-id |
+
+### Pattern analysis
+
+**What scores 1.0 — and why it's misleading:**
+- **"X is less common than abbreviation"** (IDs 14, 17, 20, 22): The word "abbreviation"
+  appears 11 times in questions like "What is the abbreviation for...", so even a
+  grep-based approach gets these right by accident. All other comparisons still fail.
+- **User ID extraction** (ID 29): Straightforward text lookup, no semantic analysis.
+- **"human being" label** (ID 31): Got this one right but missed ID 30 ("human"
+  instead of "human being" — close miss).
+
+**What still fails — the same core problem:**
+- **Comparison questions**: 10 of 13 wrong, all answering "same frequency as" — the
+  model is still counting substring matches of label names in the header (2 each),
+  not classifying questions semantically.
+- **Count questions**: Gold answers are real label frequencies (28, 23, 20, 35, 40, 42).
+  Model answers 0 or 2 for all of them — still counting header mentions.
+- **ID 13000009**: Now says "cannot be determined from the provided text" instead of
+  guessing wrong. The model *recognizes* it can't answer from text alone, but still
+  doesn't reach for `llm_query()`.
+
+**Per-query timing**: 12-30 seconds each — consistent with zero sub-calls. If the
+model were making `llm_query()` calls, each query would take much longer.
+
+### Conclusion from run #2
+
+The prompt change removed the prohibition against sub-calls, and the model is now
+slightly less confident in its regex approach (ID 9 admits it can't determine the
+label). But it **still isn't using `llm_query()`**. Removing the "don't do X"
+guidance wasn't enough — the model needs stronger positive encouragement or a
+different prompting strategy to actually invoke sub-calls.
+
+### Trace analysis from run #2
+
+**Trace for ID 13000009** ("Which label is least common?"):
+- The model DID use `llm_query()` this time — 1 sub-call (improvement over run #1's zero)
+- But it followed the **Search-then-Analyze** pattern: grepped for keyword matches,
+  combined 16K chars of snippets around label-name mentions, sent those to `llm_query()`
+- The sub-LLM correctly responded "cannot be determined from the provided text" because
+  the keyword excerpts don't contain labeled data — just the label names in the header
+- **1 iteration, 1 sub-call, ~14s** — the model tried the right tool but on the wrong
+  content
+
+**Trace for pairs task** (the 57KB trace — most complex):
+- Model used `llm_query()` 3 times across 3 iterations
+- Iteration 0: crashed (tried `import pandas`, not in sandbox; multiple code blocks
+  cascaded NameErrors)
+- Iteration 1: used `llm_query()` to understand data format (good!), then tried to
+  classify with only 3 labels (NUMERIC-VALUE, LOCATION, OTHER) — too coarse for the
+  task which needs all 6 labels. Also sent empty content to classifier (0 chars)
+  because JSONL parsing failed and the regex extraction code hadn't run yet.
+- Iteration 2: properly parsed data with regex (188 instances extracted!), used keyword
+  heuristics for most classifications, sent only 11 "ambiguous" questions to
+  `llm_query()` for classification. Found 29 eligible users / 406 pairs vs gold 496
+  pairs (f1=0.004 due to precision issues).
+
+**Key findings:**
+1. The model IS now using `llm_query()` — the prompt change worked for encouraging
+   sub-calls
+2. But for **oolong classification questions**, it follows the Search-then-Analyze
+   pattern (grep → excerpts → 1 llm_query on excerpts) instead of the
+   Chunk-and-Classify pattern (classify all 188 entries → aggregate)
+3. The model doesn't grasp that **every question needs semantic classification**. It
+   uses `llm_query()` only as a final analysis step on pre-filtered excerpts, not as
+   the classification mechanism.
+4. For pairs tasks, the model makes a genuine attempt at classification but uses
+   heuristic regex first and only falls back to `llm_query()` for "ambiguous" cases
+   — missing many entries that need semantic judgment.
+
+### Root cause refinement
+
+The prompt provides two example patterns:
+1. **Search-then-Analyze** — grep/regex → combine excerpts → 1 llm_query call
+2. **Chunk-and-Classify** — chunk content → llm_query per chunk → buffer → synthesize
+
+The model **defaults to pattern #1** for all questions, even when pattern #2 is
+appropriate. It treats `llm_query()` as a final-step analyzer rather than a per-item
+classifier. The Search-then-Analyze example appears first and is more detailed, so
+the model anchors on it.
+
+### Next steps (from run #2)
+
+The model needs to **recognize when to use each pattern**. Options:
+
+1. **Reorder/reweight the examples** — put Chunk-and-Classify first since it's the
+   more important pattern for information-dense tasks
+2. **Add explicit decision guidance** — "If the question asks about classification,
+   labeling, or counting across many items, use the Chunk-and-Classify pattern"
+3. **Simplify the prompt radically** — the paper's prompt has NO examples. It just
+   says "chunk → sub-call per chunk → buffer → synthesize." Maybe the detailed
+   examples are doing more harm than good by anchoring on Pattern #1.
+4. **Remove the Search-then-Analyze example entirely** — it may be training the model
+   to default to regex-first approaches. The Chunk-and-Classify pattern subsumes it
+   (you can always search first, then classify the results).
+
+---
+
+## Fix #2: Radical prompt simplification — remove Search-then-Analyze example
+
+**Status: Applied — awaiting benchmark validation**
+
+### Rationale
+
+Run #2 showed the model anchors on whichever example pattern appears first/most
+prominently. The prompt had two patterns:
+
+1. **Search-then-Analyze** (grep → excerpts → 1 llm_query) — appeared first, more
+   detailed, with keyword expansion and coverage checking sub-steps
+2. **Chunk-and-Classify** (chunk → llm_query per chunk → buffer → synthesize) —
+   appeared second, briefer
+
+The model defaulted to pattern #1 for ALL questions, even when pattern #2 was required.
+The paper's prompt has NO examples — it just describes the chunk → sub-call → buffer
+→ synthesize strategy in prose. Our detailed Search-then-Analyze example was actively
+harmful.
+
+### What changed
+
+**`prompts/system.md`** — Radical simplification (176 → 124 lines):
+
+| Before | After |
+|--------|-------|
+| Phase 1 (Scout) + Phase 2 (Search) + Phase 3 (Analyze) | Phase 1 (Scout) + Phase 2 (Analyze) |
+| Search-then-Analyze example (grep → excerpts → 1 llm_query) | **Removed entirely** |
+| Chunk-and-Classify example (second, briefer) | Now the **only** example ("Chunk, Classify, and Synthesize") |
+| Keyword expansion guidance | Removed |
+| Coverage checking (15% threshold) | Removed |
+| Brainstorming step | Removed |
+| "Execute immediately" in Phase 3 | Moved to Phase 2 |
+
+Key text in Phase 2:
+
+> "You are **strongly encouraged to use `llm_query()` as much as possible**. It is
+> especially useful when you need to understand the **semantics** of the content:
+> classification, labeling, comparison, summarization, or any reasoning that goes
+> beyond pattern matching. Code alone cannot determine meaning — use `llm_query()`
+> for that."
+
+> "**Recommended strategy**: Look at the context and figure out a chunking strategy,
+> then break the content into smart chunks, and **query `llm_query()` per chunk**"
+
+### What preserved
+
+- Phase 1 (Scout) — unchanged
+- Security warnings (untrusted content tagging, prompt injection)
+- Error handling patterns (try/except ValueError, chunk and retry)
+- Source priority (code > docs)
+- Document-grounded answer requirement
+- Subcall instruction quality guidance (avoid brevity, ask for depth)
+- Batching efficiency guidance (aim for ~200K-400K chars per call)
+
+**`tests/unit/rlm/test_prompts.py`** — 3 tests updated:
+- `test_system_prompt_contains_multi_phase_guidance` → `test_system_prompt_contains_scout_and_analyze_phases`
+  (no longer checks for "search" phase)
+- `test_system_prompt_contains_keyword_expansion_guidance` → `test_system_prompt_recommends_chunk_classify_synthesize`
+  (checks for "chunk", "per chunk"/"each chunk", "buffer")
+- `test_system_prompt_contains_coverage_verification` → replaced by the chunk_classify test above
+
+**All 24 prompt tests pass. Full suite validation in progress.**
+
+### Hypothesis
+
+By removing the Search-then-Analyze example, the model should no longer anchor on
+regex-first approaches. The only example now shows the correct Chunk-and-Classify
+workflow. Combined with the prose guidance emphasizing semantic analysis and per-chunk
+`llm_query()` calls, the model should:
+
+1. Recognize that OOLONG questions require semantic classification
+2. Use the chunk → llm_query per chunk → buffer → synthesize pattern
+3. Actually classify all 188 entries instead of grep-counting label names in headers
+
+### Expected impact
+
+If the hypothesis is correct:
+- Comparison questions should improve dramatically (from ~4/13 to ~10+/13)
+- Count questions should get real frequencies (28, 23, 20, etc.) instead of 0 or 2
+- Label identification questions should improve
+- Overall score should approach the paper's ~68%
+
+If the hypothesis is wrong, the model may still fall back to code-only approaches
+(regex, string matching) because the "Execute immediately" instruction and the
+general LLM bias toward code solutions may override the prose guidance. In that case,
+we'd need to consider more drastic changes (e.g., few-shot examples in the query
+itself, or modifying the RLM core loop to detect and correct non-semantic approaches).
