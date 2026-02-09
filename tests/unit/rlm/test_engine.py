@@ -421,7 +421,8 @@ class TestRLMEngine:
             )
 
         error_msg = str(exc_info.value)
-        assert "5,000" in error_msg or "5000" in error_msg  # actual size
+        # Size is instruction + content (5000 + len("Summarize this") = 5014)
+        assert "5,014" in error_msg or "5014" in error_msg  # actual size
         assert "1,000" in error_msg or "1000" in error_msg  # limit
         assert "chunk" in error_msg.lower()  # guidance to chunk smaller
         mock_llm_cls.assert_not_called()  # No sub-LLM call made
@@ -460,6 +461,30 @@ class TestRLMEngine:
         # Should return LLM response
         assert result == "Analysis result"
         mock_llm_cls.assert_called_once()  # Sub-LLM was called
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_raises_for_oversized_instruction_when_content_empty(
+        self,
+        mock_llm_cls: MagicMock,
+    ):
+        """Size limit applies to instruction when content is empty (single-arg form)."""
+        from shesha.sandbox.executor import SubcallContentError
+
+        engine = RLMEngine(model="test-model", max_subcall_content_chars=1000)
+        trace = Trace()
+        token_usage = TokenUsage()
+        large_instruction = "x" * 5000  # 5K chars, exceeds 1K limit
+
+        with pytest.raises(SubcallContentError):
+            engine._handle_llm_query(
+                instruction=large_instruction,
+                content="",
+                trace=trace,
+                token_usage=token_usage,
+                iteration=0,
+            )
+
+        mock_llm_cls.assert_not_called()
 
     @patch("shesha.rlm.engine.LLMClient")
     def test_engine_skips_wrapping_when_content_empty(

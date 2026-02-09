@@ -117,10 +117,13 @@ class RLMEngine:
                     StepType.SUBCALL_REQUEST, iteration, step_content, copy.copy(token_usage)
                 )
 
-        # Check content size limit
-        if len(content) > self.max_subcall_content_chars:
+        # Check size limit on the total payload (instruction + content).
+        # Single-arg llm_query passes everything in instruction with content="",
+        # so checking content alone would miss oversized single-arg calls.
+        payload_size = len(instruction) + len(content)
+        if payload_size > self.max_subcall_content_chars:
             error_msg = (
-                f"Content size ({len(content):,} chars) exceeds the sub-LLM limit "
+                f"Content size ({payload_size:,} chars) exceeds the sub-LLM limit "
                 f"of {self.max_subcall_content_chars:,} chars. Please chunk the content "
                 f"into smaller pieces and make multiple llm_query calls."
             )
