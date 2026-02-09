@@ -202,7 +202,7 @@ def test_wrap_repl_output_basic():
 
 
 def test_wrap_repl_output_does_not_truncate():
-    """wrap_repl_output is a pure wrapper — truncation happens per-block via truncate_code_output."""
+    """wrap_repl_output is a pure wrapper, truncation happens per-block."""
     large_output = "x" * 60000  # 60K chars
 
     wrapped = wrap_repl_output(large_output)
