@@ -121,7 +121,7 @@ Imports:
   - from run_oolong_and_pairs import (
       score_oolong, f1_score, parse_pairs_from_text,
       make_pairs_tasks, _parse_labeled_context, _build_user_stats,
-      plot_results, LABELS, CTX_LENS, CACHE_PATH, _human_len,
+      plot_results, CTX_LENS, CACHE_PATH, _human_len,
   )
   - stdlib: argparse, os, sys, time, logging, traceback
   - pandas, datasets
@@ -135,6 +135,7 @@ Functions:
   - _setup_logging()           — own logger to ref-last-run.log
   - status(msg)                — own status function using oolong_ref logger
   - _parse_args()              — --model, --fast (no-op for reference)
+  - _parse_model(model_arg)    — split LiteLLM-style into (backend, model_name)
   - _extract_total_tokens(us)  — sum input+output across all models
   - call_ref_rlm(question, context, rlm_instance) -> (answer, tokens)
   - main()                     — mirrors run_oolong_and_pairs.main()
@@ -186,5 +187,8 @@ PLOT_ONLY=1 python oolong/run_reference_implementation.py
   `verbose=False` to avoid flooding stdout.
 - **Combined plotting** — Separate output files. Merging CSVs for a combined
   plot is a separate step if needed.
-- **Shesha imports** — This file does NOT import from `shesha`. Only from
-  `run_oolong_and_pairs` (scoring) and `rlm` (reference package).
+- **Shesha imports** — This file does not directly import from `shesha`. It
+  imports from `run_oolong_and_pairs` (scoring) and `rlm` (reference package).
+  Note: `run_oolong_and_pairs` transitively imports `shesha` at module level,
+  so shesha must be installed. This is fine since this runner lives in the
+  shesha project.

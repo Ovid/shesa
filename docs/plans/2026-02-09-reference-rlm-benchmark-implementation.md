@@ -29,7 +29,7 @@ Expected: `OK: <class 'rlm.core.rlm.RLM'>`
 
 **Step 3: Verify scoring imports from existing runner work**
 
-Run: `python -c "import sys; sys.path.insert(0, 'oolong'); from run_oolong_and_pairs import score_oolong, f1_score, parse_pairs_from_text, make_pairs_tasks, plot_results, LABELS, CTX_LENS, CACHE_PATH, _human_len, _parse_labeled_context, _build_user_stats; print('OK: all imports')"`
+Run: `python -c "import sys; sys.path.insert(0, 'oolong'); from run_oolong_and_pairs import score_oolong, f1_score, parse_pairs_from_text, make_pairs_tasks, plot_results, CTX_LENS, CACHE_PATH, _human_len, _parse_labeled_context, _build_user_stats; print('OK: all imports')"`
 Expected: `OK: all imports`
 
 ---
