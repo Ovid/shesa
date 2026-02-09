@@ -1138,3 +1138,163 @@ a permanent diagnostic tool. Going forward:
 3. **Target: Shesha within 10% of reference** — if Shesha reaches ~50%+ on
    OOLONG, the architecture is working correctly and remaining gaps are
    optimization
+
+---
+
+## Fix #5: Full engine rewrite for reference RLM parity (2026-02-09)
+
+**Status: Applied — 9 structural changes implemented and validated**
+
+**Design doc:** `docs/plans/2026-02-09-engine-rewrite-design.md`
+**Implementation plan:** `docs/plans/2026-02-09-engine-rewrite-implementation.md`
+
+### Rationale
+
+After 5 runs and 4 incremental fixes, the conclusion was that Shesha needed
+**full structural alignment** with the reference RLM, not more prompt tweaking.
+The reference's 5 architectural forcing functions all work together — partial
+implementation wasn't enough.
+
+### Changes (9 tasks)
+
+1. **SHOW_VARS in sandbox** — Added `SHOW_VARS()` function and `_list_vars()`
+   to `runner.py`. REPL variables now reported after each code block execution.
+
+2. **vars field on ExecutionResult** — `executor.py` now passes `vars` dict
+   (variable name → type) from sandbox to engine.
+
+3. **System prompt verbatim from reference** — `prompts/system.md` replaced
+   entirely with the reference RLM_SYSTEM_PROMPT from
+   `rlm/rlm/utils/prompts.py:7-90`. Includes SHOW_VARS, FINAL_VAR,
+   llm_query_batched documentation, and 4 examples.
+
+4. **All prompt templates aligned** — `iteration_zero.md` (safeguard + think
+   step-by-step), `iteration_continue.md` (history context + sub-LLM reminder),
+   `context_metadata.md` (context_type, context_lengths).
+
+5. **Code echo with REPL variables** — `format_code_echo()` now includes
+   variable listing. Removed `wrap_repl_output()` (XML tags replaced with plain
+   "REPL output:" format matching reference).
+
+6. **Code block regex: repl only** — Changed from `python|repl` to `repl` only.
+
+7. **FINAL_VAR handling** — Engine now detects `result.final_var` from executor
+   and uses `result.final_value` as the answer.
+
+8. **Max-iterations LLM fallback** — Instead of hardcoded failure string, engine
+   asks LLM for one last answer (matching reference `_default_answer()`).
+
+9. **Per-block code echo as separate messages** — Each code block's output sent
+   as separate user message with code echo, matching reference
+   `format_iteration()`.
+
+### Docker rebuild required
+
+`runner.py` is COPY'd into the Docker image. Must rebuild with `--no-cache`:
+```bash
+docker build --no-cache -t shesha-sandbox src/shesha/sandbox/
+```
+
+---
+
+## Bug Fix: Bare FINAL_VAR detection (2026-02-10)
+
+**Status: Applied — root cause of benchmark slowness**
+
+### Symptom
+
+First OOLONG query took **25+ minutes** (burned all 40 iterations). Reference
+implementation completed the same query in ~30 seconds.
+
+### Root cause (systematic debugging)
+
+Trace analysis revealed the model outputs bare `FINAL_VAR(my_answer)` as plain
+text (without a ````repl` block) at iterations 8, 17, and 32. The engine's regex
+(`r"```repl\s*\n(.*?)\n```"`) only extracts code from ````repl` blocks, so these
+FINAL calls were invisible. The engine sent "code required" nudges and the loop
+continued through all 40 iterations.
+
+The reference RLM has `find_final_answer()` (`rlm/rlm/utils/parsing.py:29-63`)
+that regex-scans the raw response text for bare `FINAL(...)` / `FINAL_VAR(...)`
+patterns **independently of code block extraction**. This is called at line 240
+of `rlm/rlm/core/rlm.py`, after code execution but before deciding whether to
+continue the loop.
+
+### Fix
+
+Added `find_final_answer()` to `engine.py`:
+- Strips ````repl` blocks from text first (those are handled by executor)
+- Regex scans for `^\s*FINAL_VAR\((.*?)\)` and `^\s*FINAL\("(.*?)"\)`
+- For `FINAL_VAR`, executes `print(var_name)` in sandbox to retrieve value
+- Integrated into engine loop before code block extraction
+
+Also reduced `SHESHA_MAX_ITER` default in benchmark runner from 40 to 30
+(matching reference RLM's default).
+
+### Impact
+
+- Query time: **25 min → 34 seconds** (first query)
+- The model now terminates at iteration 8 instead of burning through 40
+- Score on first query: **1.00** (correct answer)
+
+### Tests
+
+8 new tests (6 unit for `find_final_answer`, 2 integration for engine
+detection). All 1022 tests pass with `make all`.
+
+---
+
+## Run #8 Results (2026-02-10 00:04, post-fix #5 + bare FINAL fix)
+
+**First query: score=1.00, 34s, 10K tokens** — massive improvement.
+
+```
+[00:04:53] 1/360  8K  rlm:ool  score=1.00  (34s)  acc=100%(1)  tok=10K  ETA 3h26m
+```
+
+Run was accidentally cancelled after the first result. Second attempt showed
+the model choosing a different strategy (188 sequential `llm_query()` subcalls
+to classify each question individually), taking 482s:
+
+```
+[00:19:15] 1/360  8K  rlm:ool  score=1.00  (482s)  acc=100%(1)  tok=53K  ETA 48h04m
+```
+
+Both runs scored 1.00 — the engine is producing correct answers. The variance
+is in **model strategy**: sometimes it classifies via code (34s), sometimes via
+188 sequential `llm_query()` calls (482s). Both are valid approaches that
+produce correct results, but the sequential subcall approach is too slow for
+a full benchmark in `deep` mode.
+
+### Key findings
+
+1. **The bare FINAL fix was critical** — without it, the engine burned 40
+   iterations (25 min) because `FINAL_VAR(x)` as bare text was invisible
+2. **The engine rewrite works** — correct answers, proper iteration behavior,
+   REPL variables tracked, code echo working
+3. **Strategy variance is high** — the model's choice between code-only
+   classification and llm_query-per-item classification dramatically affects
+   runtime but both produce correct answers
+4. **`--fast` mode recommended for benchmarking** — parallelizes
+   `llm_query_batched()` calls, turning 8 min of sequential subcalls into ~10s
+
+### Updated run summary
+
+| Run | Runner | Model | Fix | Score | Time/query | Core Behavior |
+|-----|--------|-------|-----|-------|------------|---------------|
+| #1 | Shesha | gpt-5.2 | Baseline | 0% | 8s | Pure regex, zero llm_query() |
+| #2 | Shesha | gpt-5.2 | Encouragement | 27% | 12-30s | 1 llm_query() on wrong content |
+| #3 | Shesha | gpt-5.2 | Simplified examples | 24% | 10-25s | No change |
+| #4 | Shesha | gpt-5.2 | Reference alignment | ~12.5% F1 | unknown | More iterations, incomplete |
+| #5 | Shesha | gpt-5.2 | Structural forcing | ~28% | 8-25s | Mixed — some correct, inconsistent |
+| #6 | Reference | gpt-5-mini | N/A | ~59% | 40-180s | Real semantic classification |
+| #7 | Reference | gpt-5.2 | N/A | 60% | 40-180s | Real semantic classification |
+| **#8** | **Shesha** | **gpt-5-mini** | **Engine rewrite + bare FINAL fix** | **100% (1 query)** | **34-482s** | **Correct classification, strategy varies** |
+
+### Next steps
+
+1. **Run full benchmark with `--fast`** — parallelized subcalls for reasonable
+   ETA. This is the fair comparison against reference runs #6/#7.
+2. **Compare full results** — target is within 10% of reference (~60%).
+3. **If score is close to reference** — the engine rewrite is complete.
+4. **If score is still low** — investigate per-query strategy consistency.

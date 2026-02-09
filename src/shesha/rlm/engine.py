@@ -58,6 +58,38 @@ def extract_code_blocks(text: str) -> list[str]:
     return matches
 
 
+def find_final_answer(text: str) -> tuple[str, str] | None:
+    """Find bare FINAL(...) or FINAL_VAR(...) in response text outside code blocks.
+
+    Matches the reference RLM's find_final_answer (rlm/rlm/utils/parsing.py:29-63).
+    The model sometimes outputs FINAL_VAR(x) as bare text instead of inside a
+    ```repl block. This function catches those cases.
+
+    Returns:
+        ("final", answer_string) for FINAL("...")
+        ("final_var", variable_name) for FINAL_VAR(...)
+        None if no pattern found
+    """
+    # Strip code blocks so we don't match FINAL inside ```repl blocks
+    # (those are handled by the executor)
+    stripped = re.sub(r"```repl\s*\n.*?\n```", "", text, flags=re.DOTALL)
+
+    # Check FINAL_VAR first (more specific pattern)
+    final_var_pattern = r"^\s*FINAL_VAR\((.*?)\)"
+    match = re.search(final_var_pattern, stripped, re.MULTILINE | re.DOTALL)
+    if match:
+        var_name = match.group(1).strip().strip('"').strip("'")
+        return ("final_var", var_name)
+
+    # Check FINAL pattern
+    final_pattern = r'^\s*FINAL\("(.*?)"\)'
+    match = re.search(final_pattern, stripped, re.MULTILINE | re.DOTALL)
+    if match:
+        return ("final", match.group(1).strip())
+
+    return None
+
+
 class RLMEngine:
     """The RLM engine - runs the REPL+LLM loop."""
 
@@ -467,6 +499,46 @@ class RLMEngine:
                         response.content,
                         copy.copy(token_usage),
                     )
+
+                # Check for bare FINAL/FINAL_VAR in response text (outside code blocks).
+                # The model sometimes outputs FINAL_VAR(x) as bare text without a
+                # ```repl block. Matches reference rlm/rlm/core/rlm.py:240.
+                bare_final = find_final_answer(response.content)
+                if bare_final is not None:
+                    final_type, final_value = bare_final
+                    if final_type == "final_var":
+                        # Retrieve variable value from sandbox
+                        retrieve_result = executor.execute(
+                            f"print({final_value})", timeout=self.execution_timeout
+                        )
+                        bare_answer = (
+                            retrieve_result.stdout.strip() if retrieve_result.stdout else ""
+                        )
+                    else:
+                        bare_answer = final_value
+
+                    step = trace.add_step(
+                        type=StepType.FINAL_ANSWER,
+                        content=bare_answer,
+                        iteration=iteration,
+                    )
+                    _write_step(step)
+                    if on_progress:
+                        on_progress(
+                            StepType.FINAL_ANSWER,
+                            iteration,
+                            bare_answer,
+                            copy.copy(token_usage),
+                        )
+
+                    query_result = QueryResult(
+                        answer=bare_answer,
+                        trace=trace,
+                        token_usage=token_usage,
+                        execution_time=time.time() - start_time,
+                    )
+                    _finalize_trace(bare_answer, "success")
+                    return query_result
 
                 # Extract code blocks
                 code_blocks = extract_code_blocks(response.content)

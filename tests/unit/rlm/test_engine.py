@@ -2005,6 +2005,152 @@ class TestHandleLlmQueryThreadSafety:
         assert token_usage.completion_tokens == n_calls * 5
 
 
+class TestFindFinalAnswerInText:
+    """Tests for find_final_answer detecting bare FINAL/FINAL_VAR in response text."""
+
+    def test_find_final_answer_bare_final(self):
+        """Detects bare FINAL("answer") outside code blocks."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = 'FINAL("human being")'
+        result = find_final_answer(text)
+        assert result == ("final", "human being")
+
+    def test_find_final_answer_bare_final_var(self):
+        """Detects bare FINAL_VAR(var_name) outside code blocks."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = "FINAL_VAR(my_answer)"
+        result = find_final_answer(text)
+        assert result == ("final_var", "my_answer")
+
+    def test_find_final_answer_returns_none_for_no_match(self):
+        """Returns None when no FINAL pattern is present."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = "Let me continue exploring the data."
+        result = find_final_answer(text)
+        assert result is None
+
+    def test_find_final_answer_ignores_inside_repl_block(self):
+        """Does NOT match FINAL inside a ```repl block (handled by executor)."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = '```repl\nFINAL("answer")\n```'
+        result = find_final_answer(text)
+        assert result is None
+
+    def test_find_final_answer_with_leading_whitespace(self):
+        """FINAL at start of line with whitespace is detected."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = '  FINAL("the answer")'
+        result = find_final_answer(text)
+        assert result == ("final", "the answer")
+
+    def test_find_final_answer_strips_quotes_from_var(self):
+        """FINAL_VAR with quoted variable name strips quotes."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = 'FINAL_VAR("my_var")'
+        result = find_final_answer(text)
+        assert result == ("final_var", "my_var")
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_detects_bare_final_var_in_response(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine detects bare FINAL_VAR(x) and retrieves variable from sandbox."""
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            # Iteration 0: set up variable
+            MagicMock(
+                content='```repl\nmy_answer = "human being"\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Iteration 1: bare FINAL_VAR (no repl block)
+            MagicMock(
+                content="FINAL_VAR(my_answer)",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # Iteration 0: code execution (no FINAL)
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer=None,
+                final_var=None,
+                vars={"my_answer": "str"},
+            ),
+            # Iteration 1: executor retrieves variable value
+            MagicMock(
+                status="ok",
+                stdout="human being",
+                stderr="",
+                error=None,
+                final_answer=None,
+                final_var=None,
+                vars=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["Doc content"],
+            question="What is the least common label?",
+        )
+
+        assert result.answer == "human being"
+        # Should only take 2 LLM calls, not burn through all 5 iterations
+        assert mock_llm.complete.call_count == 2
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_detects_bare_final_in_response(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine detects bare FINAL("string") and uses it as answer."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='FINAL("the answer is 42")',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["Doc content"],
+            question="What?",
+        )
+
+        assert result.answer == "the answer is 42"
+        # Only 1 LLM call needed
+        assert mock_llm.complete.call_count == 1
+
+
 class TestMaxIterationsFallback:
     """Tests for max-iterations LLM fallback."""
 

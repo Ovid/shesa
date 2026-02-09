@@ -79,6 +79,9 @@ Usage examples:
 
   # Re-plot after a previous run
   PLOT_ONLY=1 python oolong/run_oolong_and_pairs.py
+
+Note: if this is your first time running on the Docker container, it will
+appear to hang for ten or fifteen minutes while it's downloading.
 """
 
 import argparse
@@ -735,7 +738,7 @@ def main() -> None:
             model=model,
             api_key=os.getenv("SHESHA_API_KEY"),
             storage_path=os.getenv("SHESHA_STORAGE", "./shesha_data"),
-            max_iterations=int(os.getenv("SHESHA_MAX_ITER", "40")),
+            max_iterations=int(os.getenv("SHESHA_MAX_ITER", "30")),
         )
         sh = Shesha(config=cfg)
         log.info("Shesha initialized: %s", cfg)
