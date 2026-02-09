@@ -52,8 +52,8 @@ class QueryResult:
 
 
 def extract_code_blocks(text: str) -> list[str]:
-    """Extract code from ```repl or ```python blocks."""
-    pattern = r"```(?:repl|python)\n(.*?)```"
+    """Extract code from ```repl blocks."""
+    pattern = r"```repl\s*\n(.*?)\n```"
     matches = re.findall(pattern, text, re.DOTALL)
     return matches
 
@@ -483,6 +483,7 @@ class RLMEngine:
 
                 # Execute code blocks
                 all_output = []
+                exec_results = []
                 final_answer = None
 
                 for code in code_blocks:
@@ -514,6 +515,7 @@ class RLMEngine:
                         on_progress(StepType.CODE_OUTPUT, iteration, output, copy.copy(token_usage))
 
                     all_output.append(output)
+                    exec_results.append(result)
 
                     # Check for final answer (use `is not None` to catch falsy
                     # values like FINAL(0), FINAL(""), FINAL(False))
@@ -525,6 +527,22 @@ class RLMEngine:
                             if isinstance(result.final_answer, str)
                             else str(result.final_answer)
                         )
+                        step = trace.add_step(
+                            type=StepType.FINAL_ANSWER,
+                            content=final_answer,
+                            iteration=iteration,
+                        )
+                        _write_step(step)
+                        if on_progress:
+                            on_progress(
+                                StepType.FINAL_ANSWER,
+                                iteration,
+                                final_answer,
+                                copy.copy(token_usage),
+                            )
+                        break
+                    elif result.final_var is not None:
+                        final_answer = result.final_value or ""
                         step = trace.add_step(
                             type=StepType.FINAL_ANSWER,
                             content=final_answer,
@@ -637,11 +655,13 @@ class RLMEngine:
 
                 # Add assistant response, then per-block code echo messages
                 messages.append({"role": "assistant", "content": response.content})
-                for code, output in zip(code_blocks, all_output):
+                for code_block, output, exec_result in zip(
+                    code_blocks, all_output, exec_results
+                ):
                     messages.append(
                         {
                             "role": "user",
-                            "content": format_code_echo(code, output),
+                            "content": format_code_echo(code_block, output, exec_result.vars),
                         }
                     )
 
@@ -655,8 +675,26 @@ class RLMEngine:
                     }
                 )
 
-            # Max iterations reached
-            answer = "[Max iterations reached without final answer]"
+            # Max iterations reached — ask LLM for one last answer
+            fallback_messages = messages + [
+                {
+                    "role": "assistant",
+                    "content": "Please provide a final answer to the user's question "
+                    "based on the information provided.",
+                }
+            ]
+            response = llm.complete(messages=fallback_messages)
+            token_usage.prompt_tokens += response.prompt_tokens
+            token_usage.completion_tokens += response.completion_tokens
+            answer = response.content
+
+            step = trace.add_step(
+                type=StepType.FINAL_ANSWER,
+                content=f"[max-iter fallback] {answer}",
+                iteration=self.max_iterations - 1,
+            )
+            _write_step(step)
+
             query_result = QueryResult(
                 answer=answer,
                 trace=trace,

@@ -24,14 +24,13 @@ And more text."""
     assert 'print("hello")' in blocks[0]
 
 
-def test_extract_code_blocks_finds_python():
-    """extract_code_blocks also finds ```python blocks."""
+def test_extract_code_blocks_ignores_python():
+    """extract_code_blocks only matches ```repl blocks, not ```python."""
     text = """```python
 x = 1
 ```"""
     blocks = extract_code_blocks(text)
-    assert len(blocks) == 1
-    assert "x = 1" in blocks[0]
+    assert len(blocks) == 0
 
 
 def test_query_result_dataclass():
@@ -885,6 +884,44 @@ class TestRLMEngine:
         # Only 1 LLM call (main query), no verification calls
         assert mock_llm.complete.call_count == 1
 
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_handles_final_var(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine handles FINAL_VAR by using final_value from executor."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL_VAR("my_answer")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer=None,
+            final_var="my_answer",
+            final_value="The computed answer",
+            vars=None,
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")
+        result = engine.query(
+            documents=["Doc content"],
+            question="What is the answer?",
+        )
+
+        assert result.answer == "The computed answer"
+
 
 class TestIterationQueryReminder:
     """Tests for query reminder appended to iteration messages."""
@@ -927,6 +964,7 @@ class TestIterationQueryReminder:
                 error=None,
                 final_answer=None,
                 final_var=None,
+                vars=None,
             ),
             # Iteration 1: FINAL
             MagicMock(
@@ -936,6 +974,7 @@ class TestIterationQueryReminder:
                 error=None,
                 final_answer="done",
                 final_var=None,
+                vars=None,
             ),
         ]
         mock_executor_cls.return_value = mock_executor
@@ -1011,9 +1050,23 @@ class TestCallbackIterationCapture:
                 if handler and callable(handler):
                     handler("summarize", "data")
                 return MagicMock(
-                    status="ok", stdout="hello", stderr="", error=None, final_answer=None
+                    status="ok",
+                    stdout="hello",
+                    stderr="",
+                    error=None,
+                    final_answer=None,
+                    final_var=None,
+                    vars=None,
                 )
-            return MagicMock(status="ok", stdout="", stderr="", error=None, final_answer="done")
+            return MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="done",
+                final_var=None,
+                vars=None,
+            )
 
         mock_executor.execute.side_effect = mock_execute
 
@@ -1506,6 +1559,8 @@ class TestEngineTraceWriting:
             stderr="",
             error=None,
             final_answer=None,  # No final answer, loop continues
+            final_var=None,
+            vars=None,
         )
         mock_executor_cls.return_value = mock_executor
 
@@ -1948,3 +2003,58 @@ class TestHandleLlmQueryThreadSafety:
         # Token counts should reflect all calls
         assert token_usage.prompt_tokens == n_calls * 10
         assert token_usage.completion_tokens == n_calls * 5
+
+
+class TestMaxIterationsFallback:
+    """Tests for max-iterations LLM fallback."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_max_iterations_asks_llm_for_final_answer(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """When max iterations reached, engine asks LLM for one last answer."""
+        mock_llm = MagicMock()
+        responses = [
+            MagicMock(
+                content='```repl\nprint("exploring")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            MagicMock(
+                content='```repl\nprint("still exploring")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            MagicMock(
+                content="The answer is 42 based on my analysis.",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm.complete.side_effect = responses
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="output",
+            stderr="",
+            error=None,
+            final_answer=None,
+            final_var=None,
+            vars=None,
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=2)
+        result = engine.query(documents=["Doc"], question="What?")
+
+        assert result.answer == "The answer is 42 based on my analysis."
+        assert mock_llm.complete.call_count == 3
