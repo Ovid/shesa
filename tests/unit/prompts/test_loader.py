@@ -46,9 +46,7 @@ def test_loader_validates_on_init(tmp_path: Path):
 
     # Missing required placeholder (max_subcall_chars)
     (prompts_dir / "system.md").write_text("Missing placeholders")
-    (prompts_dir / "context_metadata.md").write_text(
-        "{doc_count} {total_chars:,} {doc_sizes_list}"
-    )
+    (prompts_dir / "context_metadata.md").write_text("{doc_count} {total_chars:,} {doc_sizes_list}")
     (prompts_dir / "iteration_zero.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text("{instruction}\n{content}")
     (prompts_dir / "code_required.md").write_text("Write code.")
@@ -136,9 +134,7 @@ def test_loader_succeeds_without_optional_verify_files(tmp_path: Path):
     prompts_dir.mkdir()
 
     (prompts_dir / "system.md").write_text("Limit: {max_subcall_chars:,}")
-    (prompts_dir / "context_metadata.md").write_text(
-        "{doc_count} {total_chars:,} {doc_sizes_list}"
-    )
+    (prompts_dir / "context_metadata.md").write_text("{doc_count} {total_chars:,} {doc_sizes_list}")
     (prompts_dir / "iteration_zero.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
@@ -156,9 +152,7 @@ def test_loader_render_verify_adversarial_raises_when_not_loaded(tmp_path: Path)
     prompts_dir.mkdir()
 
     (prompts_dir / "system.md").write_text("{max_subcall_chars:,}")
-    (prompts_dir / "context_metadata.md").write_text(
-        "{doc_count} {total_chars:,} {doc_sizes_list}"
-    )
+    (prompts_dir / "context_metadata.md").write_text("{doc_count} {total_chars:,} {doc_sizes_list}")
     (prompts_dir / "iteration_zero.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
@@ -176,9 +170,7 @@ def test_loader_render_verify_code_raises_when_not_loaded(tmp_path: Path):
     prompts_dir.mkdir()
 
     (prompts_dir / "system.md").write_text("{max_subcall_chars:,}")
-    (prompts_dir / "context_metadata.md").write_text(
-        "{doc_count} {total_chars:,} {doc_sizes_list}"
-    )
+    (prompts_dir / "context_metadata.md").write_text("{doc_count} {total_chars:,} {doc_sizes_list}")
     (prompts_dir / "iteration_zero.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"

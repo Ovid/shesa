@@ -15,8 +15,7 @@ def truncate_code_output(output: str, max_chars: int = 20_000) -> str:
     if len(output) <= max_chars:
         return output
     return (
-        output[:max_chars]
-        + f"\n[Output truncated to {max_chars:,} of {len(output):,} characters. "
+        output[:max_chars] + f"\n[Output truncated to {max_chars:,} of {len(output):,} characters. "
         f"Use llm_query() to analyze content you cannot see.]"
     )
 
