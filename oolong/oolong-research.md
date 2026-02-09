@@ -643,3 +643,110 @@ docker build -t shesha-sandbox src/shesha/sandbox/
 # Then run benchmark
 python oolong/run_oolong_and_pairs.py --model openai/gpt-5-mini
 ```
+
+---
+
+## Run #4 Results (2026-02-09 13:16, post-fix #3)
+
+**Only a pairs task result survived in `last-run.log`** (the log file is mostly null
+bytes — likely a sparse/truncated write). The single meaningful line:
+
+```
+2026-02-09 13:16:21,959 DEBUG    pairs rlm t=16 f1=0.125 |pred|=1 |gold|=15
+```
+
+### Pairs task analysis
+
+| Metric | Value | Interpretation |
+|--------|-------|----------------|
+| F1 | 0.125 | Very low — barely matching gold |
+| \|pred\| | 1 | RLM produced only 1 user pair |
+| \|gold\| | 15 | 15 pairs expected |
+| Iterations (t) | 16 | Used 16 of 40 max iterations |
+
+The RLM found 1 correct pair out of 15. With precision=1.0 (the 1 pair it found was
+correct) and recall=1/15≈0.067, F1 = 2×1.0×0.067/(1.0+0.067) ≈ 0.125.
+
+Compare to run #2's pairs result: f1=0.004, |pred|=406, |gold|=496. Run #2 had the
+opposite problem — way too many predictions (low precision). Run #4 has high precision
+but near-zero recall.
+
+### What this tells us about fix #3
+
+The iteration count (16, vs 1 in runs #1-#3 for oolong questions) suggests the model
+IS now iterating more — it's not immediately jumping to FINAL(). The iteration query
+reminder ("Continue using the REPL to answer: {query}") and truncation warnings may
+be having some effect on encouraging multi-step reasoning.
+
+However, the single-pair output suggests the model is still not classifying all entries
+semantically. It likely classified a small subset (or only found 1 qualifying pair via
+partial classification) rather than processing all 188 entries through `llm_query()`.
+
+### Incomplete data caveat
+
+The log is corrupted (null bytes filling most of the file). We don't have:
+- Full oolong question scores (the 25 classification/comparison/count questions)
+- Trace details showing what code the RLM generated
+- Whether `llm_query()` / `llm_query_batched()` were actually used and how
+
+**To get full results, the benchmark needs to be re-run with clean logging.**
+
+---
+
+## Current Status & Problem Summary (2026-02-09)
+
+### The core problem
+
+Shesha's RLM scores **~24-27% on OOLONG** (classification/comparison questions) and
+**F1≈0.004-0.125 on OOLONG-Pairs**. The paper reports **~68% on OOLONG** and
+**23-58% on OOLONG-Pairs** for RLM(GPT-5).
+
+The root cause: **the model prefers code-only solutions (regex, string matching) over
+semantic classification via `llm_query()`**. OOLONG requires classifying every entry
+into 1 of 6 semantic labels (the labels are NOT in the data — each entry is a
+general-knowledge question like "Where is Glasgow?" that must be classified as
+"location"). The model instead greps for label name strings in headers/footers and
+counts those literal matches.
+
+### What we've tried (4 prompt iterations)
+
+| Fix | What Changed | Score | Core Behavior Change |
+|-----|-------------|-------|---------------------|
+| Baseline | "Minimize sub-calls, 1-3 max" | 0% | Pure regex, zero llm_query() |
+| Fix #1 | Removed prohibition, added encouragement | 27% | 1 llm_query() on wrong content (excerpts not full data) |
+| Fix #2 | Removed Search-then-Analyze example entirely | 24% | No change — model still defaults to regex |
+| Fix #3 | Aligned with reference: 4 examples, llm_query_batched, truncation warning, iteration reminder | ~12.5% F1 (pairs only, incomplete) | More iterations (16 vs 1), but still not classifying all entries |
+
+### Why prompt tuning isn't enough
+
+Two key observations after 4 runs:
+1. **gpt-5.2 has a strong code-first bias** — given a Python REPL, it prefers regex/string
+   ops over delegating to `llm_query()`, even when the prompt explicitly says to use it
+2. **The model treats `llm_query()` as a final-step analyzer**, not a per-item classifier —
+   it greps first, then sends excerpts to `llm_query()`, instead of sending raw chunks
+   for classification
+
+### Untested approaches (next steps)
+
+**Option A: Try a different model** (zero code change, highest signal)
+```bash
+python oolong/run_oolong_and_pairs.py --model anthropic/claude-sonnet-4-5-20250929
+python oolong/run_oolong_and_pairs.py --model openai/gpt-4o
+```
+If Claude or another model follows the Chunk-and-Classify guidance correctly, the
+problem is model behavior, not our prompt. The paper found Qwen3-Coder uses sub-calls
+more aggressively than GPT-5 — model choice matters.
+
+**Option B: Task-level prompt injection** (moderate change)
+Prepend classification guidance to the query itself, not just the system prompt:
+> "This task requires semantic classification of every entry. You MUST use
+> `llm_query()` to classify entries in chunks — code alone cannot determine semantic
+> categories."
+This goes in the benchmark runner (`run_oolong_and_pairs.py`), not the system prompt.
+
+**Option C: RLM loop intervention** (most invasive)
+Add a detector in the RLM loop that notices when the model writes regex-based
+classification code and injects a corrective message. Risks overfitting to OOLONG.
+
+**Recommendation: Start with Option A** — it's the cheapest experiment and gives the
+most signal about whether the problem is model-specific or architectural.
