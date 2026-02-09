@@ -556,23 +556,29 @@ def make_pairs_tasks(
 # ---------------------------------------------------------------------------
 
 
-def call_base(prompt: str, model: str) -> str:
+def call_base(prompt: str, model: str) -> tuple[str, int]:
+    """Run a single-shot base model call. Returns (answer_string, total_tokens_used)."""
     resp = completion(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
     )
-    return resp["choices"][0]["message"]["content"]
+    tokens = resp.get("usage", {}).get("total_tokens", 0) or 0
+    return resp["choices"][0]["message"]["content"], tokens
 
 
-def call_rlm(question: str, project) -> str:
+def call_rlm(question: str, project) -> tuple[str, int]:
+    """Run an RLM query. Returns (answer_string, total_tokens_used)."""
     result = project.query(question)
     # The sandbox FINAL() accepts any type; coerce to str for scoring.
     answer = result.answer
     if not isinstance(answer, str):
-        log.debug("RLM returned non-string answer (%s), coercing: %r", type(answer).__name__, answer)
+        log.debug(
+            "RLM returned non-string answer (%s), coercing: %r",
+            type(answer).__name__, answer,
+        )
         answer = str(answer)
-    return answer
+    return answer, result.token_usage.total_tokens
 
 
 # ---------------------------------------------------------------------------
@@ -711,20 +717,46 @@ def main() -> None:
             total_steps += 20 * n_modes       # pairs tasks per window
     step = 0
     step_times: list[float] = []  # durations for ETA
+    cumulative_scores: list[float] = []  # running oolong scores for success rate
+    cumulative_tokens: int = 0  # running total tokens
 
-    def _progress(label: str, ctx: str, score: float, dur: float) -> None:
-        nonlocal step
+    def _fmt_tokens(n: int) -> str:
+        if n >= 1_000_000:
+            return f"{n / 1_000_000:.1f}M"
+        if n >= 1_000:
+            return f"{n / 1_000:.0f}K"
+        return str(n)
+
+    def _progress(
+        label: str, ctx: str, score: float, dur: float, tokens: int = 0,
+    ) -> None:
+        nonlocal step, cumulative_tokens
         step += 1
         step_times.append(dur)
+        cumulative_tokens += tokens
         avg = sum(step_times) / len(step_times)
         eta_s = avg * (total_steps - step)
         eta_m, eta_sec = divmod(int(eta_s), 60)
         eta_h, eta_m = divmod(eta_m, 60)
         ts = datetime.now().strftime("%H:%M:%S")
         eta_str = f"{eta_h}h{eta_m:02d}m" if eta_h else f"{eta_m}m{eta_sec:02d}s"
+
+        # Running success rate for oolong questions only
+        if "ool" in label:
+            cumulative_scores.append(score)
+        n_scored = len(cumulative_scores)
+        if n_scored > 0:
+            pct = 100 * sum(cumulative_scores) / n_scored
+            acc_str = f"acc={pct:.0f}%({n_scored})"
+        else:
+            acc_str = ""
+
+        tok_str = f"tok={_fmt_tokens(cumulative_tokens)}" if cumulative_tokens else ""
+
         print(
             f"  [{ts}] {step}/{total_steps}  {ctx}  {label}  "
-            f"score={score:.2f}  ({dur:.0f}s)  ETA {eta_str}",
+            f"score={score:.2f}  ({dur:.0f}s)  "
+            f"{acc_str}  {tok_str}  ETA {eta_str}",
             flush=True,
         )
 
@@ -779,7 +811,7 @@ def main() -> None:
                     if run_base:
                         t_q = time.monotonic()
                         try:
-                            pred = call_base(prompt, model)
+                            pred, toks = call_base(prompt, model)
                             s = score_oolong(pred, row["answer"])
                             ool_base.append(s)
                             results.append({
@@ -790,7 +822,7 @@ def main() -> None:
                                 "task_id": row["id"],
                                 "score": s,
                             })
-                            _progress("base:ool", hl, s, time.monotonic() - t_q)
+                            _progress("base:ool", hl, s, time.monotonic() - t_q, toks)
                             log.debug(
                                 "oolong base id=%s score=%.1f gold=%r pred=%r",
                                 row["id"], s, row["answer"], pred[:200],
@@ -805,7 +837,7 @@ def main() -> None:
                     if run_rlm and rlm_project is not None:
                         t_q = time.monotonic()
                         try:
-                            pred = call_rlm(row["question"], rlm_project)
+                            pred, toks = call_rlm(row["question"], rlm_project)
                             s = score_oolong(pred, row["answer"])
                             ool_rlm.append(s)
                             results.append({
@@ -816,7 +848,7 @@ def main() -> None:
                                 "task_id": row["id"],
                                 "score": s,
                             })
-                            _progress("rlm:ool", hl, s, time.monotonic() - t_q)
+                            _progress("rlm:ool", hl, s, time.monotonic() - t_q, toks)
                             log.debug(
                                 "oolong rlm id=%s score=%.1f gold=%r pred=%r",
                                 row["id"], s, row["answer"], pred[:200],
@@ -845,7 +877,7 @@ def main() -> None:
                     if run_base:
                         t_q = time.monotonic()
                         try:
-                            pred = call_base(prompt, model)
+                            pred, toks = call_base(prompt, model)
                             pred_pairs = parse_pairs_from_text(pred)
                             s = f1_score(pred_pairs, gold_pairs)
                             pairs_base.append(s)
@@ -857,7 +889,7 @@ def main() -> None:
                                 "task_id": f"pairs_{t_idx}",
                                 "score": s,
                             })
-                            _progress("base:pairs", hl, s, time.monotonic() - t_q)
+                            _progress("base:pairs", hl, s, time.monotonic() - t_q, toks)
                             log.debug(
                                 "pairs base t=%d f1=%.3f |pred|=%d |gold|=%d",
                                 t_idx, s, len(pred_pairs), len(gold_pairs),
@@ -872,7 +904,7 @@ def main() -> None:
                     if run_rlm and rlm_project is not None:
                         t_q = time.monotonic()
                         try:
-                            pred = call_rlm(qtext, rlm_project)
+                            pred, toks = call_rlm(qtext, rlm_project)
                             pred_pairs = parse_pairs_from_text(pred)
                             s = f1_score(pred_pairs, gold_pairs)
                             pairs_rlm.append(s)
@@ -884,7 +916,7 @@ def main() -> None:
                                 "task_id": f"pairs_{t_idx}",
                                 "score": s,
                             })
-                            _progress("rlm:pairs", hl, s, time.monotonic() - t_q)
+                            _progress("rlm:pairs", hl, s, time.monotonic() - t_q, toks)
                             log.debug(
                                 "pairs rlm t=%d f1=%.3f |pred|=%d |gold|=%d",
                                 t_idx, s, len(pred_pairs), len(gold_pairs),
