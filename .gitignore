@@ -40,3 +40,12 @@ barsoom_data/
 TODO.md
 .worktrees/
 src/shesha/_version.py
+
+# Shesha runtime data
+shesha_data/
+
+# OOLONG benchmark run artifacts
+oolong/last-run.log
+oolong/oolong_results.csv
+oolong/oolong_scaling.png
+oolong/trec_coarse.parquet
