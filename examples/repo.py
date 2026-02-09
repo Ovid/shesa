@@ -74,6 +74,7 @@ from shesha.exceptions import ProjectNotFoundError, RepoIngestError
 # Guard TUI imports: textual is an optional dependency (shesha[tui]).
 try:
     from shesha.tui import SheshaTUI
+    from shesha.tui.widgets.info_bar import InfoBar
     from shesha.tui.widgets.output_area import OutputArea
 except ModuleNotFoundError:
     if __name__ == "__main__":
@@ -440,10 +441,14 @@ def main() -> None:
             analysis_context = format_analysis_as_context(analysis)
 
     # Create and launch TUI
+    model = os.environ.get("SHESHA_MODEL", "claude-sonnet-4-20250514")
+    api_key = os.environ.get("SHESHA_API_KEY")
     tui = SheshaTUI(
         project=project,
         project_name=project.project_id,
         analysis_context=analysis_context,
+        model=model,
+        api_key=api_key,
     )
 
     # Register custom commands
@@ -472,10 +477,27 @@ def main() -> None:
         except Exception as e:
             _post_message(f"Error: {e}")
 
+    def handle_fast(args: str) -> None:
+        project.execution_mode = "fast"
+        tui.query_one(InfoBar).update_mode("fast")
+        tui.query_one(OutputArea).add_system_message("Switched to fast mode (concurrent).")
+
+    def handle_deep(args: str) -> None:
+        project.execution_mode = "deep"
+        tui.query_one(InfoBar).update_mode("deep")
+        tui.query_one(OutputArea).add_system_message("Switched to deep mode (sequential).")
+
+    def handle_clear(args: str) -> None:
+        tui._session.clear_history()
+        tui.query_one(OutputArea).clear()
+
     tui.register_command("/summary", handle_summary, "Show codebase analysis")
     tui.register_command(
         "/analyze", handle_analyze, "Generate/regenerate analysis", threaded=True
     )
+    tui.register_command("/fast", handle_fast, "Switch to fast mode (concurrent)")
+    tui.register_command("/deep", handle_deep, "Switch to deep mode (sequential)")
+    tui.register_command("/clear", handle_clear, "Clear conversation history")
     tui.run()
 
 

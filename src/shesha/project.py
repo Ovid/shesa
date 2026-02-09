@@ -65,6 +65,19 @@ class Project:
         """Delete a document from the project."""
         self._storage.delete_document(self.project_id, doc_name)
 
+    @property
+    def execution_mode(self) -> str:
+        """Current execution mode ('fast' or 'deep')."""
+        if self._rlm_engine is None:
+            raise EngineNotConfiguredError()
+        return self._rlm_engine.execution_mode
+
+    @execution_mode.setter
+    def execution_mode(self, mode: str) -> None:
+        if self._rlm_engine is None:
+            raise EngineNotConfiguredError()
+        self._rlm_engine.execution_mode = mode
+
     def query(
         self,
         question: str,

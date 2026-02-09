@@ -1,6 +1,6 @@
 """Tests for main SheshaTUI app."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from textual.widgets import Static
 
@@ -414,3 +414,42 @@ class TestQueryCancellation:
             pilot.app._on_query_complete(stale_query_id, stale_result, "stale question")
             statics_after = len(output.query("Static"))
             assert statics_after == statics_before
+
+
+class TestAnalysisShortcutHistoryContext:
+    """Analysis shortcut must receive conversation history with the question."""
+
+    async def test_shortcut_receives_history_prefix(self) -> None:
+        """When conversation history exists, shortcut question includes it."""
+        project = MagicMock()
+        app = SheshaTUI(
+            project=project,
+            project_name="test",
+            model="test-model",
+            api_key="key",
+        )
+        async with app.run_test() as pilot:
+            # Set up analysis context and conversation history
+            pilot.app._analysis_context = "Analysis: This is a web framework."
+            pilot.app._session.add_exchange(
+                "What does module A do?", "Module A handles routing.", ""
+            )
+
+            captured_questions: list[str] = []
+
+            def mock_shortcut(question, analysis_context, model, api_key):
+                captured_questions.append(question)
+                return "Shortcut answer"
+
+            with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
+                pilot.app._run_query("What about module B?")
+                # Give the worker thread a moment to call the shortcut
+                await pilot.pause(delay=0.5)
+
+            assert len(captured_questions) == 1
+            q = captured_questions[0]
+            # Must include conversation history
+            assert "What does module A do?" in q
+            assert "Module A handles routing." in q
+            # Must include the current question
+            assert "What about module B?" in q

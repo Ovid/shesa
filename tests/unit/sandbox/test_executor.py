@@ -1110,6 +1110,321 @@ class TestEffectiveDeadline:
                 executor._read_line(timeout=5)
 
 
+class TestBatchedLlmQuery:
+    """Tests for llm_query_batch handling in execute()."""
+
+    def test_execute_handles_batch_request(self):
+        """execute() dispatches llm_query_batch prompts through handler."""
+        import json
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        call_log: list[tuple[str, str]] = []
+
+        def mock_handler(instruction: str, content: str) -> str:
+            call_log.append((instruction, content))
+            return f"result for: {instruction}"
+
+        executor.llm_query_handler = mock_handler
+
+        batch_msg = json.dumps(
+            {
+                "action": "llm_query_batch",
+                "prompts": ["classify: cat", "classify: dog"],
+            }
+        )
+        exec_result_msg = json.dumps(
+            {
+                "status": "ok",
+                "stdout": "done\n",
+                "stderr": "",
+                "return_value": None,
+                "error": None,
+            }
+        )
+
+        read_responses = iter([batch_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(
+                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+            ):
+                executor.execute("llm_query_batched(['classify: cat', 'classify: dog'])")
+
+        # Should have sent: execute command + batch response
+        assert len(sent_data) == 2
+        batch_response = json.loads(sent_data[1].strip())
+        assert batch_response["action"] == "llm_batch_response"
+        assert len(batch_response["results"]) == 2
+
+    def test_execute_batch_runs_concurrently(self):
+        """execute() dispatches batch prompts concurrently, not sequentially."""
+        import json
+        import threading
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        thread_ids: list[int] = []
+        barrier = threading.Barrier(4, timeout=5)
+
+        def slow_handler(instruction: str, content: str) -> str:
+            thread_ids.append(threading.current_thread().ident)
+            barrier.wait()  # All threads must arrive before any can proceed
+            return f"result for: {instruction}"
+
+        executor.llm_query_handler = slow_handler
+
+        batch_msg = json.dumps(
+            {
+                "action": "llm_query_batch",
+                "prompts": [f"prompt_{i}" for i in range(4)],
+            }
+        )
+        exec_result_msg = json.dumps(
+            {
+                "status": "ok",
+                "stdout": "",
+                "stderr": "",
+                "return_value": None,
+                "error": None,
+            }
+        )
+
+        read_responses = iter([batch_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(
+                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+            ):
+                executor.execute("llm_query_batched([...])")
+
+        # Barrier would timeout if calls were sequential — all 4 must run concurrently
+        assert len(thread_ids) == 4
+        # At least 2 different threads were used
+        assert len(set(thread_ids)) >= 2
+
+    def test_execute_batch_preserves_order(self):
+        """Batch results are returned in same order as input prompts."""
+        import json
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        def ordered_handler(instruction: str, content: str) -> str:
+            return f"answer_{instruction}"
+
+        executor.llm_query_handler = ordered_handler
+
+        prompts = [f"q{i}" for i in range(5)]
+        batch_msg = json.dumps(
+            {
+                "action": "llm_query_batch",
+                "prompts": prompts,
+            }
+        )
+        exec_result_msg = json.dumps(
+            {
+                "status": "ok",
+                "stdout": "",
+                "stderr": "",
+                "return_value": None,
+                "error": None,
+            }
+        )
+
+        read_responses = iter([batch_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(
+                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+            ):
+                executor.execute("llm_query_batched([...])")
+
+        batch_response = json.loads(sent_data[1].strip())
+        results = batch_response["results"]
+        assert results == [f"answer_q{i}" for i in range(5)]
+
+    def test_execute_batch_sends_error_on_no_handler(self):
+        """execute() sends error when llm_query_batch is received with no handler."""
+        import json
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+        executor.llm_query_handler = None
+
+        batch_msg = json.dumps(
+            {
+                "action": "llm_query_batch",
+                "prompts": ["prompt1"],
+            }
+        )
+        exec_result_msg = json.dumps(
+            {
+                "status": "error",
+                "stdout": "",
+                "stderr": "",
+                "return_value": None,
+                "error": "ValueError: No LLM query handler configured",
+            }
+        )
+
+        read_responses = iter([batch_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(
+                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+            ):
+                executor.execute("llm_query_batched(['prompt1'])")
+
+        batch_response = json.loads(sent_data[1].strip())
+        assert batch_response["action"] == "llm_batch_response"
+        assert "error" in batch_response
+
+
+class TestExecutionMode:
+    """Tests for execution_mode on ContainerExecutor."""
+
+    def test_executor_defaults_to_fast_mode(self):
+        """ContainerExecutor defaults to execution_mode='fast'."""
+        executor = ContainerExecutor()
+        assert executor.execution_mode == "fast"
+
+    def test_executor_accepts_deep_mode(self):
+        """ContainerExecutor accepts execution_mode='deep' in constructor."""
+        executor = ContainerExecutor(execution_mode="deep")
+        assert executor.execution_mode == "deep"
+
+    def test_execute_batch_sequential_in_deep_mode(self):
+        """_execute_batch uses sequential loop when execution_mode='deep'."""
+        import json
+        import threading
+
+        executor = ContainerExecutor(execution_mode="deep")
+        executor._socket = MagicMock()
+
+        thread_ids: list[int] = []
+
+        def handler(instruction: str, content: str) -> str:
+            thread_ids.append(threading.current_thread().ident)
+            return f"result for: {instruction}"
+
+        executor.llm_query_handler = handler
+
+        batch_msg = json.dumps(
+            {
+                "action": "llm_query_batch",
+                "prompts": [f"prompt_{i}" for i in range(4)],
+            }
+        )
+        exec_result_msg = json.dumps(
+            {
+                "status": "ok",
+                "stdout": "",
+                "stderr": "",
+                "return_value": None,
+                "error": None,
+            }
+        )
+
+        read_responses = iter([batch_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(
+                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+            ):
+                executor.execute("llm_query_batched([...])")
+
+        # All calls should happen on the SAME thread (sequential, no pool)
+        assert len(thread_ids) == 4
+        assert len(set(thread_ids)) == 1, (
+            f"Deep mode should run sequentially on one thread, got {len(set(thread_ids))} threads"
+        )
+
+    def test_execute_batch_concurrent_in_fast_mode(self):
+        """_execute_batch uses ThreadPoolExecutor when execution_mode='fast'."""
+        import json
+        import threading
+
+        executor = ContainerExecutor(execution_mode="fast")
+        executor._socket = MagicMock()
+
+        thread_ids: list[int] = []
+        barrier = threading.Barrier(4, timeout=5)
+
+        def handler(instruction: str, content: str) -> str:
+            thread_ids.append(threading.current_thread().ident)
+            barrier.wait()
+            return f"result for: {instruction}"
+
+        executor.llm_query_handler = handler
+
+        batch_msg = json.dumps(
+            {
+                "action": "llm_query_batch",
+                "prompts": [f"prompt_{i}" for i in range(4)],
+            }
+        )
+        exec_result_msg = json.dumps(
+            {
+                "status": "ok",
+                "stdout": "",
+                "stderr": "",
+                "return_value": None,
+                "error": None,
+            }
+        )
+
+        read_responses = iter([batch_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(
+                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+            ):
+                executor.execute("llm_query_batched([...])")
+
+        # Barrier would timeout if calls were sequential
+        assert len(thread_ids) == 4
+        assert len(set(thread_ids)) >= 2
+
+    def test_execute_batch_empty_prompts_returns_empty_list(self):
+        """_execute_batch returns [] immediately for an empty prompts list."""
+        executor = ContainerExecutor(execution_mode="fast")
+        executor.llm_query_handler = lambda inst, cont: "should not be called"
+
+        result = executor._execute_batch([])
+        assert result == []
+
+    def test_execute_batch_caps_thread_count(self):
+        """_execute_batch caps max_workers to avoid unbounded thread creation."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        executor = ContainerExecutor(execution_mode="fast")
+        executor.llm_query_handler = lambda inst, cont: "ok"
+
+        captured_max_workers: list[int] = []
+        _real_init = ThreadPoolExecutor.__init__
+
+        def _capturing_init(self_tpe, *args, **kwargs):
+            captured_max_workers.append(kwargs.get("max_workers", args[0] if args else None))
+            _real_init(self_tpe, *args, **kwargs)
+
+        with patch.object(ThreadPoolExecutor, "__init__", _capturing_init):
+            result = executor._execute_batch([f"p{i}" for i in range(100)])
+
+        assert len(result) == 100
+        assert captured_max_workers[0] <= 32, (
+            f"max_workers should be capped, got {captured_max_workers[0]}"
+        )
+
+
 class TestResetNamespace:
     """Tests for namespace reset in executor."""
 

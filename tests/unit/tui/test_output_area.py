@@ -90,6 +90,24 @@ class TestOutputArea:
             border = output.styles.border
             assert all(edge[0] in ("", "none", "hidden") for edge in border)
 
+    async def test_clear_removes_all_children(self) -> None:
+        """clear() removes all child widgets from the output area."""
+        async with OutputAreaApp().run_test() as pilot:
+            output = pilot.app.query_one(OutputArea)
+            output.add_user_message("Hello")
+            output.add_user_message("World")
+            output.add_system_message("Info")
+            await pilot.pause()
+
+            # Verify widgets exist before clear
+            assert len(output.children) > 0
+
+            output.clear()
+            await pilot.pause()
+
+            # All children should be removed
+            assert len(output.children) == 0
+
     async def test_scroll_to_bottom_on_add(self) -> None:
         """Adding content scrolls to bottom."""
         async with OutputAreaApp().run_test() as pilot:

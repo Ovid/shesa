@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -69,6 +70,7 @@ class RLMEngine:
         max_traces_per_project: int = 50,
         verify_citations: bool = True,
         verify: bool = False,
+        execution_mode: str = "fast",
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -82,6 +84,8 @@ class RLMEngine:
         self.max_traces_per_project = max_traces_per_project
         self.verify_citations = verify_citations
         self.verify = verify
+        self.execution_mode = execution_mode
+        self._subcall_lock = threading.Lock()
 
     def _handle_llm_query(
         self,
@@ -93,62 +97,79 @@ class RLMEngine:
         on_progress: ProgressCallback | None = None,
         on_step: Callable[[TraceStep], None] | None = None,
     ) -> str:
-        """Handle a sub-LLM query from the sandbox."""
-        # Record the request
-        step_content = f"instruction: {instruction}\ncontent: [{len(content)} chars]"
-        step = trace.add_step(
-            type=StepType.SUBCALL_REQUEST,
-            content=step_content,
-            iteration=iteration,
-        )
-        if on_step:
-            on_step(step)
-        if on_progress:
-            on_progress(StepType.SUBCALL_REQUEST, iteration, step_content, copy.copy(token_usage))
+        """Handle a sub-LLM query from the sandbox.
 
-        # Check content size limit
-        if len(content) > self.max_subcall_content_chars:
-            error_msg = (
-                f"Content size ({len(content):,} chars) exceeds the sub-LLM limit "
-                f"of {self.max_subcall_content_chars:,} chars. Please chunk the content "
-                f"into smaller pieces and make multiple llm_query calls."
-            )
+        Thread-safe: uses _subcall_lock to protect shared trace and token state
+        when called concurrently from batched executor dispatch.
+        """
+        # Record the request (lock protects trace and token_usage mutations)
+        step_content = f"instruction: {instruction}\ncontent: [{len(content)} chars]"
+        with self._subcall_lock:
             step = trace.add_step(
-                type=StepType.SUBCALL_RESPONSE,
-                content=error_msg,
+                type=StepType.SUBCALL_REQUEST,
+                content=step_content,
                 iteration=iteration,
             )
             if on_step:
                 on_step(step)
             if on_progress:
-                on_progress(StepType.SUBCALL_RESPONSE, iteration, error_msg, copy.copy(token_usage))
+                on_progress(
+                    StepType.SUBCALL_REQUEST, iteration, step_content, copy.copy(token_usage)
+                )
+
+        # Check size limit on the total payload (instruction + content).
+        # Single-arg llm_query passes everything in instruction with content="",
+        # so checking content alone would miss oversized single-arg calls.
+        payload_size = len(instruction) + len(content)
+        if payload_size > self.max_subcall_content_chars:
+            error_msg = (
+                f"Payload size ({payload_size:,} chars) exceeds the sub-LLM limit "
+                f"of {self.max_subcall_content_chars:,} chars. Please chunk the content "
+                f"into smaller pieces and make multiple llm_query calls."
+            )
+            with self._subcall_lock:
+                step = trace.add_step(
+                    type=StepType.SUBCALL_RESPONSE,
+                    content=error_msg,
+                    iteration=iteration,
+                )
+                if on_step:
+                    on_step(step)
+                if on_progress:
+                    on_progress(
+                        StepType.SUBCALL_RESPONSE, iteration, error_msg, copy.copy(token_usage)
+                    )
             raise SubcallContentError(error_msg)
 
-        # Wrap content in untrusted tags (code-level security boundary)
-        wrapped_content = wrap_subcall_content(content)
+        # Build prompt: when content is empty (single-arg llm_query), send
+        # instruction directly. When content is provided, wrap in untrusted tags.
+        if content:
+            wrapped_content = wrap_subcall_content(content)
+            prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
+        else:
+            prompt = instruction
 
-        # Build prompt and call LLM
-        prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
+        # LLM call runs outside lock — this is the I/O-bound work we parallelize
         sub_llm = LLMClient(model=self.model, api_key=self.api_key)
         response = sub_llm.complete(messages=[{"role": "user", "content": prompt}])
 
-        # Track tokens
-        token_usage.prompt_tokens += response.prompt_tokens
-        token_usage.completion_tokens += response.completion_tokens
+        # Record response and update tokens (lock protects shared state)
+        with self._subcall_lock:
+            token_usage.prompt_tokens += response.prompt_tokens
+            token_usage.completion_tokens += response.completion_tokens
 
-        # Record the response
-        step = trace.add_step(
-            type=StepType.SUBCALL_RESPONSE,
-            content=response.content,
-            iteration=iteration,
-            tokens_used=response.total_tokens,
-        )
-        if on_step:
-            on_step(step)
-        if on_progress:
-            on_progress(
-                StepType.SUBCALL_RESPONSE, iteration, response.content, copy.copy(token_usage)
+            step = trace.add_step(
+                type=StepType.SUBCALL_RESPONSE,
+                content=response.content,
+                iteration=iteration,
+                tokens_used=response.total_tokens,
             )
+            if on_step:
+                on_step(step)
+            if on_progress:
+                on_progress(
+                    StepType.SUBCALL_RESPONSE, iteration, response.content, copy.copy(token_usage)
+                )
 
         return response.content
 
@@ -402,9 +423,11 @@ class RLMEngine:
         if self._pool is not None:
             executor = self._pool.acquire()
             executor.llm_query_handler = _make_llm_callback(0)
+            executor.execution_mode = self.execution_mode
             owns_executor = False
         else:
             executor = ContainerExecutor(llm_query_handler=_make_llm_callback(0))
+            executor.execution_mode = self.execution_mode
             executor.start()
             owns_executor = True
 
@@ -478,9 +501,16 @@ class RLMEngine:
 
                     all_output.append(output)
 
-                    # Check for final answer
-                    if result.final_answer:
-                        final_answer = result.final_answer
+                    # Check for final answer (use `is not None` to catch falsy
+                    # values like FINAL(0), FINAL(""), FINAL(False))
+                    if result.final_answer is not None:
+                        # Sandbox FINAL() can receive any type; coerce to str
+                        # so trace steps and QueryResult.answer stay str.
+                        final_answer = (
+                            result.final_answer
+                            if isinstance(result.final_answer, str)
+                            else str(result.final_answer)
+                        )
                         step = trace.add_step(
                             type=StepType.FINAL_ANSWER,
                             content=final_answer,
@@ -496,7 +526,7 @@ class RLMEngine:
                             )
                         break
 
-                if final_answer:
+                if final_answer is not None:
                     verification = None
                     if self.verify_citations and executor.is_alive:
                         try:
@@ -595,8 +625,16 @@ class RLMEngine:
                 combined_output = "\n\n".join(all_output)
                 wrapped_output = wrap_repl_output(combined_output, self.max_output_chars)
 
+                # Append query reminder so the model stays focused across iterations
+                reminder = (
+                    "Continue using the REPL environment to answer"
+                    f' the original query: "{question}"\n'
+                    "Your next action:"
+                )
+                iteration_msg = f"{wrapped_output}\n\n{reminder}"
+
                 messages.append({"role": "assistant", "content": response.content})
-                messages.append({"role": "user", "content": wrapped_output})
+                messages.append({"role": "user", "content": iteration_msg})
 
             # Max iterations reached
             answer = "[Max iterations reached without final answer]"

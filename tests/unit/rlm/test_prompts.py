@@ -317,35 +317,27 @@ def _render_default_prompt() -> str:
     )
 
 
-def test_system_prompt_contains_multi_phase_guidance():
-    """System prompt describes scout, search, and analyze phases."""
+def test_system_prompt_contains_scout_and_analyze_phases():
+    """System prompt describes scout and analyze phases."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 
-    # Must mention all three phases
+    # Must mention scout and analyze phases
     assert "scout" in prompt_lower
-    assert "search" in prompt_lower
     assert "analyze" in prompt_lower
 
 
-def test_system_prompt_contains_keyword_expansion_guidance():
-    """System prompt guides LLM to brainstorm additional search terms."""
+def test_system_prompt_recommends_chunk_classify_synthesize():
+    """System prompt teaches the chunk → llm_query per chunk → buffer → synthesize strategy."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 
-    # Must mention expanding or brainstorming keywords/terms
-    assert "brainstorm" in prompt_lower or "expand" in prompt_lower
-    # Must give examples of informal/alternative search terms
-    assert "hack" in prompt_lower or "workaround" in prompt_lower or "todo" in prompt_lower
-
-
-def test_system_prompt_contains_coverage_verification():
-    """System prompt instructs LLM to check how many documents matched."""
-    prompt = _render_default_prompt()
-    prompt_lower = prompt.lower()
-
-    # Must instruct to check match count or fraction/percentage
-    assert "fraction" in prompt_lower or "percent" in prompt_lower or "coverage" in prompt_lower
+    # Must describe the chunking strategy
+    assert "chunk" in prompt_lower
+    # Must describe querying per chunk
+    assert "per chunk" in prompt_lower or "each chunk" in prompt_lower
+    # Must describe buffer/synthesize pattern
+    assert "buffer" in prompt_lower
 
 
 def test_system_prompt_error_handling_uses_try_except():
@@ -359,51 +351,52 @@ def test_system_prompt_error_handling_uses_try_except():
     assert '"exceeds" in result' not in prompt
 
 
-def test_system_prompt_subcall_limit_is_1_to_3():
-    """System prompt recommends 1-3 subcalls, not 3-5."""
-    prompt = _render_default_prompt()
-
-    # Must mention 1-3
-    assert "1-3" in prompt
-    # Must NOT mention 3-5 as a target
-    assert "3-5" not in prompt
-
-
-def test_system_prompt_discourages_brevity_in_subcall_instructions():
-    """System prompt steers LLM away from asking for concise/brief output."""
+def test_system_prompt_encourages_subcall_use():
+    """System prompt encourages using llm_query for semantic analysis."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 
-    # Must warn against brevity
-    assert "avoid" in prompt_lower and "brief" in prompt_lower
-    # Must value depth over brevity
-    assert "depth" in prompt_lower
+    # Must encourage sub-call use, not minimize it
+    assert "strongly encouraged" in prompt_lower
+    # Must mention semantic analysis as a use case
+    assert "semantic" in prompt_lower
+    # Must mention batching for efficiency
+    assert "batch" in prompt_lower
 
 
-def test_system_prompt_encourages_mitigations():
-    """System prompt tells LLM to ask for mitigations/recommendations."""
+def test_system_prompt_truncation_warning():
+    """System prompt warns that REPL output is truncated to motivate sub-call usage."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 
-    assert "mitigation" in prompt_lower or "recommendation" in prompt_lower
+    assert "truncated" in prompt_lower
+    assert "llm_query" in prompt_lower
 
 
-def test_system_prompt_example_instructions_use_analyze_not_list():
-    """Example llm_query instructions model analytical depth, not listing."""
-    prompt = _render_default_prompt()
-
-    # Example instructions should use "Analyze" not "List"
-    # The examples are inside llm_query() calls in the code blocks
-    assert 'instruction="Analyze' in prompt
-    assert 'instruction="List' not in prompt
-
-
-def test_system_prompt_depth_through_instruction_quality():
-    """System prompt guides depth through better instructions, not more subcalls."""
+def test_system_prompt_confidence_framing():
+    """System prompt encourages heavy sub-call usage with confidence framing."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 
-    # Must mention concentrating subcalls / not making follow-up subcalls
-    assert "concentrate" in prompt_lower or "gather all" in prompt_lower
-    # Must mention instruction quality as the lever for depth
-    assert "instruction" in prompt_lower and "depth" in prompt_lower
+    # Must frame sub-LLMs as powerful and encourage large payloads
+    assert "powerful" in prompt_lower
+    assert "don't be afraid" in prompt_lower
+
+
+def test_system_prompt_has_multiple_examples():
+    """System prompt has multiple example patterns showing llm_query usage."""
+    prompt = _render_default_prompt()
+
+    # Must have at least 3 examples (simple, iterative, batched)
+    assert "Example 1" in prompt
+    assert "Example 2" in prompt
+    assert "Example 3" in prompt
+
+
+def test_system_prompt_examples_use_llm_query():
+    """All examples demonstrate llm_query or llm_query_batched usage."""
+    prompt = _render_default_prompt()
+
+    # Every example should use llm_query or llm_query_batched
+    assert "llm_query(" in prompt
+    assert "llm_query_batched(" in prompt

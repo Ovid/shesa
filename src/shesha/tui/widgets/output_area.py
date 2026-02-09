@@ -57,6 +57,11 @@ class OutputArea(VerticalScroll):
         self.mount(widget)
         self.scroll_end(animate=False)
 
+    def clear(self) -> None:
+        """Remove all child widgets from the output area."""
+        for child in list(self.children):
+            child.remove()
+
     def add_system_markdown(self, text: str) -> None:
         """Add a system message with markdown rendering support.
 

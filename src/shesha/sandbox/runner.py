@@ -47,12 +47,20 @@ def execute_code(code: str) -> dict[str, Any]:
     }
 
 
-def handle_llm_query(instruction: str, content: str) -> dict[str, Any]:
+def handle_llm_query(instruction: str, content: str = "") -> dict[str, Any]:
     """Request an LLM query from the host."""
     return {
         "action": "llm_query",
         "instruction": instruction,
         "content": content,
+    }
+
+
+def handle_llm_query_batch(prompts: list[str]) -> dict[str, Any]:
+    """Request a batched LLM query from the host."""
+    return {
+        "action": "llm_query_batch",
+        "prompts": prompts,
     }
 
 
@@ -72,7 +80,7 @@ def main() -> None:
         def __init__(self, var_name: str):
             self.var_name = var_name
 
-    def llm_query(instruction: str, content: str) -> str:
+    def llm_query(instruction: str, content: str = "") -> str:
         """Request LLM query from host - blocks until response."""
         request = handle_llm_query(instruction, content)
         # Use real stdout, not the captured one during exec
@@ -85,6 +93,19 @@ def main() -> None:
             if "error" in response:
                 raise ValueError(str(response["error"]))
             return str(response["result"])
+        raise RuntimeError(f"Unexpected response: {response}")
+
+    def llm_query_batched(prompts: list[str]) -> list[str]:
+        """Request batched LLM queries from host - blocks until all complete."""
+        request = handle_llm_query_batch(prompts)
+        real_stdout.write(json.dumps(request) + "\n")
+        real_stdout.flush()
+        response_line = real_stdin.readline()
+        response = json.loads(response_line)
+        if response.get("action") == "llm_batch_response":
+            if "error" in response:
+                raise ValueError(str(response["error"]))
+            return [str(r) for r in response["results"]]
         raise RuntimeError(f"Unexpected response: {response}")
 
     def make_final(answer: str) -> FinalAnswer:
@@ -102,6 +123,7 @@ def main() -> None:
     def register_builtins() -> None:
         """Register built-in functions in the namespace."""
         NAMESPACE["llm_query"] = llm_query
+        NAMESPACE["llm_query_batched"] = llm_query_batched
         NAMESPACE["FINAL"] = make_final
         NAMESPACE["FINAL_VAR"] = make_final_var
         NAMESPACE["FinalAnswer"] = FinalAnswer
