@@ -360,10 +360,16 @@ class RLMEngine:
         doc_sizes_list = "\n".join(size_lines)
 
         system_prompt = self.prompt_loader.render_system_prompt(
+            max_subcall_chars=MAX_SUBCALL_CHARS,
+        )
+
+        # Context metadata as assistant message: primes the model to
+        # continue working rather than start fresh. Matches reference
+        # rlm/rlm/utils/prompts.py:119-122.
+        context_metadata = self.prompt_loader.render_context_metadata(
             doc_count=len(documents),
             total_chars=total_chars,
             doc_sizes_list=doc_sizes_list,
-            max_subcall_chars=MAX_SUBCALL_CHARS,
         )
 
         # Set up incremental trace writer
@@ -409,7 +415,10 @@ class RLMEngine:
         # Iteration-0 safeguard: prevent model from jumping to FINAL()
         # without exploring. Matches reference rlm/rlm/utils/prompts.py:136.
         first_user_msg = self.prompt_loader.render_iteration_zero(question=question)
-        messages: list[dict[str, str]] = [{"role": "user", "content": first_user_msg}]
+        messages: list[dict[str, str]] = [
+            {"role": "assistant", "content": context_metadata},
+            {"role": "user", "content": first_user_msg},
+        ]
 
         # Factory to create a callback with a frozen iteration value.
         # Without this, a closure over a mutable variable risks capturing

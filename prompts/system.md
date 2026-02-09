@@ -4,9 +4,7 @@ You are tasked with answering a query with associated context. You can access, t
 
 The REPL environment is initialized with:
 
-1. A `context` variable — a list of {doc_count} document contents as strings ({total_chars:,} total characters).
-   Document sizes:
-{doc_sizes_list}
+1. A `context` variable — a list of document contents as strings.
 
 2. `llm_query(prompt)` — query a sub-LLM that can handle up to {max_subcall_chars:,} characters. Returns a string. You can also call `llm_query(instruction, content)` to separate your question from the document data.
 

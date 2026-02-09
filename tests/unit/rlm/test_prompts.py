@@ -14,58 +14,27 @@ def test_system_prompt_contains_security_warning():
     """System prompt contains prompt injection warning."""
     loader = PromptLoader()
 
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "3,000 chars"),
-            ("b.txt", "3,500 chars"),
-            ("c.txt", "3,500 chars"),
-        ]
-    )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=10000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
+    prompt = loader.render_system_prompt(max_subcall_chars=MAX_SUBCALL_CHARS)
     assert "untrusted" in prompt.lower()
     assert "adversarial" in prompt.lower() or "injection" in prompt.lower()
 
 
-def test_system_prompt_contains_context_info():
-    """System prompt contains context information."""
+def test_system_prompt_no_longer_contains_metadata():
+    """System prompt does not contain doc_count, total_chars, or doc_sizes_list."""
     loader = PromptLoader()
 
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "3,000 chars"),
-            ("b.txt", "3,500 chars"),
-            ("c.txt", "3,500 chars"),
-        ]
-    )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=10000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
-    assert "3" in prompt  # doc count
-    assert "a.txt" in prompt
+    prompt = loader.render_system_prompt(max_subcall_chars=MAX_SUBCALL_CHARS)
+    # These dynamic values should NOT be in the system prompt anymore
+    assert "{doc_count}" not in prompt
+    assert "{total_chars" not in prompt
+    assert "{doc_sizes_list}" not in prompt
 
 
 def test_system_prompt_explains_final():
     """System prompt explains FINAL function."""
     loader = PromptLoader()
 
-    doc_sizes_list = "    - context[0] (doc.txt): 100 chars"
-
-    prompt = loader.render_system_prompt(
-        doc_count=1,
-        total_chars=100,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
+    prompt = loader.render_system_prompt(max_subcall_chars=MAX_SUBCALL_CHARS)
     assert "FINAL" in prompt
 
 
@@ -87,20 +56,7 @@ def test_system_prompt_contains_sub_llm_limit():
     """System prompt tells LLM about sub-LLM character limit."""
     loader = PromptLoader()
 
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "30,000 chars"),
-            ("b.txt", "35,000 chars"),
-            ("c.txt", "35,000 chars"),
-        ]
-    )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=100000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
+    prompt = loader.render_system_prompt(max_subcall_chars=MAX_SUBCALL_CHARS)
     # Must mention the limit (500,000 formatted with commas)
     assert "500,000" in prompt or "500000" in prompt
 
@@ -109,20 +65,7 @@ def test_system_prompt_contains_chunking_guidance():
     """System prompt explains chunking strategy for large documents."""
     loader = PromptLoader()
 
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "30,000 chars"),
-            ("b.txt", "35,000 chars"),
-            ("c.txt", "35,000 chars"),
-        ]
-    )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=100000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
+    prompt = loader.render_system_prompt(max_subcall_chars=MAX_SUBCALL_CHARS)
     prompt_lower = prompt.lower()
     # Must explain chunking strategy
     assert "chunk" in prompt_lower
@@ -149,20 +92,7 @@ def test_system_prompt_requires_document_grounding():
     """System prompt instructs LLM to answer only from documents, not own knowledge."""
     loader = PromptLoader()
 
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "3,000 chars"),
-            ("b.txt", "3,500 chars"),
-            ("c.txt", "3,500 chars"),
-        ]
-    )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=10000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
+    prompt = loader.render_system_prompt(max_subcall_chars=MAX_SUBCALL_CHARS)
     prompt_lower = prompt.lower()
 
     # Must instruct to use only documents
@@ -175,8 +105,8 @@ def test_system_prompt_requires_document_grounding():
     assert "not found" in prompt_lower or "not contain" in prompt_lower
 
 
-def test_system_prompt_includes_per_document_sizes():
-    """System prompt shows size of each document when doc_sizes provided."""
+def test_context_metadata_prompt_exists():
+    """PromptLoader can render context metadata."""
     loader = PromptLoader()
 
     doc_sizes_list = _build_doc_sizes_list(
@@ -187,26 +117,42 @@ def test_system_prompt_includes_per_document_sizes():
         ]
     )
 
-    prompt = loader.render_system_prompt(
+    result = loader.render_context_metadata(
         doc_count=3,
         total_chars=15000,
         doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
     )
-    # Should show each document with its size
-    assert "context[0]" in prompt
-    assert "a.txt" in prompt
-    assert "5,000" in prompt
-    assert "context[1]" in prompt
-    assert "b.txt" in prompt
-    assert "4,000" in prompt
+    assert isinstance(result, str)
+    assert len(result) > 0
 
 
-def test_system_prompt_warns_about_oversized_documents():
-    """System prompt warns when a document exceeds the sub-LLM limit."""
+def test_context_metadata_contains_doc_info():
+    """Rendered context metadata includes doc count, total chars, and chunk lengths."""
     loader = PromptLoader()
 
-    oversized = MAX_SUBCALL_CHARS + 10000  # Slightly over limit
+    doc_sizes_list = _build_doc_sizes_list(
+        [
+            ("a.txt", "5,000 chars"),
+            ("b.txt", "4,000 chars"),
+            ("c.txt", "6,000 chars"),
+        ]
+    )
+
+    result = loader.render_context_metadata(
+        doc_count=3,
+        total_chars=15000,
+        doc_sizes_list=doc_sizes_list,
+    )
+    assert "3" in result  # doc count
+    assert "15,000" in result  # total chars
+    assert "a.txt" in result or "context[0]" in result  # doc sizes
+
+
+def test_context_metadata_warns_about_oversized_documents():
+    """Context metadata warns when a document exceeds the sub-LLM limit."""
+    loader = PromptLoader()
+
+    oversized = MAX_SUBCALL_CHARS + 10000
     doc_sizes_list = _build_doc_sizes_list(
         [
             ("small.txt", "100,000 chars"),
@@ -214,30 +160,20 @@ def test_system_prompt_warns_about_oversized_documents():
         ]
     )
 
-    prompt = loader.render_system_prompt(
+    result = loader.render_context_metadata(
         doc_count=2,
         total_chars=oversized + 100000,
         doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
     )
-    # Should warn about the oversized document
-    assert "EXCEEDS LIMIT" in prompt or "must chunk" in prompt.lower()
-    # The small one should not have a warning
-    assert "small.txt" in prompt
+    assert "EXCEEDS LIMIT" in result or "must chunk" in result.lower()
+    assert "small.txt" in result or "context[0]" in result
 
 
 def test_system_prompt_explains_error_handling():
     """System prompt explains how to handle size limit errors."""
     loader = PromptLoader()
 
-    doc_sizes_list = "    - context[0] (doc.txt): 1,000 chars"
-
-    prompt = loader.render_system_prompt(
-        doc_count=1,
-        total_chars=1000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
+    prompt = loader.render_system_prompt(max_subcall_chars=MAX_SUBCALL_CHARS)
     prompt_lower = prompt.lower()
     # Must explain what to do when hitting limit
     assert "error" in prompt_lower
@@ -336,19 +272,7 @@ def test_wrap_subcall_content_preserves_full_content():
 def _render_default_prompt() -> str:
     """Helper to render a system prompt with default test values."""
     loader = PromptLoader()
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "3,000 chars"),
-            ("b.txt", "3,500 chars"),
-            ("c.txt", "3,500 chars"),
-        ]
-    )
-    return loader.render_system_prompt(
-        doc_count=3,
-        total_chars=10000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
+    return loader.render_system_prompt(max_subcall_chars=MAX_SUBCALL_CHARS)
 
 
 def test_iteration_zero_prompt_exists():
@@ -385,7 +309,7 @@ def test_system_prompt_contains_scout_and_analyze_phases():
 
 
 def test_system_prompt_recommends_chunk_classify_synthesize():
-    """System prompt teaches the chunk → llm_query per chunk → buffer → synthesize strategy."""
+    """System prompt teaches the chunk -> llm_query per chunk -> buffer -> synthesize strategy."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 

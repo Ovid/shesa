@@ -41,10 +41,14 @@ def test_extract_placeholders_ignores_escaped_braces():
 def test_prompt_schemas_defined():
     """PROMPT_SCHEMAS defines required placeholders for each prompt."""
     assert "system.md" in PROMPT_SCHEMAS
+    assert "context_metadata.md" in PROMPT_SCHEMAS
+    assert "iteration_zero.md" in PROMPT_SCHEMAS
     assert "subcall.md" in PROMPT_SCHEMAS
     assert "code_required.md" in PROMPT_SCHEMAS
 
-    assert "doc_count" in PROMPT_SCHEMAS["system.md"].required
+    assert PROMPT_SCHEMAS["system.md"].required == {"max_subcall_chars"}
+    assert "doc_count" in PROMPT_SCHEMAS["context_metadata.md"].required
+    assert "question" in PROMPT_SCHEMAS["iteration_zero.md"].required
     assert "instruction" in PROMPT_SCHEMAS["subcall.md"].required
     assert PROMPT_SCHEMAS["code_required.md"].required == set()
 
@@ -116,8 +120,14 @@ def test_verify_code_schema_defined():
 
 
 def test_core_schemas_are_required_files():
-    """Core prompt schemas (system, subcall, code_required) are required files."""
-    for name in ("system.md", "subcall.md", "code_required.md"):
+    """Core prompt schemas are required files."""
+    for name in (
+        "system.md",
+        "context_metadata.md",
+        "iteration_zero.md",
+        "subcall.md",
+        "code_required.md",
+    ):
         assert PROMPT_SCHEMAS[name].required_file is True
 
 

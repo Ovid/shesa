@@ -89,17 +89,34 @@ class PromptLoader:
 
     def render_system_prompt(
         self,
+        max_subcall_chars: int,
+    ) -> str:
+        """Render the system prompt with variables.
+
+        Document metadata (doc count, total chars, sizes) is no longer
+        part of the system prompt — it's sent as an assistant message
+        via render_context_metadata(). Matches reference rlm/rlm/utils/prompts.py:119-122.
+        """
+        return self._prompts["system.md"].format(
+            max_subcall_chars=max_subcall_chars,
+        )
+
+    def render_context_metadata(
+        self,
         doc_count: int,
         total_chars: int,
         doc_sizes_list: str,
-        max_subcall_chars: int,
     ) -> str:
-        """Render the system prompt with variables."""
-        return self._prompts["system.md"].format(
+        """Render context metadata for injection as an assistant message.
+
+        Sent as a fake assistant message to prime the model to continue
+        working rather than starting fresh. Matches reference
+        rlm/rlm/utils/prompts.py:119-122.
+        """
+        return self._prompts["context_metadata.md"].format(
             doc_count=doc_count,
             total_chars=total_chars,
             doc_sizes_list=doc_sizes_list,
-            max_subcall_chars=max_subcall_chars,
         )
 
     def render_subcall_prompt(self, instruction: str, content: str) -> str:
