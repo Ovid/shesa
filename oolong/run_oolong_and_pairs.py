@@ -670,12 +670,19 @@ def main() -> None:
         model, run_base, run_rlm, max_win,
     )
 
+    # Log provider and model (LiteLLM format: "provider/model" or just "model")
+    if "/" in model:
+        provider, model_name = model.split("/", 1)
+    else:
+        provider, model_name = "openai", model
+    status(f"provider={provider}  model={model_name}")
+
     modes = []
     if run_base:
         modes.append("base")
     if run_rlm:
         modes.append("rlm")
-    status(f"model={model}  modes={'+'.join(modes)}  max_windows={max_win}")
+    status(f"modes={'+'.join(modes)}  max_windows={max_win}")
 
     if not modes:
         status("Nothing to run (RUN_BASE=0 and RUN_RLM=0)")
