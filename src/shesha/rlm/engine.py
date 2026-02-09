@@ -123,7 +123,7 @@ class RLMEngine:
         payload_size = len(instruction) + len(content)
         if payload_size > self.max_subcall_content_chars:
             error_msg = (
-                f"Content size ({payload_size:,} chars) exceeds the sub-LLM limit "
+                f"Payload size ({payload_size:,} chars) exceeds the sub-LLM limit "
                 f"of {self.max_subcall_content_chars:,} chars. Please chunk the content "
                 f"into smaller pieces and make multiple llm_query calls."
             )
