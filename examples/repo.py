@@ -441,10 +441,14 @@ def main() -> None:
             analysis_context = format_analysis_as_context(analysis)
 
     # Create and launch TUI
+    model = os.environ.get("SHESHA_MODEL", "claude-sonnet-4-20250514")
+    api_key = os.environ.get("SHESHA_API_KEY")
     tui = SheshaTUI(
         project=project,
         project_name=project.project_id,
         analysis_context=analysis_context,
+        model=model,
+        api_key=api_key,
     )
 
     # Register custom commands

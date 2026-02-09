@@ -15,6 +15,7 @@ from textual.timer import Timer
 from textual.widgets import Static, TextArea
 from textual.worker import Worker
 
+from shesha.analysis.shortcut import try_answer_from_analysis
 from shesha.rlm.trace import StepType, TokenUsage
 from shesha.tui.commands import CommandRegistry
 from shesha.tui.history import InputHistory
@@ -80,11 +81,15 @@ class SheshaTUI(App[None]):
         project: Project,
         project_name: str,
         analysis_context: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
     ) -> None:
         super().__init__()
         self._project = project
         self._project_name = project_name
         self._analysis_context = analysis_context
+        self._model = model
+        self._api_key = api_key
         self._command_registry = CommandRegistry()
         self._input_history = InputHistory()
         self._session = ConversationSession(project_name=project_name)
@@ -316,6 +321,21 @@ class SheshaTUI(App[None]):
             self._on_progress(step_type, iteration, content, token_usage)
 
         def run() -> QueryResult | None:
+            # Try analysis shortcut before full RLM
+            if self._analysis_context and self._model:
+                shortcut = try_answer_from_analysis(
+                    display_question, self._analysis_context, self._model, self._api_key
+                )
+                if shortcut is not None:
+                    if self._query_id == my_query_id:
+                        self.call_from_thread(
+                            self._on_shortcut_answer,
+                            my_query_id,
+                            shortcut,
+                            display_question,
+                        )
+                    return None
+
             try:
                 result = self._project.query(
                     full_question,
@@ -413,6 +433,25 @@ class SheshaTUI(App[None]):
         self._stop_query()
         self.query_one(OutputArea).add_system_message(f"Error: {error_msg}")
         self.query_one(InfoBar).reset_phase()
+
+    def _on_shortcut_answer(self, query_id: int, answer: str, question: str) -> None:
+        """Handle answer from analysis shortcut (called on main thread)."""
+        if self._query_id != query_id:
+            return
+        elapsed = time.time() - self._query_start_time
+        self._stop_query()
+
+        info_bar = self.query_one(InfoBar)
+        info_bar.update_done(elapsed, 0)
+
+        output = self.query_one(OutputArea)
+        output.add_system_markdown(answer + "\n\n*Answered from codebase analysis.*")
+
+        self._session.add_exchange(
+            question, answer, f"---\nAnswered from analysis in {elapsed:.2f}s"
+        )
+
+        self.set_timer(2.0, info_bar.reset_phase)
 
     def _stop_query(self) -> None:
         """Clean up query state."""
