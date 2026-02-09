@@ -242,6 +242,42 @@ def test_format_code_echo_message():
     assert "hello" in result
 
 
+def test_format_code_echo_with_vars():
+    """Code echo includes REPL variables list when vars provided."""
+    from shesha.rlm.prompts import format_code_echo
+
+    code = "x = 42"
+    output = ""
+    vars_dict = {"x": "int", "answer": "str"}
+    result = format_code_echo(code, output, vars=vars_dict)
+
+    assert "REPL variables:" in result
+    assert "x" in result
+    assert "answer" in result
+
+
+def test_format_code_echo_without_vars():
+    """Code echo omits REPL variables when vars is None."""
+    from shesha.rlm.prompts import format_code_echo
+
+    code = 'print("hello")'
+    output = "hello"
+    result = format_code_echo(code, output)
+
+    assert "REPL variables:" not in result
+    assert "REPL output:" in result
+    assert "hello" in result
+
+
+def test_format_code_echo_no_repl_output_tags():
+    """Code echo uses plain 'REPL output:' not XML tags."""
+    from shesha.rlm.prompts import format_code_echo
+
+    result = format_code_echo("code", "output")
+    assert "<repl_output" not in result
+    assert "REPL output:" in result
+
+
 def test_system_prompt_describes_show_vars():
     """System prompt describes SHOW_VARS() function."""
     loader = PromptLoader()
