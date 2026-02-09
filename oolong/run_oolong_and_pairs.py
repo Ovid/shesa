@@ -56,11 +56,18 @@ Environment variables:
   PLOT_ONLY             Set to 1 to skip evaluation entirely and regenerate
                         the plot from an existing oolong_results.csv.
 
+  CLI arguments
+  ─────────────
+  --model MODEL         LLM to use (overrides SHESHA_MODEL env var).
+
 Usage examples:
 
   # Minimal RLM-only run (one window per length, cheapest)
   export SHESHA_API_KEY="sk-..."
   python oolong/run_oolong_and_pairs.py
+
+  # Use a specific model via CLI flag
+  python oolong/run_oolong_and_pairs.py --model gpt-4o
 
   # Compare base vs RLM with more statistical power
   export SHESHA_API_KEY="sk-..."
@@ -72,6 +79,7 @@ Usage examples:
   PLOT_ONLY=1 python oolong/run_oolong_and_pairs.py
 """
 
+import argparse
 import ast
 import itertools
 import logging
@@ -626,7 +634,21 @@ def plot_results(csv_path: Path, plot_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="OOLONG & OOLONG-Pairs benchmark for Shesha RLM.",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="LLM model to use (overrides SHESHA_MODEL env var, default: gpt-5.2)",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = _parse_args()
+
     # Re-plot only mode
     if os.getenv("PLOT_ONLY") == "1":
         if CSV_PATH.exists():
@@ -637,7 +659,7 @@ def main() -> None:
         return
 
     t_start = time.monotonic()
-    model = os.getenv("SHESHA_MODEL", "gpt-5.2")
+    model = args.model or os.getenv("SHESHA_MODEL", "gpt-5.2")
     run_base = os.getenv("RUN_BASE", "0") == "1"
     run_rlm = os.getenv("RUN_RLM", "1") == "1"
     max_win = int(os.getenv("MAX_WINDOWS_PER_LEN", "1"))

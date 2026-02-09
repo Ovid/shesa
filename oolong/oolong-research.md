@@ -30,6 +30,50 @@ aggregate statistical queries like:
 
 This requires O(N) semantic reasoning — every entry must be examined.
 
+## Dataset Structure and Scaling
+
+Each context window is packed with general-knowledge questions (from TREC), one per
+line:
+
+```
+Date: Jun 16, 2024 || User: 98779 || Instance: Where is Glasgow ?
+```
+
+The number of questions **doubles with each context length scale**:
+
+| Scale | Questions | Characters | ~Tokens | Fill Ratio |
+|-------|-----------|------------|---------|------------|
+| 8K | 188 | 19K | 5.6K | 0.69 |
+| 16K | 388 | 39K | 11.5K | 0.70 |
+| 32K | 787 | 77K | 23K | 0.70 |
+| 64K | 1,585 | 153K | 46K | 0.70 |
+| 128K | 3,182 | 317K | 94K | 0.72 |
+| 256K | 6,374 | 618K | 185K | 0.71 |
+| 512K | 12,760 | 1.2M | 369K | 0.70 |
+| 1M | 25,531 | 2.5M | 744K | 0.71 |
+
+Actual token count is ~70% of the nominal `context_len` label. Each question is
+~97-100 characters including metadata. The dataset has 2 context windows per length
+and 25 benchmark questions per window.
+
+### Why RLMs should win
+
+The paper categorizes benchmarks by complexity:
+- **S-NIAH**: O(1) — find one needle regardless of context size
+- **OOLONG**: O(N) — classify and aggregate ALL N entries
+- **OOLONG-Pairs**: O(N²) — find pairs across ALL entries
+
+A base model must hold everything in its attention window and reason over it at once.
+An RLM can chunk the data, classify per chunk via `llm_query()`, and aggregate. The
+paper reports RLM outperforms base by ~28% (GPT-5) on OOLONG and the gap is even
+more dramatic on OOLONG-Pairs (base <0.1%, RLM 23-58%).
+
+### Current test scope
+
+Our runs only test the **8K** window (188 questions, 19K chars) since
+`MAX_WINDOWS_PER_LEN=1` and it processes lengths in order. This is the easiest
+scale — if we can't get it right here, larger scales won't work either.
+
 ## Root Cause: RLM Uses Grep Instead of Semantic Classification
 
 ### Evidence from execution traces (2026-02-09 run)
