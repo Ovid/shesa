@@ -381,3 +381,18 @@ def test_system_prompt_examples_use_llm_query():
     # Every example should use llm_query or llm_query_batched
     assert "llm_query(" in prompt
     assert "llm_query_batched(" in prompt
+
+
+def test_iteration_continue_prompt_exists():
+    """PromptLoader can render an iteration-continue prompt template."""
+    loader = PromptLoader()
+    result = loader.render_iteration_continue(question="What color is the sky?")
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_iteration_continue_prompt_mentions_sub_llms():
+    """Rendered iteration-continue template mentions sub-LLMs."""
+    loader = PromptLoader()
+    result = loader.render_iteration_continue(question="What color is the sky?")
+    assert "sub-LLM" in result or "sub-llm" in result.lower() or "querying" in result.lower()

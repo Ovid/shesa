@@ -19,6 +19,7 @@ def valid_prompts_dir(tmp_path: Path) -> Path:
         "Docs: {doc_count}, chars: {total_chars:,}\nSizes: {doc_sizes_list}"
     )
     (prompts_dir / "iteration_zero.md").write_text("Safeguard: {question}")
+    (prompts_dir / "iteration_continue.md").write_text("Continue: {question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
@@ -48,6 +49,7 @@ def test_loader_validates_on_init(tmp_path: Path):
     (prompts_dir / "system.md").write_text("Missing placeholders")
     (prompts_dir / "context_metadata.md").write_text("{doc_count} {total_chars:,} {doc_sizes_list}")
     (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text("{instruction}\n{content}")
     (prompts_dir / "code_required.md").write_text("Write code.")
 
@@ -136,6 +138,7 @@ def test_loader_succeeds_without_optional_verify_files(tmp_path: Path):
     (prompts_dir / "system.md").write_text("Limit: {max_subcall_chars:,}")
     (prompts_dir / "context_metadata.md").write_text("{doc_count} {total_chars:,} {doc_sizes_list}")
     (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
@@ -154,6 +157,7 @@ def test_loader_render_verify_adversarial_raises_when_not_loaded(tmp_path: Path)
     (prompts_dir / "system.md").write_text("{max_subcall_chars:,}")
     (prompts_dir / "context_metadata.md").write_text("{doc_count} {total_chars:,} {doc_sizes_list}")
     (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
@@ -172,6 +176,7 @@ def test_loader_render_verify_code_raises_when_not_loaded(tmp_path: Path):
     (prompts_dir / "system.md").write_text("{max_subcall_chars:,}")
     (prompts_dir / "context_metadata.md").write_text("{doc_count} {total_chars:,} {doc_sizes_list}")
     (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
@@ -225,3 +230,10 @@ def test_loader_render_verify_code_prompt(valid_prompts_dir: Path):
     assert "def foo(): pass" in result
     # Escaped braces should become literal braces after rendering
     assert "{{ }}" in result
+
+
+def test_loader_render_iteration_continue(valid_prompts_dir: Path):
+    """PromptLoader renders iteration_continue prompt with question."""
+    loader = PromptLoader(prompts_dir=valid_prompts_dir)
+    result = loader.render_iteration_continue(question="What is the answer?")
+    assert "What is the answer?" in result

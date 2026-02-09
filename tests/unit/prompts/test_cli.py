@@ -13,6 +13,7 @@ def test_cli_validates_valid_prompts(tmp_path: Path):
     (prompts_dir / "system.md").write_text("{max_subcall_chars:,}")
     (prompts_dir / "context_metadata.md").write_text("{doc_count} {total_chars:,} {doc_sizes_list}")
     (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
@@ -37,6 +38,7 @@ def test_cli_fails_invalid_prompts(tmp_path: Path):
     (prompts_dir / "system.md").write_text("Missing all placeholders")
     (prompts_dir / "context_metadata.md").write_text("{doc_count} {total_chars:,} {doc_sizes_list}")
     (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text("{instruction}\n{content}")
     (prompts_dir / "code_required.md").write_text("Write code.")
     (prompts_dir / "verify_adversarial.md").write_text("Verify {findings} against {documents}.")

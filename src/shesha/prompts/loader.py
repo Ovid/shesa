@@ -134,6 +134,14 @@ class PromptLoader:
         """
         return self._prompts["iteration_zero.md"].format(question=question)
 
+    def render_iteration_continue(self, question: str) -> str:
+        """Render the per-iteration continuation prompt.
+
+        Re-instructs the model to use sub-LLMs each iteration.
+        Matches reference rlm/rlm/utils/prompts.py:141-143.
+        """
+        return self._prompts["iteration_continue.md"].format(question=question)
+
     def render_code_required(self) -> str:
         """Render the code_required prompt (no variables)."""
         return self._prompts["code_required.md"]
