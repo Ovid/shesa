@@ -15,8 +15,8 @@ from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
 from shesha.rlm.prompts import (
     MAX_SUBCALL_CHARS,
+    format_code_echo,
     truncate_code_output,
-    wrap_repl_output,
     wrap_subcall_content,
 )
 from shesha.rlm.semantic_verification import (
@@ -643,20 +643,21 @@ class RLMEngine:
                     _finalize_trace(answer, "executor_died")
                     return query_result
 
-                # Add output to conversation
-                combined_output = "\n\n".join(all_output)
-                wrapped_output = wrap_repl_output(combined_output)
-
-                # Append query reminder so the model stays focused across iterations
-                reminder = (
-                    "Continue using the REPL environment to answer"
-                    f' the original query: "{question}"\n'
-                    "Your next action:"
-                )
-                iteration_msg = f"{wrapped_output}\n\n{reminder}"
-
+                # Add assistant response, then per-block code echo messages
                 messages.append({"role": "assistant", "content": response.content})
-                messages.append({"role": "user", "content": iteration_msg})
+                for code, output in zip(code_blocks, all_output):
+                    messages.append({
+                        "role": "user",
+                        "content": format_code_echo(code, output),
+                    })
+
+                # Per-iteration continuation prompt re-instructs sub-LLM usage
+                messages.append({
+                    "role": "user",
+                    "content": self.prompt_loader.render_iteration_continue(
+                        question=question,
+                    ),
+                })
 
             # Max iterations reached
             answer = "[Max iterations reached without final answer]"

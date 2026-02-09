@@ -947,17 +947,20 @@ class TestIterationQueryReminder:
         )
 
         # Check the messages sent on the second LLM call (iteration 1)
-        # The second call's messages should include the query reminder
         second_call_args = mock_llm.complete.call_args_list[1]
         messages = second_call_args[1].get(
             "messages", second_call_args[0][0] if second_call_args[0] else None
         )
-        # The last user message (from iteration 0's output) should have the reminder
         user_messages = [m for m in messages if m["role"] == "user"]
-        # The iteration output message (not the initial question) should contain reminder
-        iteration_output_msg = user_messages[-1]["content"]
-        assert "What color is the sky?" in iteration_output_msg
-        assert "repl_output" in iteration_output_msg  # Still has the REPL output
+
+        # Last user message is the continuation prompt with the original query
+        continuation_msg = user_messages[-1]["content"]
+        assert "What color is the sky?" in continuation_msg
+
+        # Second-to-last user message is the code echo with repl_output
+        code_echo_msg = user_messages[-2]["content"]
+        assert "repl_output" in code_echo_msg
+        assert "Code executed:" in code_echo_msg
 
 
 class TestCallbackIterationCapture:
