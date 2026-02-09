@@ -119,12 +119,28 @@ def test_verify_code_schema_defined():
     assert schema.required_file is False
 
 
+def test_iteration_continue_schema_defined():
+    """PROMPT_SCHEMAS includes iteration_continue.md with required placeholders."""
+    assert "iteration_continue.md" in PROMPT_SCHEMAS
+    schema = PROMPT_SCHEMAS["iteration_continue.md"]
+    assert schema.required == {"question"}
+    assert schema.optional == set()
+    assert schema.required_file is True
+
+
+def test_validate_iteration_continue_passes_valid():
+    """validate_prompt passes for valid iteration_continue.md content."""
+    content = "Continue answering: {question}"
+    validate_prompt("iteration_continue.md", content)
+
+
 def test_core_schemas_are_required_files():
     """Core prompt schemas are required files."""
     for name in (
         "system.md",
         "context_metadata.md",
         "iteration_zero.md",
+        "iteration_continue.md",
         "subcall.md",
         "code_required.md",
     ):
