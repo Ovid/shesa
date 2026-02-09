@@ -59,6 +59,8 @@ Environment variables:
   CLI arguments
   ─────────────
   --model MODEL         LLM to use (overrides SHESHA_MODEL env var).
+  --fast                Use fast (concurrent) execution for llm_query_batched.
+                        Default is deep (sequential) for higher accuracy.
 
 Usage examples:
 
@@ -211,8 +213,9 @@ def score_oolong(pred: str, gold_str: str) -> float:
 
     # Substring match for comparison phrases embedded in full-sentence answers.
     # OOLONG questions request "Answer: X is [relation] Y" but gold is just [relation].
+    # Skip numeric golds — they must fall through to the numeric decay scorer.
     for g in golds:
-        if g in cand:
+        if not g.lstrip("-").isdigit() and g in cand:
             return 1.0
 
     # Numerical scoring: 0.75^|y - ŷ| per Bertsch et al. (2025) / arXiv:2512.24601.
@@ -647,6 +650,12 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="LLM model to use (overrides SHESHA_MODEL env var, default: gpt-5.2)",
     )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Use fast (concurrent) execution mode for llm_query_batched. "
+        "Default is deep (sequential) for higher accuracy.",
+    )
     return parser.parse_args()
 
 
@@ -683,14 +692,15 @@ def main() -> None:
 
     t_start = time.monotonic()
     model = args.model or os.getenv("SHESHA_MODEL", "gpt-5.2")
+    execution_mode = "fast" if args.fast else "deep"
     run_base = os.getenv("RUN_BASE", "0") == "1"
     run_rlm = os.getenv("RUN_RLM", "1") == "1"
     max_win = int(os.getenv("MAX_WINDOWS_PER_LEN", "1"))
 
     log.info("=== OOLONG Benchmark Run ===")
     log.info(
-        "model=%s  run_base=%s  run_rlm=%s  max_windows=%d",
-        model, run_base, run_rlm, max_win,
+        "model=%s  run_base=%s  run_rlm=%s  max_windows=%d  execution_mode=%s",
+        model, run_base, run_rlm, max_win, execution_mode,
     )
 
     # Log provider and model (LiteLLM format: "provider/model" or just "model")
@@ -705,7 +715,7 @@ def main() -> None:
         modes.append("base")
     if run_rlm:
         modes.append("rlm")
-    status(f"modes={'+'.join(modes)}  max_windows={max_win}")
+    status(f"modes={'+'.join(modes)}  max_windows={max_win}  exec_mode={execution_mode}")
 
     if not modes:
         status("Nothing to run (RUN_BASE=0 and RUN_RLM=0)")
@@ -843,14 +853,15 @@ def main() -> None:
                         sh.delete_project(proj_name)
                         rlm_project = sh.create_project(proj_name)
                         log.debug("Replaced existing project '%s'", proj_name)
+                    rlm_project.execution_mode = execution_mode
                     with tempfile.TemporaryDirectory() as td:
                         fpath = os.path.join(td, "context.txt")
                         with open(fpath, "w", encoding="utf-8") as f:
                             f.write(context)
                         rlm_project.upload(fpath)
                     log.info(
-                        "Shesha project '%s' created (%d chars uploaded)",
-                        proj_name, len(context),
+                        "Shesha project '%s' created (%d chars, mode=%s)",
+                        proj_name, len(context), execution_mode,
                     )
 
                 # --- OOLONG ---

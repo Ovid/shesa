@@ -95,3 +95,27 @@ class TestScoreOolongUserPrefix:
 
     def test_user_prefix_wrong_value(self):
         assert score_oolong("User: 12345", "[94706]") == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Bug 4: Substring match mis-scores numeric answers
+# ---------------------------------------------------------------------------
+
+
+class TestScoreOolongNumericSubstringFalsePositive:
+    """Substring match 'g in cand' must not short-circuit numeric scoring.
+
+    Gold "28" should NOT score 1.0 against prediction "128" just because
+    "28" in "128" is True.  The numeric decay path should run instead.
+    """
+
+    def test_numeric_gold_substring_of_pred(self):
+        """Gold '28' inside pred '128' must use numeric decay, not substring."""
+        score = score_oolong("Answer: 128", "[28]")
+        assert score < 1.0
+        assert score == pytest.approx(0.75**100)
+
+    def test_numeric_gold_not_tricked_by_leading_digits(self):
+        """Gold '5' inside pred '50' — off by 45, not a match."""
+        score = score_oolong("Answer: 50", "[5]")
+        assert score < 1.0
