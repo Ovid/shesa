@@ -979,3 +979,162 @@ before jumping to regex solutions.
 - Document-grounded answer requirement
 - Error handling guidance (try/except ValueError pattern)
 - Source priority (code > docs)
+
+---
+
+## Reference RLM Benchmark Comparison (2026-02-09)
+
+### Motivation
+
+After 5 runs and 4 prompt fixes, Shesha's OOLONG score remained at ~24-28%.
+Before investing more effort in fixing Shesha's engine, we needed to answer a
+fundamental question: **is the problem in the benchmark harness or in Shesha's
+RLM implementation?**
+
+### Approach
+
+Created `oolong/run_reference_implementation.py` — a mirror of
+`run_oolong_and_pairs.py` that calls the paper's reference RLM (`rlm/`)
+instead of Shesha. Key properties:
+
+- **Same scoring functions** — imported directly from `run_oolong_and_pairs.py`
+  (identical `score_oolong()`, `f1_score()`, `parse_pairs_from_text()`)
+- **Same dataset** — same parquet cache, same context windows, same questions
+- **Same CSV format** — `ref:` prefix on model name, otherwise identical schema
+- **Local REPL** — reference RLM's in-process Python sandbox (no Docker)
+- **Same models** — tested with both gpt-5-mini and gpt-5.2
+
+Design doc: `docs/plans/2026-02-09-reference-rlm-benchmark-design.md`
+
+### Run #6: Reference RLM with gpt-5-mini (2026-02-09 22:08)
+
+**Score: ~59% (8.8/15)** — 15 of 25 oolong questions completed before interrupt.
+
+| ID | Gold | Reference Prediction | Score | Shesha #5 |
+|----|------|---------------------|-------|-----------|
+| 13000009 | human being | human being | **1.0** | 0.0 |
+| 13000010 | more common than | more common than | **1.0** | 0.0 |
+| 13000011 | more common than | same frequency as | 0.0 | 0.0 |
+| 13000012 | less common than | less common than | **1.0** | 0.0 |
+| 13000013 | less common than | same frequency as | 0.0 | 0.0 |
+| 13000014 | less common than | less common than | **1.0** | 1.0 |
+| 13000015 | less common than | same frequency as | 0.0 | 0.0 |
+| 13000016 | less common than | same frequency as | 0.0 | 0.0 |
+| 13000017 | less common than | less common than | **1.0** | 1.0 |
+| 13000018 | less common than | same frequency as | 0.0 | 0.0 |
+| 13000019 | less common than | same frequency as | 0.0 | 0.0 |
+| 13000020 | less common than | less common than | **1.0** | 1.0 |
+| 13000021 | less common than | less common than | **1.0** | 0.0 |
+| 13000022 | less common than | less common than | **1.0** | 1.0 |
+| 13000023 | 28 | 27 | **0.8** | 0.0 |
+
+### Run #7: Reference RLM with gpt-5.2 (2026-02-09 22:24)
+
+**Score: 60% (9/15)** — 15 of 25 oolong questions completed before interrupt.
+
+| ID | Gold | Reference Prediction | Score | Shesha #5 |
+|----|------|---------------------|-------|-----------|
+| 13000009 | human being | human being | **1.0** | 0.0 |
+| 13000010 | more common than | less common than | 0.0 | 0.0 |
+| 13000011 | more common than | less common than | 0.0 | 0.0 |
+| 13000012 | less common than | less common than | **1.0** | 0.0 |
+| 13000013 | less common than | less common than | **1.0** | 0.0 |
+| 13000014 | less common than | less common than | **1.0** | 1.0 |
+| 13000015 | less common than | more common than | 0.0 | 0.0 |
+| 13000016 | less common than | more common than | 0.0 | 0.0 |
+| 13000017 | less common than | same frequency as | 0.0 | 1.0 |
+| 13000018 | less common than | less common than | **1.0** | 0.0 |
+| 13000019 | less common than | less common than | **1.0** | 0.0 |
+| 13000020 | less common than | less common than | **1.0** | 1.0 |
+| 13000021 | less common than | more common than | 0.0 | 0.0 |
+| 13000022 | less common than | less common than | **1.0** | 1.0 |
+| 13000023 | 28 | 28 | **1.0** | 0.0 |
+
+### Analysis
+
+#### The benchmark harness is correct
+
+Same scoring functions, same dataset, same models — the reference RLM scores
+**~60% vs Shesha's ~28%**. The problem is definitively in Shesha's RLM engine,
+not the test code.
+
+#### Error quality is fundamentally different
+
+**Shesha's errors:** Almost all "same frequency as" — the model is counting
+literal label-name string matches in header text (all appear ~2 times). This is
+a methodology failure: regex instead of semantic classification.
+
+**Reference's errors:** "more common than" (reversed direction), "less common
+than" (when gold is "more common than"). The reference is doing real semantic
+classification and comparison — its counts are close but sometimes wrong. These
+are genuine classification/counting errors, not methodology failures.
+
+#### Count questions prove it
+
+ID 13000023 (gold: 28 "numeric value" questions):
+- **Reference gpt-5.2:** 28 (exact match, score 1.0)
+- **Reference gpt-5-mini:** 27 (off by 1, score 0.8)
+- **Shesha:** 0 or 176 (not even close)
+
+The reference is classifying all 188 entries semantically and counting correctly.
+Shesha is counting something else entirely.
+
+#### Timing confirms sub-LLM usage
+
+| Runner | Time per question | Interpretation |
+|--------|------------------|----------------|
+| Shesha | 8-25 seconds | Zero or minimal `llm_query()` calls |
+| Reference | 40-180 seconds | Heavy sub-LLM classification work |
+
+The reference spends 2-10x longer per question because it's making multiple
+`llm_query()` calls to classify entries in chunks. Shesha shortcuts with regex.
+
+#### Both models perform similarly on the reference
+
+gpt-5-mini (~59%) and gpt-5.2 (60%) produce comparable results on the reference
+RLM. The model isn't the bottleneck — the architecture is.
+
+### Updated Run Summary
+
+| Run | Runner | Model | Fix | Score | Core Behavior |
+|-----|--------|-------|-----|-------|---------------|
+| #1 | Shesha | gpt-5.2 | Baseline | 0% | Pure regex, zero llm_query() |
+| #2 | Shesha | gpt-5.2 | Encouragement | 27% | 1 llm_query() on wrong content |
+| #3 | Shesha | gpt-5.2 | Simplified examples | 24% | No change |
+| #4 | Shesha | gpt-5.2 | Reference alignment | ~12.5% F1 (pairs only) | More iterations, incomplete |
+| #5 | Shesha | gpt-5.2 | Structural forcing | ~28% | Mixed — some correct, inconsistent |
+| **#6** | **Reference** | **gpt-5-mini** | **N/A** | **~59%** | **Real semantic classification** |
+| **#7** | **Reference** | **gpt-5.2** | **N/A** | **60%** | **Real semantic classification** |
+
+### Conclusion
+
+**The gap is architectural, not prompt-based.** The reference RLM's architecture
+forces sub-LLM usage through:
+
+1. **20K per-block output truncation** — model can't see full context, must
+   delegate to `llm_query()`
+2. **Iteration-0 safeguard** — prevents immediate FINAL(), forces exploration
+3. **Per-iteration sub-LLM reminder** — explicitly says "querying sub-LLMs"
+   every iteration
+4. **Per-code-block feedback** — echoes code back alongside output, helping the
+   model build on previous work
+5. **Simple API** — `llm_query(prompt)` single-arg reduces friction
+
+Shesha has partially implemented some of these (fixes #3-#4), but the combined
+effect of all five creates a fundamentally different execution pattern. The
+reference forces the model into a classify-via-sub-calls workflow; Shesha still
+allows shortcuts.
+
+### Next Steps
+
+The reference benchmark runner (`oolong/run_reference_implementation.py`) is now
+a permanent diagnostic tool. Going forward:
+
+1. **Close remaining structural gaps** — implement the 2 gaps identified in the
+   "Reference RLM Deep Comparison" section above (code echo in feedback,
+   per-iteration sub-LLM reminder)
+2. **Re-run Shesha benchmark after each fix** — compare against reference
+   baseline (~60%)
+3. **Target: Shesha within 10% of reference** — if Shesha reaches ~50%+ on
+   OOLONG, the architecture is working correctly and remaining gaps are
+   optimization
