@@ -46,6 +46,7 @@ class ExecutionResult:
     final_answer: str | None = None
     final_var: str | None = None
     final_value: str | None = None
+    vars: dict[str, str] | None = None
 
 
 LLMQueryHandler = Callable[[str, str], str]  # (instruction, content) -> response
@@ -234,6 +235,7 @@ class ContainerExecutor:
                     final_answer=result.get("final_answer"),
                     final_var=result.get("final_var"),
                     final_value=result.get("final_value"),
+                    vars=result.get("vars"),
                 )
         except ProtocolError as e:
             # Protocol violation implies potentially malicious/broken container state.

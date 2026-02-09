@@ -28,6 +28,15 @@ def show_vars() -> str:
     return f"Available variables: {available}"
 
 
+def _list_vars() -> dict[str, str]:
+    """List non-private, non-builtin variables and their types."""
+    return {
+        k: type(v).__name__
+        for k, v in NAMESPACE.items()
+        if not k.startswith("_") and k not in BUILTINS_SET
+    }
+
+
 def execute_code(code: str) -> dict[str, Any]:
     """Execute Python code and return results."""
     stdout_capture = StringIO()
@@ -61,6 +70,7 @@ def execute_code(code: str) -> dict[str, Any]:
         "stderr": stderr_capture.getvalue(),
         "return_value": return_value,
         "error": error,
+        "vars": _list_vars(),
     }
 
 

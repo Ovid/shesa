@@ -1425,6 +1425,33 @@ class TestExecutionMode:
         )
 
 
+class TestExecutionResultVars:
+    """Tests for vars field on ExecutionResult."""
+
+    def test_execution_result_vars_field(self) -> None:
+        """ExecutionResult has an optional vars field."""
+        result = ExecutionResult(
+            status="ok",
+            stdout="",
+            stderr="",
+            return_value=None,
+            error=None,
+            vars={"x": "int", "answer": "str"},
+        )
+        assert result.vars == {"x": "int", "answer": "str"}
+
+    def test_execution_result_vars_defaults_none(self) -> None:
+        """ExecutionResult.vars defaults to None."""
+        result = ExecutionResult(
+            status="ok",
+            stdout="",
+            stderr="",
+            return_value=None,
+            error=None,
+        )
+        assert result.vars is None
+
+
 class TestResetNamespace:
     """Tests for namespace reset in executor."""
 
