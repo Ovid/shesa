@@ -40,7 +40,7 @@ barsoom_data/
 TODO.md
 .worktrees/
 src/shesha/_version.py
-rlm/
+/rlm/
 
 # Shesha runtime data
 shesha_data/
