@@ -71,6 +71,46 @@ BACKEND_MAP = {
 backend = BACKEND_MAP.get(backend, backend)
 ```
 
+## Import Path Handling
+
+Both `run_oolong_and_pairs.py` and `run_reference_implementation.py` are sibling
+scripts in `oolong/` — there is no `__init__.py` (not a package). The reference
+RLM package lives at `rlm/rlm/` and may or may not be pip-installed.
+
+**Solution:** Add both directories to `sys.path` at the top of the file:
+
+```python
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+
+sys.path.insert(0, str(SCRIPT_DIR))       # for run_oolong_and_pairs
+sys.path.insert(0, str(PROJECT_ROOT / "rlm"))  # for rlm package
+```
+
+Then import normally:
+```python
+from rlm import RLM
+from run_oolong_and_pairs import (
+    score_oolong, f1_score, parse_pairs_from_text,
+    make_pairs_tasks, _parse_labeled_context, _build_user_stats,
+    plot_results, LABELS, CTX_LENS, CACHE_PATH, _human_len,
+)
+```
+
+**Side effect note:** Importing `run_oolong_and_pairs` triggers
+`matplotlib.use("Agg")` at module level. This is harmless (we want the Agg
+backend anyway).
+
+## Logging
+
+The imported `status()` function uses the shared `oolong` logger, whose file
+handler points to `last-run.log`. To avoid collision:
+
+- Define our own `log` logger (`logging.getLogger("oolong_ref")`) and our own
+  `status()` function that uses it.
+- Do NOT import `status` or `_setup_logging` from `run_oolong_and_pairs`.
+- Set up a file handler pointing to `ref-last-run.log`.
+
 ## File Layout
 
 ```
@@ -78,7 +118,7 @@ oolong/run_reference_implementation.py
 
 Imports:
   - from rlm import RLM
-  - from oolong.run_oolong_and_pairs import (
+  - from run_oolong_and_pairs import (
       score_oolong, f1_score, parse_pairs_from_text,
       make_pairs_tasks, _parse_labeled_context, _build_user_stats,
       plot_results, LABELS, CTX_LENS, CACHE_PATH, _human_len,
@@ -92,6 +132,8 @@ Constants:
   - LOG_PATH  = SCRIPT_DIR / "ref-last-run.log"
 
 Functions:
+  - _setup_logging()           — own logger to ref-last-run.log
+  - status(msg)                — own status function using oolong_ref logger
   - _parse_args()              — --model, --fast (no-op for reference)
   - _extract_total_tokens(us)  — sum input+output across all models
   - call_ref_rlm(question, context, rlm_instance) -> (answer, tokens)
@@ -117,7 +159,7 @@ score`. Model values use `ref:` prefix (e.g., `ref:gpt-5.2`).
 | `SHESHA_API_KEY` | API key for LLM provider | required |
 | `SHESHA_MODEL` | Default model (overridden by `--model`) | `gpt-5.2` |
 | `MAX_WINDOWS_PER_LEN` | Windows to evaluate per context length | `1` |
-| `SHESHA_MAX_ITER` | Max RLM iterations | `30` (reference default) |
+| `REF_MAX_ITER` | Max RLM iterations | `30` (reference default) |
 | `PLOT_ONLY` | Skip eval, regenerate plot from CSV | `0` |
 
 ### CLI
