@@ -638,7 +638,7 @@ If this hypothesis is correct, the model should now:
 
 ```bash
 # Rebuild Docker image first (runner.py changed)
-docker build -t shesha-sandbox -f docker/Dockerfile.sandbox .
+docker build -t shesha-sandbox src/shesha/sandbox/
 
 # Then run benchmark
 python oolong/run_oolong_and_pairs.py --model openai/gpt-5-mini
