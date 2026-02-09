@@ -480,7 +480,13 @@ class RLMEngine:
 
                     # Check for final answer
                     if result.final_answer:
-                        final_answer = result.final_answer
+                        # Sandbox FINAL() can receive any type; coerce to str
+                        # so trace steps and QueryResult.answer stay str.
+                        final_answer = (
+                            result.final_answer
+                            if isinstance(result.final_answer, str)
+                            else str(result.final_answer)
+                        )
                         step = trace.add_step(
                             type=StepType.FINAL_ANSWER,
                             content=final_answer,
