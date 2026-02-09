@@ -282,25 +282,24 @@ class SheshaTUI(App[None]):
         info_bar.update_thinking(0.0)
         self._timer_handle = self.set_interval(0.1, self._tick_timer)
 
-        # Build full question with context
+        # Build question with conversation history (used by both shortcut and RLM)
         prefix = self._session.format_history_prefix()
-        if self._analysis_context and prefix:
-            full_question = f"{self._analysis_context}\n\n{prefix}{question}"
-        elif self._analysis_context:
-            full_question = f"{self._analysis_context}\n\n{question}"
-        elif prefix:
-            full_question = f"{prefix}{question}"
+        question_with_history = f"{prefix}{question}" if prefix else question
+
+        # Full question adds analysis context for the RLM path
+        if self._analysis_context:
+            full_question = f"{self._analysis_context}\n\n{question_with_history}"
         else:
-            full_question = question
+            full_question = question_with_history
 
         self._worker_handle = self.run_worker(
-            self._make_query_runner(full_question, question),
+            self._make_query_runner(full_question, question, question_with_history),
             thread=True,
             exit_on_error=False,
         )
 
     def _make_query_runner(
-        self, full_question: str, display_question: str
+        self, full_question: str, display_question: str, question_with_history: str = ""
     ) -> Callable[[], QueryResult | None]:
         """Return a callable that runs the query (for worker thread).
 
@@ -324,7 +323,10 @@ class SheshaTUI(App[None]):
             # Try analysis shortcut before full RLM
             if self._analysis_context and self._model:
                 shortcut = try_answer_from_analysis(
-                    display_question, self._analysis_context, self._model, self._api_key
+                    question_with_history or display_question,
+                    self._analysis_context,
+                    self._model,
+                    self._api_key,
                 )
                 if shortcut is not None:
                     if self._query_id == my_query_id:
