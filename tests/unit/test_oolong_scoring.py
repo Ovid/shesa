@@ -4,9 +4,28 @@ These are fast unit tests for the scoring logic in oolong/run_oolong_and_pairs.p
 They do NOT run the benchmark or call any LLMs.
 """
 
+import logging
+
 import pytest
 
 from oolong.run_oolong_and_pairs import score_oolong
+
+# ---------------------------------------------------------------------------
+# Import side-effect guard
+# ---------------------------------------------------------------------------
+
+
+class TestImportSideEffects:
+    def test_import_does_not_attach_file_handler(self):
+        """Importing the module must not attach a FileHandler to the logger.
+
+        A FileHandler(mode='w') at module level truncates the log file on every
+        import, including when tests import scoring helpers.
+        """
+        oolong_logger = logging.getLogger("oolong")
+        file_handlers = [h for h in oolong_logger.handlers if isinstance(h, logging.FileHandler)]
+        assert file_handlers == [], f"FileHandler(s) attached at import time: {file_handlers}"
+
 
 # ---------------------------------------------------------------------------
 # Existing behaviour that must be preserved

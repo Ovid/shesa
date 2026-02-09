@@ -133,21 +133,27 @@ PLOT_PATH = SCRIPT_DIR / "oolong_scaling.png"
 CACHE_PATH = SCRIPT_DIR / "trec_coarse.parquet"
 
 # ---------------------------------------------------------------------------
-# Logging — full detail to file, errors-only on console
+# Logging — handlers are attached in _setup_logging(), called from main(),
+# so that importing scoring helpers doesn't truncate the log file.
 # ---------------------------------------------------------------------------
 
 log = logging.getLogger("oolong")
-log.setLevel(logging.DEBUG)
+log.addHandler(logging.NullHandler())
 
-_fh = logging.FileHandler(LOG_PATH, mode="w", encoding="utf-8")
-_fh.setLevel(logging.DEBUG)
-_fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(message)s"))
-log.addHandler(_fh)
 
-_ch = logging.StreamHandler(sys.stderr)
-_ch.setLevel(logging.ERROR)
-_ch.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-log.addHandler(_ch)
+def _setup_logging() -> None:
+    """Attach file and console handlers. Called once from main()."""
+    log.setLevel(logging.DEBUG)
+
+    fh = logging.FileHandler(LOG_PATH, mode="w", encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(message)s"))
+    log.addHandler(fh)
+
+    ch = logging.StreamHandler(sys.stderr)
+    ch.setLevel(logging.ERROR)
+    ch.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    log.addHandler(ch)
 
 
 def _human_len(n: int) -> str:
@@ -678,6 +684,7 @@ def _install_urllib3_cleanup_hook() -> None:
 
 
 def main() -> None:
+    _setup_logging()
     _install_urllib3_cleanup_hook()
     args = _parse_args()
 
