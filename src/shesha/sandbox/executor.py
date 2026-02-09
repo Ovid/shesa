@@ -280,8 +280,13 @@ class ContainerExecutor:
                 error=f"Protocol error: invalid UTF-8 from container: {e}",
             )
 
+    _MAX_BATCH_WORKERS = 32
+
     def _execute_batch(self, prompts: list[str]) -> list[str]:
         """Execute batch of LLM prompts, concurrently (fast) or sequentially (deep)."""
+        if not prompts:
+            return []
+
         handler = self.llm_query_handler
         assert handler is not None
 
@@ -294,7 +299,8 @@ class ContainerExecutor:
         if self.execution_mode == "deep":
             return [_call_one(p) for p in prompts]
 
-        with ThreadPoolExecutor(max_workers=len(prompts)) as pool:
+        workers = min(len(prompts), self._MAX_BATCH_WORKERS)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
             return list(pool.map(_call_one, prompts))
 
     def _send_raw(self, data: str, timeout: int = DEFAULT_SEND_TIMEOUT) -> None:

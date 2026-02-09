@@ -1394,6 +1394,36 @@ class TestExecutionMode:
         assert len(thread_ids) == 4
         assert len(set(thread_ids)) >= 2
 
+    def test_execute_batch_empty_prompts_returns_empty_list(self):
+        """_execute_batch returns [] immediately for an empty prompts list."""
+        executor = ContainerExecutor(execution_mode="fast")
+        executor.llm_query_handler = lambda inst, cont: "should not be called"
+
+        result = executor._execute_batch([])
+        assert result == []
+
+    def test_execute_batch_caps_thread_count(self):
+        """_execute_batch caps max_workers to avoid unbounded thread creation."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        executor = ContainerExecutor(execution_mode="fast")
+        executor.llm_query_handler = lambda inst, cont: "ok"
+
+        captured_max_workers: list[int] = []
+        _real_init = ThreadPoolExecutor.__init__
+
+        def _capturing_init(self_tpe, *args, **kwargs):
+            captured_max_workers.append(kwargs.get("max_workers", args[0] if args else None))
+            _real_init(self_tpe, *args, **kwargs)
+
+        with patch.object(ThreadPoolExecutor, "__init__", _capturing_init):
+            result = executor._execute_batch([f"p{i}" for i in range(100)])
+
+        assert len(result) == 100
+        assert captured_max_workers[0] <= 32, (
+            f"max_workers should be capped, got {captured_max_workers[0]}"
+        )
+
 
 class TestResetNamespace:
     """Tests for namespace reset in executor."""
