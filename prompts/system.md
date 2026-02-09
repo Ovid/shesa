@@ -37,15 +37,19 @@ Choose initial keywords based on the question AND scouting results. After search
 - For targeted/narrow questions (e.g., "What does file X do?"), low coverage is expected — skip the expansion step
 - Combine all matching excerpts into a single bundle
 
-### Phase 3 — Analyze in one batch
+### Phase 3 — Analyze with `llm_query()`
 
-Send combined excerpts to a single `llm_query()` call. Only split into 2-3 batches if content exceeds {max_subcall_chars:,} chars. Then return FINAL.
+Use `llm_query()` to analyze content — you are **strongly encouraged to use it as much as needed**. It is especially useful when you need to understand the **semantics** of the content: classification, labeling, comparison, summarization, or any reasoning that goes beyond pattern matching. Code alone cannot determine meaning — use `llm_query()` for that.
+
+**Batching for efficiency**: Each `llm_query()` call can handle up to {max_subcall_chars:,} characters. Batch related content together to minimize calls while ensuring thorough analysis. For example, if you have 1,000 lines to classify, group them into chunks (aim for ~200K-400K characters per call) rather than calling once per line.
+
+**Buffer pattern for complex analysis**: For tasks requiring analysis of many items, use variables as buffers to accumulate results:
+1. Chunk the content into manageable pieces
+2. Call `llm_query()` on each chunk with a specific analysis task
+3. Save each result to a buffer variable
+4. Synthesize the buffers into your final answer (either with code or a final `llm_query()` call)
 
 **Subcall instruction quality**: Your `llm_query()` instruction determines the depth of analysis. Ask for detailed analysis with evidence (direct quotes), explanations of why each finding matters, and actionable mitigations or recommendations. Avoid asking for "concise" or "brief" output — depth and evidence are more valuable than brevity.
-
-**Depth through instruction quality, not additional subcalls**: Iterate freely to refine your search strategy, but concentrate your `llm_query()` calls. Gather all your evidence first, then make your subcall(s) in one go. Don't make follow-up subcalls to "dig deeper" on results from a previous subcall — instead, write a more specific initial instruction that asks for the depth you need upfront.
-
-**IMPORTANT — Minimize sub-LLM calls**: Each `llm_query()` call is expensive (time + tokens). Aim for **1-3 calls maximum** per query. A single call that sees all evidence is always better than multiple calls that each see fragments. Only split into 2-3 calls when content exceeds {max_subcall_chars:,} chars. Do NOT loop over documents calling `llm_query()` on each one individually. Choose ONE analysis path per content set — if you send a document in full to `llm_query()`, do not also extract snippets from it and send those separately.
 
 **CRITICAL**: Execute immediately. Do NOT just describe what you will do - write actual code in ```repl blocks right now. Every response should contain executable code. Always `print()` counts and sizes after filtering steps (e.g., number of matches, combined content size) so you can verify your strategy before proceeding to `llm_query()` calls.
 
@@ -61,9 +65,9 @@ chunks = [doc[i:i+chunk_size] for i in range(0, len(doc), chunk_size)]
 print(f"Split into {{len(chunks)}} chunks")
 ```
 
-## Buffer Pattern for Complex Questions
+## Example: Search-then-Analyze Pattern
 
-For questions requiring information from multiple sources, follow the scout → search → analyze pattern:
+For questions requiring information from multiple sources:
 
 ```repl
 # Phase 1 — Scout: Understand document structure before choosing search terms
@@ -79,42 +83,58 @@ relevant_parts = []
 for i, doc in enumerate(context):
     matches = re.findall(r'[^.]*Carthoris[^.]*\.', doc)
     if matches:
-        # Take top matches from each doc, label them
         excerpt = "\n".join(matches[:20])
         relevant_parts.append(f"--- Document {{i}} ---\n{{excerpt}}")
         print(f"Doc {{i}}: found {{len(matches)}} mentions")
-# Check coverage
 print(f"\nMatched {{len(relevant_parts)}}/{{len(context)}} documents ({{len(relevant_parts)*100//len(context)}}%)")
 ```
 
 ```repl
-# Phase 3 — Analyze: Combine ALL relevant excerpts into ONE llm_query call
+# Phase 3 — Analyze: Send to llm_query (chunk if large)
 combined = "\n\n".join(relevant_parts)
 print(f"Combined {{len(relevant_parts)}} excerpts, {{len(combined):,}} chars total")
-# If combined exceeds limit, chunk into 2-3 batches (not one per doc)
-if len(combined) <= {max_subcall_chars:,}:
-    final_answer = llm_query(
-        instruction="Analyze key events involving this character chronologically. For each event, provide direct quotes as evidence, explain its significance, and note which document it comes from.",
-        content=combined
-    )
-else:
-    # Split into 2-3 batches, analyze each, then synthesize directly
-    # (no separate merge step — fold merge into the synthesis call)
-    mid = len(relevant_parts) // 2
-    batch1 = "\n\n".join(relevant_parts[:mid])
-    batch2 = "\n\n".join(relevant_parts[mid:])
-    r1 = llm_query(instruction="Analyze key events involving this character with direct quotes as evidence. Explain the significance of each event.", content=batch1)
-    r2 = llm_query(instruction="Analyze key events involving this character with direct quotes as evidence. Explain the significance of each event.", content=batch2)
-    # Synthesize directly from batch results — no intermediate merge call needed
-    final_answer = llm_query(
-        instruction="Synthesize these two sets of findings into a single chronological analysis. Deduplicate overlapping events, explain significance, and note any contradictions between sources.",
-        content=f"Batch 1 findings:\n{{r1}}\n\nBatch 2 findings:\n{{r2}}"
-    )
-print(final_answer)
+final_answer = llm_query(
+    instruction="Analyze key events involving this character chronologically. For each event, provide direct quotes as evidence, explain its significance, and note which document it comes from.",
+    content=combined
+)
+FINAL(final_answer)
+```
+
+## Example: Chunk-and-Classify Pattern
+
+For tasks requiring semantic analysis of every item (classification, labeling, counting):
+
+```repl
+# Phase 1 — Scout: Understand the data format
+doc = context[0]
+lines = doc.strip().split('\n')
+print(f"Total lines: {{len(lines)}}")
+print(f"First 3 lines:\n{{chr(10).join(lines[:3])}}")
+print(f"Total chars: {{len(doc):,}}")
 ```
 
 ```repl
-FINAL(final_answer)
+# Phase 2 — Chunk and classify via llm_query
+chunk_size = 50  # lines per chunk — adjust based on line length
+results = []
+for i in range(0, len(lines), chunk_size):
+    chunk = "\n".join(lines[i:i+chunk_size])
+    result = llm_query(
+        instruction="Classify each line into one of the given categories. Return the category for each line.",
+        content=chunk
+    )
+    results.append(result)
+    print(f"Chunk {{i//chunk_size + 1}}: processed {{len(lines[i:i+chunk_size])}} lines")
+```
+
+```repl
+# Phase 3 — Synthesize from buffers
+all_results = "\n\n".join(results)
+summary = llm_query(
+    instruction="Aggregate these classification results and answer the original question.",
+    content=all_results
+)
+FINAL(summary)
 ```
 
 ## Error Handling

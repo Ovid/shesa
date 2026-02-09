@@ -174,7 +174,7 @@ def _extract_candidate(pred: str) -> str:
         return ""
     last = lines[-1]
     last = re.sub(
-        r"^(final answer|answer|label)\s*:\s*", "", last, flags=re.I
+        r"^(final answer|answer|label|user)\s*:\s*", "", last, flags=re.I
     ).strip()
     return _normalize_ws(last)
 
@@ -196,6 +196,21 @@ def score_oolong(pred: str, gold_str: str) -> float:
 
     if cand in golds:
         return 1.0
+
+    # Substring match for comparison phrases embedded in full-sentence answers.
+    # OOLONG questions request "Answer: X is [relation] Y" but gold is just [relation].
+    for g in golds:
+        if g in cand:
+            return 1.0
+
+    # Numerical scoring: 0.75^|y - ŷ| per Bertsch et al. (2025) / arXiv:2512.24601.
+    if len(golds) == 1:
+        try:
+            gold_num = int(golds[0])
+            pred_num = int(cand)
+            return 0.75 ** abs(gold_num - pred_num)
+        except ValueError:
+            pass  # Not numeric — fall through to token-set and final 0.0
 
     # Token-set fallback for single-atom golds
     def toks(s: str) -> list[str]:

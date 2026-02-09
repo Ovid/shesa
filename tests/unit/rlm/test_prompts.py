@@ -359,14 +359,17 @@ def test_system_prompt_error_handling_uses_try_except():
     assert '"exceeds" in result' not in prompt
 
 
-def test_system_prompt_subcall_limit_is_1_to_3():
-    """System prompt recommends 1-3 subcalls, not 3-5."""
+def test_system_prompt_encourages_subcall_use():
+    """System prompt encourages using llm_query for semantic analysis."""
     prompt = _render_default_prompt()
+    prompt_lower = prompt.lower()
 
-    # Must mention 1-3
-    assert "1-3" in prompt
-    # Must NOT mention 3-5 as a target
-    assert "3-5" not in prompt
+    # Must encourage sub-call use, not minimize it
+    assert "strongly encouraged" in prompt_lower
+    # Must mention semantic analysis as a use case
+    assert "semantic" in prompt_lower
+    # Must mention batching for efficiency
+    assert "batch" in prompt_lower
 
 
 def test_system_prompt_discourages_brevity_in_subcall_instructions():
@@ -398,12 +401,12 @@ def test_system_prompt_example_instructions_use_analyze_not_list():
     assert 'instruction="List' not in prompt
 
 
-def test_system_prompt_depth_through_instruction_quality():
-    """System prompt guides depth through better instructions, not more subcalls."""
+def test_system_prompt_subcall_instruction_quality():
+    """System prompt guides depth through better instructions."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 
-    # Must mention concentrating subcalls / not making follow-up subcalls
-    assert "concentrate" in prompt_lower or "gather all" in prompt_lower
-    # Must mention instruction quality as the lever for depth
+    # Must mention instruction quality as important for analysis depth
     assert "instruction" in prompt_lower and "depth" in prompt_lower
+    # Must warn against asking for brief/concise output
+    assert "avoid" in prompt_lower and "brief" in prompt_lower
