@@ -501,8 +501,9 @@ class RLMEngine:
 
                     all_output.append(output)
 
-                    # Check for final answer
-                    if result.final_answer:
+                    # Check for final answer (use `is not None` to catch falsy
+                    # values like FINAL(0), FINAL(""), FINAL(False))
+                    if result.final_answer is not None:
                         # Sandbox FINAL() can receive any type; coerce to str
                         # so trace steps and QueryResult.answer stay str.
                         final_answer = (
@@ -525,7 +526,7 @@ class RLMEngine:
                             )
                         break
 
-                if final_answer:
+                if final_answer is not None:
                     verification = None
                     if self.verify_citations and executor.is_alive:
                         try:

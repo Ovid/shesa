@@ -148,6 +148,44 @@ class TestRLMEngine:
 
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_honors_falsy_final_answer(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """FINAL(0), FINAL(''), FINAL(False) must terminate the loop."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content="```repl\nFINAL(0)\n```",
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer=0,  # falsy but legitimate
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["doc"],
+            question="What is zero?",
+        )
+
+        # Must detect the final answer, not iterate to max
+        assert result.answer == "0"
+        # LLM should only be called once (not 5 times to max iterations)
+        assert mock_llm.complete.call_count == 1
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
     def test_engine_calls_on_progress_callback(
         self,
         mock_llm_cls: MagicMock,
