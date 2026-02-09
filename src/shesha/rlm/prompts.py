@@ -4,11 +4,29 @@
 MAX_SUBCALL_CHARS = 500_000
 
 
-def wrap_repl_output(output: str, max_chars: int = 50000) -> str:
-    """Wrap REPL output in untrusted tags with truncation."""
-    if len(output) > max_chars:
-        output = output[:max_chars] + f"\n... [truncated, {len(output) - max_chars} chars omitted]"
+def truncate_code_output(output: str, max_chars: int = 20_000) -> str:
+    """Truncate a single code block's output to max_chars.
 
+    This matches the reference RLM's 20K per-block limit
+    (rlm/rlm/utils/parsing.py:67). The limit is a forcing function:
+    when the model can't see full output, it must use llm_query()
+    to analyze content it cannot see.
+    """
+    if len(output) <= max_chars:
+        return output
+    return (
+        output[:max_chars]
+        + f"\n[Output truncated to {max_chars:,} of {len(output):,} characters. "
+        f"Use llm_query() to analyze content you cannot see.]"
+    )
+
+
+def wrap_repl_output(output: str) -> str:
+    """Wrap REPL output in untrusted tags.
+
+    This is a pure wrapper — truncation is applied per code block
+    via truncate_code_output() before outputs are combined.
+    """
     return f"""<repl_output type="untrusted_document_content">
 {output}
 </repl_output>"""

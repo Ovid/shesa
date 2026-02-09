@@ -1,7 +1,7 @@
 """Tests for RLM prompts."""
 
 from shesha.prompts import PromptLoader
-from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output
+from shesha.rlm.prompts import MAX_SUBCALL_CHARS, truncate_code_output, wrap_repl_output
 
 
 def _build_doc_sizes_list(doc_infos: list[tuple[str, str]]) -> str:
@@ -265,15 +265,49 @@ def test_wrap_repl_output_basic():
     assert "print result" in wrapped
 
 
-def test_wrap_repl_output_truncates_large_output():
-    """wrap_repl_output truncates output exceeding max_chars."""
+def test_wrap_repl_output_does_not_truncate():
+    """wrap_repl_output is a pure wrapper — truncation happens per-block via truncate_code_output."""
     large_output = "x" * 60000  # 60K chars
 
-    wrapped = wrap_repl_output(large_output, max_chars=50000)
+    wrapped = wrap_repl_output(large_output)
 
-    # Should be truncated
-    assert "truncated" in wrapped.lower()
-    assert "10,000" in wrapped or "10000" in wrapped  # chars omitted
+    # Should NOT be truncated — wrap_repl_output just wraps in tags
+    assert "truncated" not in wrapped.lower()
+    assert large_output in wrapped
+    assert '<repl_output type="untrusted_document_content">' in wrapped
+
+
+def test_truncate_code_output_under_limit():
+    """Output under the limit is returned unchanged."""
+    output = "x" * 19000  # Under 20K
+
+    result = truncate_code_output(output, max_chars=20_000)
+
+    assert result == output
+
+
+def test_truncate_code_output_over_limit():
+    """Output over the limit is truncated with a nudge message."""
+    output = "x" * 25000  # Over 20K
+
+    result = truncate_code_output(output, max_chars=20_000)
+
+    # Should be truncated to max_chars
+    assert len(result) < len(output)
+    # Should include nudge message referencing llm_query()
+    assert "truncated" in result.lower()
+    assert "20,000" in result
+    assert "25,000" in result
+    assert "llm_query()" in result
+
+
+def test_truncate_code_output_exact_limit():
+    """Output exactly at the limit is returned unchanged."""
+    output = "x" * 20_000
+
+    result = truncate_code_output(output, max_chars=20_000)
+
+    assert result == output
 
 
 def test_wrap_subcall_content_basic():

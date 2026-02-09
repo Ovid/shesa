@@ -13,7 +13,12 @@ from pathlib import Path
 from shesha.llm.client import LLMClient
 from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
-from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output, wrap_subcall_content
+from shesha.rlm.prompts import (
+    MAX_SUBCALL_CHARS,
+    truncate_code_output,
+    wrap_repl_output,
+    wrap_subcall_content,
+)
 from shesha.rlm.semantic_verification import (
     SemanticVerificationReport,
     detect_content_type,
@@ -62,7 +67,10 @@ class RLMEngine:
         model: str,
         api_key: str | None = None,
         max_iterations: int = 20,
-        max_output_chars: int = 50000,
+        # 20K per-block limit matches reference RLM (rlm/rlm/utils/parsing.py:67).
+        # This is a forcing function: when context exceeds the truncation limit,
+        # the model must use llm_query() to analyze content it cannot see.
+        max_output_chars: int = 20_000,
         execution_timeout: int = 30,
         max_subcall_content_chars: int = 500_000,
         prompts_dir: Path | None = None,
@@ -489,6 +497,9 @@ class RLMEngine:
 
                     output = "\n".join(output_parts) if output_parts else "(no output)"
 
+                    # Truncate each code block's output individually (forcing function)
+                    output = truncate_code_output(output, self.max_output_chars)
+
                     step = trace.add_step(
                         type=StepType.CODE_OUTPUT,
                         content=output,
@@ -623,7 +634,7 @@ class RLMEngine:
 
                 # Add output to conversation
                 combined_output = "\n\n".join(all_output)
-                wrapped_output = wrap_repl_output(combined_output, self.max_output_chars)
+                wrapped_output = wrap_repl_output(combined_output)
 
                 # Append query reminder so the model stays focused across iterations
                 reminder = (
