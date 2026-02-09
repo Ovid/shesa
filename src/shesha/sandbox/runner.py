@@ -10,6 +10,23 @@ from typing import Any
 # Global namespace for code execution (persists across executions)
 NAMESPACE: dict[str, Any] = {}
 
+BUILTINS_SET: frozenset[str] = frozenset([
+    "llm_query", "llm_query_batched", "FINAL", "FINAL_VAR",
+    "FinalAnswer", "FinalVar", "SHOW_VARS", "context",
+])
+
+
+def show_vars() -> str:
+    """List all non-private variables in the REPL namespace."""
+    available = {
+        k: type(v).__name__
+        for k, v in NAMESPACE.items()
+        if not k.startswith("_") and k not in BUILTINS_SET
+    }
+    if not available:
+        return "No variables created yet. Use ```repl``` blocks to create variables."
+    return f"Available variables: {available}"
+
 
 def execute_code(code: str) -> dict[str, Any]:
     """Execute Python code and return results."""
@@ -128,6 +145,7 @@ def main() -> None:
         NAMESPACE["FINAL_VAR"] = make_final_var
         NAMESPACE["FinalAnswer"] = FinalAnswer
         NAMESPACE["FinalVar"] = FinalVar
+        NAMESPACE["SHOW_VARS"] = show_vars
 
     register_builtins()
 
