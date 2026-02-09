@@ -9,6 +9,10 @@ how the RLM explores these tasks.
 Goal is NOT to increase our OOLONG score. It's to increase our accuracy. That
 will naturally increase our OOLONG score.
 
+We use ./oolong/run_oolong_and_pairs.py to generate OOLONG scores.  We use
+oolong/last-run.log to trace what happened when that program run (last run
+only).
+
 You must ALWAYS update this doc with our current research.
 
 ## What OOLONG Requires
@@ -371,7 +375,7 @@ The model needs to **recognize when to use each pattern**. Options:
 
 ## Fix #2: Radical prompt simplification — remove Search-then-Analyze example
 
-**Status: Applied — awaiting benchmark validation**
+**Status: Applied (commit 10cfca6) — validated, no improvement**
 
 ### Rationale
 
@@ -456,3 +460,139 @@ If the hypothesis is wrong, the model may still fall back to code-only approache
 general LLM bias toward code solutions may override the prose guidance. In that case,
 we'd need to consider more drastic changes (e.g., few-shot examples in the query
 itself, or modifying the RLM core loop to detect and correct non-semantic approaches).
+
+---
+
+## Run #3 Results (2026-02-09 08:34, post-fix #2)
+
+**Score: ~24% (6.1/25)** — slightly WORSE than run #2's ~27%. Fix #2 was a wash.
+
+### Full results
+
+| ID | Gold | Predicted | Score | vs Run #2 |
+|----|------|-----------|-------|-----------|
+| 13000009 | human being | human being | **1.0** | +1.0 |
+| 13000010 | more common than | same frequency as | 0.0 | same |
+| 13000011 | more common than | same frequency as | 0.0 | same |
+| 13000012 | less common than | same frequency as | 0.0 | same |
+| 13000013 | less common than | same frequency as | 0.0 | same |
+| 13000014 | less common than | less common than abbreviation | **1.0** | same |
+| 13000015 | less common than | same frequency as location | 0.0 | same |
+| 13000016 | less common than | same frequency as entity | 0.0 | same |
+| 13000017 | less common than | less common than abbreviation | **1.0** | same |
+| 13000018 | less common than | same frequency as location | 0.0 | same |
+| 13000019 | less common than | same frequency as entity | 0.0 | same |
+| 13000020 | less common than | less common than abbreviation | **1.0** | same |
+| 13000021 | less common than | same frequency as entity | 0.0 | same |
+| 13000022 | less common than | less common than abbreviation | **1.0** | same |
+| 13000023 | [28] | 176 | 0.0 | was 0 |
+| 13000024 | [23] | 15 | 0.1 | was 2 |
+| 13000025 | [20] | 0 | 0.0 | was 2 |
+| 13000026 | [35] | 0 | 0.0 | same |
+| 13000027 | [40] | 0 | 0.0 | was 2 |
+| 13000028 | [42] | 24 | 0.0 | was 0 |
+| 13000029 | [94706] | How | 0.0 | **-1.0 regression** |
+| 13000030 | human being | Not found in documents | 0.0 | was "human" |
+| 13000031 | human being | N/A | 0.0 | **-1.0 regression** |
+| 13000032 | [1] | 1 | **1.0** | was 0.75 |
+| 13000033 | [90816] | 94706 | 0.0 | same |
+
+### What changed vs run #2
+
+**Improvements:**
+- ID 9: label now correct "human being" (+1.0)
+- ID 32: exact count match (+0.25)
+- ID 24: closer prediction (15 vs gold 23, was 2)
+- Count predictions now show real-looking numbers (176, 15, 24) instead of just 0 and 2
+
+**Regressions:**
+- ID 29: user-id was correct, now returns "How" (-1.0)
+- ID 31: label was correct "human being", now "N/A" (-1.0)
+
+**Unchanged — the core problem:**
+- Comparisons: 10/13 still "same frequency as" — no semantic classification
+- Timing: 10-25s per query — consistent with minimal/no `llm_query()` usage
+
+### Conclusion from run #3
+
+Fix #2 (removing Search-then-Analyze example, simplifying to Chunk-and-Classify only)
+had **no meaningful effect**. The hypothesis was wrong. The model's behavior is not
+primarily driven by which examples appear in the prompt — it has a deeper bias toward
+code-only solutions (regex, string matching) that persists regardless of prompt wording.
+
+The count predictions shifting from 0/2 to 176/15/24 suggests the model is at least
+*trying* to count something different (176 is close to total entries 188), but it's
+still not doing per-entry semantic classification.
+
+**Two prompt rewrites have now failed to fix the core problem.** The model won't use
+`llm_query()` for per-item classification no matter how we describe the strategy.
+
+---
+
+## Root Cause Reassessment (post-fix #2)
+
+After two prompt fixes and three benchmark runs, the pattern is clear:
+
+**The model prefers code-only solutions.** Given a Python REPL with both code tools
+(regex, string ops) and an LLM tool (`llm_query()`), gpt-5.2 defaults to code even
+when the task requires semantic reasoning. This is likely a property of the model, not
+the prompt — it's faster, cheaper, and feels more "precise" to write code than to
+delegate to a sub-LLM.
+
+The paper's RLM(GPT-5) scored ~68% on OOLONG, which means GPT-5 *did* use sub-calls
+for classification. Either:
+1. GPT-5 has different behavior than gpt-5.2 in this regard
+2. The paper's system prompt has subtle differences we haven't captured
+3. The paper used a different prompting pipeline (e.g., per-query system prompt, or
+   the question itself provides enough context to trigger classification)
+
+### Evidence summary across 3 runs
+
+| Run | Prompt Change | Score | llm_query usage | Core behavior |
+|-----|---------------|-------|-----------------|---------------|
+| #1 | Original ("minimize sub-calls, 1-3 max") | 0% | Zero calls | Pure regex |
+| #2 | Removed prohibition, added encouragement | 27% | 1 call (wrong content) | Regex + 1 llm_query on excerpts |
+| #3 | Removed all examples except Chunk-and-Classify | 24% | Unknown (timing suggests minimal) | Regex, slightly different counts |
+
+## Next Steps
+
+Prompt tuning has hit diminishing returns. Three options remain, in order of
+invasiveness:
+
+### Option A: Try a different model
+
+The simplest test. If Claude or Qwen3-Coder follows the Chunk-and-Classify prompt
+guidance while gpt-5.2 doesn't, the problem is model behavior, not our prompt. The
+`--model` flag is now available:
+
+```bash
+python oolong/run_oolong_and_pairs.py --model anthropic/claude-sonnet-4-5-20250929
+python oolong/run_oolong_and_pairs.py --model openai/gpt-4o
+```
+
+This also matches the paper's methodology — they tested multiple models and found
+Qwen3-Coder uses sub-calls more aggressively than GPT-5.
+
+### Option B: Inject task-specific guidance into the query
+
+Instead of relying on the system prompt alone, prepend guidance to the user's question:
+
+> "This task requires semantic classification of every entry. You MUST use
+> `llm_query()` to classify entries in chunks — code alone cannot determine semantic
+> categories."
+
+This would go in the benchmark runner, not the system prompt (which should stay
+task-agnostic). It's a form of prompt engineering at the query level rather than the
+system level.
+
+### Option C: Modify the RLM core loop
+
+Add a "classification detector" that notices when the model is doing regex-based
+counting on a classification task and injects a corrective message. This is the most
+invasive option and risks overfitting to OOLONG.
+
+### Recommendation
+
+**Start with Option A.** It's zero-code-change and tells us whether the problem is
+our prompt or the model. If a different model scores significantly higher with the
+same prompt, we know the prompt is fine and gpt-5.2 is the bottleneck.
