@@ -186,6 +186,55 @@ class TestProject:
         stored_doc = mock_storage.store_document.call_args.args[1]
         assert stored_doc.name == "test.txt"
 
+    def test_execution_mode_getter_delegates_to_engine(
+        self, mock_storage: MagicMock, mock_registry: MagicMock
+    ):
+        """execution_mode property reads from engine."""
+        mock_engine = MagicMock()
+        mock_engine.execution_mode = "deep"
+
+        project = Project(
+            project_id="test-project",
+            storage=mock_storage,
+            parser_registry=mock_registry,
+            rlm_engine=mock_engine,
+        )
+
+        assert project.execution_mode == "deep"
+
+    def test_execution_mode_setter_delegates_to_engine(
+        self, mock_storage: MagicMock, mock_registry: MagicMock
+    ):
+        """execution_mode setter writes to engine."""
+        mock_engine = MagicMock()
+        mock_engine.execution_mode = "fast"
+
+        project = Project(
+            project_id="test-project",
+            storage=mock_storage,
+            parser_registry=mock_registry,
+            rlm_engine=mock_engine,
+        )
+
+        project.execution_mode = "deep"
+        assert mock_engine.execution_mode == "deep"
+
+    def test_execution_mode_raises_without_engine(
+        self, mock_storage: MagicMock, mock_registry: MagicMock
+    ):
+        """execution_mode raises EngineNotConfiguredError when engine is None."""
+        project = Project(
+            project_id="test-project",
+            storage=mock_storage,
+            parser_registry=mock_registry,
+        )
+
+        with pytest.raises(EngineNotConfiguredError):
+            project.execution_mode  # noqa: B018 - intentional attribute access
+
+        with pytest.raises(EngineNotConfiguredError):
+            project.execution_mode = "deep"
+
     def test_query_passes_storage_to_engine(
         self, mock_storage: MagicMock, mock_registry: MagicMock
     ):

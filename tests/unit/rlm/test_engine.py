@@ -858,13 +858,21 @@ class TestIterationQueryReminder:
         mock_executor.execute.side_effect = [
             # Iteration 0: no FINAL
             MagicMock(
-                status="ok", stdout="exploring\n", stderr="",
-                error=None, final_answer=None, final_var=None,
+                status="ok",
+                stdout="exploring\n",
+                stderr="",
+                error=None,
+                final_answer=None,
+                final_var=None,
             ),
             # Iteration 1: FINAL
             MagicMock(
-                status="ok", stdout="", stderr="",
-                error=None, final_answer="done", final_var=None,
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="done",
+                final_var=None,
             ),
         ]
         mock_executor_cls.return_value = mock_executor
@@ -878,7 +886,9 @@ class TestIterationQueryReminder:
         # Check the messages sent on the second LLM call (iteration 1)
         # The second call's messages should include the query reminder
         second_call_args = mock_llm.complete.call_args_list[1]
-        messages = second_call_args[1].get("messages", second_call_args[0][0] if second_call_args[0] else None)
+        messages = second_call_args[1].get(
+            "messages", second_call_args[0][0] if second_call_args[0] else None
+        )
         # The last user message (from iteration 0's output) should have the reminder
         user_messages = [m for m in messages if m["role"] == "user"]
         # The iteration output message (not the initial question) should contain reminder
@@ -1743,3 +1753,132 @@ class TestEngineVerification:
         verification_steps = [s for s in result.trace.steps if s.type == StepType.VERIFICATION]
         assert len(verification_steps) == 1
         assert "Could not parse verification output" in verification_steps[0].content
+
+
+class TestExecutionMode:
+    """Tests for execution_mode propagation in RLMEngine."""
+
+    def test_engine_execution_mode_defaults_to_fast(self) -> None:
+        """RLMEngine.execution_mode defaults to 'fast'."""
+        engine = RLMEngine(model="test-model")
+        assert engine.execution_mode == "fast"
+
+    def test_engine_accepts_execution_mode(self) -> None:
+        """RLMEngine accepts execution_mode parameter."""
+        engine = RLMEngine(model="test-model", execution_mode="deep")
+        assert engine.execution_mode == "deep"
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_propagates_execution_mode_to_standalone_executor(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """Engine sets executor.execution_mode when creating standalone executor."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("done")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="done",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", execution_mode="deep")
+        engine.query(documents=["doc"], question="Q?")
+
+        # Verify execution_mode was set on the executor
+        assert mock_executor.execution_mode == "deep"
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_propagates_execution_mode_to_pool_executor(
+        self,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """Engine sets executor.execution_mode when acquiring from pool."""
+        from shesha.sandbox.pool import ContainerPool
+
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("done")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_pool = MagicMock(spec=ContainerPool)
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="done",
+        )
+        mock_pool.acquire.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", pool=mock_pool, execution_mode="deep")
+        engine.query(documents=["doc"], question="Q?")
+
+        assert mock_executor.execution_mode == "deep"
+
+
+class TestHandleLlmQueryThreadSafety:
+    """Tests for thread safety of _handle_llm_query."""
+
+    def test_handle_llm_query_is_thread_safe(self) -> None:
+        """Concurrent _handle_llm_query calls must not corrupt shared state.
+
+        When the executor dispatches batch prompts concurrently, multiple
+        threads call _handle_llm_query simultaneously. Trace steps and
+        token counts must be consistent.
+        """
+        import concurrent.futures
+        from unittest.mock import MagicMock, patch
+
+        engine = RLMEngine(model="test-model")
+        trace = Trace()
+        token_usage = TokenUsage()
+
+        mock_response = MagicMock(
+            content="answer",
+            prompt_tokens=10,
+            completion_tokens=5,
+            total_tokens=15,
+        )
+
+        with patch("shesha.rlm.engine.LLMClient") as mock_llm_cls:
+            mock_llm_cls.return_value.complete.return_value = mock_response
+
+            n_calls = 20
+
+            def call_handler(i: int) -> str:
+                return engine._handle_llm_query(
+                    instruction=f"prompt_{i}",
+                    content="",
+                    trace=trace,
+                    token_usage=token_usage,
+                    iteration=0,
+                )
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                results = list(pool.map(call_handler, range(n_calls)))
+
+        assert len(results) == n_calls
+        # Each call adds 2 steps (SUBCALL_REQUEST + SUBCALL_RESPONSE)
+        assert len(trace.steps) == n_calls * 2
+        # Token counts should reflect all calls
+        assert token_usage.prompt_tokens == n_calls * 10
+        assert token_usage.completion_tokens == n_calls * 5

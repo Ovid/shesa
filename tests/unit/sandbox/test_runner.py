@@ -328,7 +328,8 @@ class TestLlmQueryBatched:
                 {
                     "action": "execute",
                     "code": (
-                        "results = llm_query_batched(['classify: cat', 'classify: dog', 'classify: bird'])\n"
+                        "results = llm_query_batched("
+                        "['classify: cat', 'classify: dog', 'classify: bird'])\n"
                         "print(results)"
                     ),
                 }
@@ -367,9 +368,7 @@ class TestLlmQueryBatched:
 
         from shesha.sandbox.runner import main
 
-        error_response = json.dumps(
-            {"action": "llm_batch_response", "error": "Batch failed"}
-        )
+        error_response = json.dumps({"action": "llm_batch_response", "error": "Batch failed"})
         commands = [
             json.dumps(
                 {
@@ -451,10 +450,7 @@ class TestLlmQueryBatched:
 
         commands = [
             json.dumps({"action": "reset"}) + "\n",
-            json.dumps(
-                {"action": "execute", "code": "print(callable(llm_query_batched))"}
-            )
-            + "\n",
+            json.dumps({"action": "execute", "code": "print(callable(llm_query_batched))"}) + "\n",
         ]
         stdin = io.StringIO("".join(commands))
         stdout = io.StringIO()

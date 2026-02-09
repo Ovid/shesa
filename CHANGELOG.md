@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Fast/deep execution modes for `llm_query_batched`: fast (default) runs concurrent via thread pool, deep runs sequential for cross-chunk knowledge building
+- `execution_mode` parameter on `ContainerExecutor`, `RLMEngine`, and `Project`
+- `/fast`, `/deep`, and `/clear` TUI commands in repo explorer
+- `OutputArea.clear()` method for resetting conversation display
+- Mode indicator (`Mode: Fast` / `Mode: Deep`) in TUI info bar
+
 ## [0.7.0] - 2026-02-09
 
 ### Added

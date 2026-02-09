@@ -3,6 +3,7 @@
 import json
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
@@ -60,6 +61,7 @@ class ContainerExecutor:
         cpu_count: int = 1,
         llm_query_handler: LLMQueryHandler | None = None,
         security: ContainerSecurityConfig = DEFAULT_SECURITY,
+        execution_mode: str = "fast",
     ) -> None:
         """Initialize executor with container settings."""
         self.image = image
@@ -67,6 +69,7 @@ class ContainerExecutor:
         self.cpu_count = cpu_count
         self.llm_query_handler = llm_query_handler
         self.security = security
+        self.execution_mode = execution_mode
         self._client: docker.DockerClient | None = None
         self._container: Container | None = None
         self._socket: Any = None
@@ -209,13 +212,7 @@ class ContainerExecutor:
                         )
                     else:
                         prompts = result["prompts"]
-                        results_list: list[str] = []
-                        for prompt in prompts:
-                            try:
-                                resp = self.llm_query_handler(prompt, "")
-                                results_list.append(resp)
-                            except SubcallContentError as e:
-                                results_list.append(f"[error: {e}]")
+                        results_list = self._execute_batch(prompts)
                         self._send_raw(
                             json.dumps(
                                 {
@@ -282,6 +279,23 @@ class ContainerExecutor:
                 return_value=None,
                 error=f"Protocol error: invalid UTF-8 from container: {e}",
             )
+
+    def _execute_batch(self, prompts: list[str]) -> list[str]:
+        """Execute batch of LLM prompts, concurrently (fast) or sequentially (deep)."""
+        handler = self.llm_query_handler
+        assert handler is not None
+
+        def _call_one(prompt: str) -> str:
+            try:
+                return handler(prompt, "")
+            except SubcallContentError as e:
+                return f"[error: {e}]"
+
+        if self.execution_mode == "deep":
+            return [_call_one(p) for p in prompts]
+
+        with ThreadPoolExecutor(max_workers=len(prompts)) as pool:
+            return list(pool.map(_call_one, prompts))
 
     def _send_raw(self, data: str, timeout: int = DEFAULT_SEND_TIMEOUT) -> None:
         """Send raw data to container stdin."""

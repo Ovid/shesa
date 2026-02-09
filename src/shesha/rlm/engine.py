@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -69,6 +70,7 @@ class RLMEngine:
         max_traces_per_project: int = 50,
         verify_citations: bool = True,
         verify: bool = False,
+        execution_mode: str = "fast",
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -82,6 +84,8 @@ class RLMEngine:
         self.max_traces_per_project = max_traces_per_project
         self.verify_citations = verify_citations
         self.verify = verify
+        self.execution_mode = execution_mode
+        self._subcall_lock = threading.Lock()
 
     def _handle_llm_query(
         self,
@@ -93,18 +97,25 @@ class RLMEngine:
         on_progress: ProgressCallback | None = None,
         on_step: Callable[[TraceStep], None] | None = None,
     ) -> str:
-        """Handle a sub-LLM query from the sandbox."""
-        # Record the request
+        """Handle a sub-LLM query from the sandbox.
+
+        Thread-safe: uses _subcall_lock to protect shared trace and token state
+        when called concurrently from batched executor dispatch.
+        """
+        # Record the request (lock protects trace and token_usage mutations)
         step_content = f"instruction: {instruction}\ncontent: [{len(content)} chars]"
-        step = trace.add_step(
-            type=StepType.SUBCALL_REQUEST,
-            content=step_content,
-            iteration=iteration,
-        )
-        if on_step:
-            on_step(step)
-        if on_progress:
-            on_progress(StepType.SUBCALL_REQUEST, iteration, step_content, copy.copy(token_usage))
+        with self._subcall_lock:
+            step = trace.add_step(
+                type=StepType.SUBCALL_REQUEST,
+                content=step_content,
+                iteration=iteration,
+            )
+            if on_step:
+                on_step(step)
+            if on_progress:
+                on_progress(
+                    StepType.SUBCALL_REQUEST, iteration, step_content, copy.copy(token_usage)
+                )
 
         # Check content size limit
         if len(content) > self.max_subcall_content_chars:
@@ -113,15 +124,18 @@ class RLMEngine:
                 f"of {self.max_subcall_content_chars:,} chars. Please chunk the content "
                 f"into smaller pieces and make multiple llm_query calls."
             )
-            step = trace.add_step(
-                type=StepType.SUBCALL_RESPONSE,
-                content=error_msg,
-                iteration=iteration,
-            )
-            if on_step:
-                on_step(step)
-            if on_progress:
-                on_progress(StepType.SUBCALL_RESPONSE, iteration, error_msg, copy.copy(token_usage))
+            with self._subcall_lock:
+                step = trace.add_step(
+                    type=StepType.SUBCALL_RESPONSE,
+                    content=error_msg,
+                    iteration=iteration,
+                )
+                if on_step:
+                    on_step(step)
+                if on_progress:
+                    on_progress(
+                        StepType.SUBCALL_RESPONSE, iteration, error_msg, copy.copy(token_usage)
+                    )
             raise SubcallContentError(error_msg)
 
         # Build prompt: when content is empty (single-arg llm_query), send
@@ -131,26 +145,28 @@ class RLMEngine:
             prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
         else:
             prompt = instruction
+
+        # LLM call runs outside lock — this is the I/O-bound work we parallelize
         sub_llm = LLMClient(model=self.model, api_key=self.api_key)
         response = sub_llm.complete(messages=[{"role": "user", "content": prompt}])
 
-        # Track tokens
-        token_usage.prompt_tokens += response.prompt_tokens
-        token_usage.completion_tokens += response.completion_tokens
+        # Record response and update tokens (lock protects shared state)
+        with self._subcall_lock:
+            token_usage.prompt_tokens += response.prompt_tokens
+            token_usage.completion_tokens += response.completion_tokens
 
-        # Record the response
-        step = trace.add_step(
-            type=StepType.SUBCALL_RESPONSE,
-            content=response.content,
-            iteration=iteration,
-            tokens_used=response.total_tokens,
-        )
-        if on_step:
-            on_step(step)
-        if on_progress:
-            on_progress(
-                StepType.SUBCALL_RESPONSE, iteration, response.content, copy.copy(token_usage)
+            step = trace.add_step(
+                type=StepType.SUBCALL_RESPONSE,
+                content=response.content,
+                iteration=iteration,
+                tokens_used=response.total_tokens,
             )
+            if on_step:
+                on_step(step)
+            if on_progress:
+                on_progress(
+                    StepType.SUBCALL_RESPONSE, iteration, response.content, copy.copy(token_usage)
+                )
 
         return response.content
 
@@ -404,9 +420,11 @@ class RLMEngine:
         if self._pool is not None:
             executor = self._pool.acquire()
             executor.llm_query_handler = _make_llm_callback(0)
+            executor.execution_mode = self.execution_mode
             owns_executor = False
         else:
             executor = ContainerExecutor(llm_query_handler=_make_llm_callback(0))
+            executor.execution_mode = self.execution_mode
             executor.start()
             owns_executor = True
 
