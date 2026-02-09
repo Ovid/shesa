@@ -406,8 +406,10 @@ class RLMEngine:
         # Initialize LLM client
         llm = LLMClient(model=self.model, system_prompt=system_prompt, api_key=self.api_key)
 
-        # Initialize conversation
-        messages: list[dict[str, str]] = [{"role": "user", "content": question}]
+        # Iteration-0 safeguard: prevent model from jumping to FINAL()
+        # without exploring. Matches reference rlm/rlm/utils/prompts.py:136.
+        first_user_msg = self.prompt_loader.render_iteration_zero(question=question)
+        messages: list[dict[str, str]] = [{"role": "user", "content": first_user_msg}]
 
         # Factory to create a callback with a frozen iteration value.
         # Without this, a closure over a mutable variable risks capturing

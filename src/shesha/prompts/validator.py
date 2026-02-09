@@ -26,6 +26,10 @@ PROMPT_SCHEMAS: dict[str, PromptSchema] = {
         required=set(),
         optional=set(),
     ),
+    "iteration_zero.md": PromptSchema(
+        required={"question"},
+        optional=set(),
+    ),
     "verify_adversarial.md": PromptSchema(
         required={"findings", "documents"},
         optional=set(),

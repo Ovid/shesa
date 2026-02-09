@@ -109,6 +109,14 @@ class PromptLoader:
             content=content,
         )
 
+    def render_iteration_zero(self, question: str) -> str:
+        """Render the iteration-0 safeguard prompt.
+
+        Prevents the model from jumping to FINAL() without exploring
+        the REPL environment. Matches reference rlm/rlm/utils/prompts.py:136.
+        """
+        return self._prompts["iteration_zero.md"].format(question=question)
+
     def render_code_required(self) -> str:
         """Render the code_required prompt (no variables)."""
         return self._prompts["code_required.md"]

@@ -351,6 +351,29 @@ def _render_default_prompt() -> str:
     )
 
 
+def test_iteration_zero_prompt_exists():
+    """PromptLoader can render an iteration-0 prompt template."""
+    loader = PromptLoader()
+    result = loader.render_iteration_zero(question="What color is the sky?")
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_iteration_zero_prompt_contains_safeguard():
+    """Rendered iteration-0 template includes safeguard language."""
+    loader = PromptLoader()
+    result = loader.render_iteration_zero(question="What color is the sky?")
+    assert "don't just provide a final answer yet" in result.lower()
+    assert "look through" in result.lower()
+
+
+def test_iteration_zero_prompt_includes_question():
+    """Rendered iteration-0 template includes the question."""
+    loader = PromptLoader()
+    result = loader.render_iteration_zero(question="What color is the sky?")
+    assert "What color is the sky?" in result
+
+
 def test_system_prompt_contains_scout_and_analyze_phases():
     """System prompt describes scout and analyze phases."""
     prompt = _render_default_prompt()
