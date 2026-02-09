@@ -1110,6 +1110,75 @@ class TestEffectiveDeadline:
                 executor._read_line(timeout=5)
 
 
+class TestBatchedLlmQuery:
+    """Tests for llm_query_batch handling in execute()."""
+
+    def test_execute_handles_batch_request(self):
+        """execute() dispatches llm_query_batch prompts through handler sequentially."""
+        import json
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+
+        call_log: list[tuple[str, str]] = []
+
+        def mock_handler(instruction: str, content: str) -> str:
+            call_log.append((instruction, content))
+            return f"result for: {instruction}"
+
+        executor.llm_query_handler = mock_handler
+
+        batch_msg = json.dumps({
+            "action": "llm_query_batch",
+            "prompts": ["classify: cat", "classify: dog"],
+        })
+        exec_result_msg = json.dumps({
+            "status": "ok", "stdout": "done\n", "stderr": "",
+            "return_value": None, "error": None,
+        })
+
+        read_responses = iter([batch_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)):
+                executor.execute("llm_query_batched(['classify: cat', 'classify: dog'])")
+
+        # Should have sent: execute command + batch response
+        assert len(sent_data) == 2
+        batch_response = json.loads(sent_data[1].strip())
+        assert batch_response["action"] == "llm_batch_response"
+        assert len(batch_response["results"]) == 2
+
+    def test_execute_batch_sends_error_on_no_handler(self):
+        """execute() sends error when llm_query_batch is received with no handler."""
+        import json
+
+        executor = ContainerExecutor()
+        executor._socket = MagicMock()
+        executor.llm_query_handler = None
+
+        batch_msg = json.dumps({
+            "action": "llm_query_batch",
+            "prompts": ["prompt1"],
+        })
+        exec_result_msg = json.dumps({
+            "status": "error", "stdout": "", "stderr": "",
+            "return_value": None, "error": "ValueError: No LLM query handler configured",
+        })
+
+        read_responses = iter([batch_msg, exec_result_msg])
+
+        with patch.object(executor, "_read_line", side_effect=read_responses):
+            sent_data: list[str] = []
+            with patch.object(executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)):
+                executor.execute("llm_query_batched(['prompt1'])")
+
+        batch_response = json.loads(sent_data[1].strip())
+        assert batch_response["action"] == "llm_batch_response"
+        assert "error" in batch_response
+
+
 class TestResetNamespace:
     """Tests for namespace reset in executor."""
 

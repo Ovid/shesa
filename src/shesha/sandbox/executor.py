@@ -195,6 +195,38 @@ class ContainerExecutor:
                             )
                     continue
 
+                # Check if this is a batched llm_query request
+                if result.get("action") == "llm_query_batch":
+                    if self.llm_query_handler is None:
+                        self._send_raw(
+                            json.dumps(
+                                {
+                                    "action": "llm_batch_response",
+                                    "error": "No LLM query handler configured",
+                                }
+                            )
+                            + "\n"
+                        )
+                    else:
+                        prompts = result["prompts"]
+                        results_list: list[str] = []
+                        for prompt in prompts:
+                            try:
+                                resp = self.llm_query_handler(prompt, "")
+                                results_list.append(resp)
+                            except SubcallContentError as e:
+                                results_list.append(f"[error: {e}]")
+                        self._send_raw(
+                            json.dumps(
+                                {
+                                    "action": "llm_batch_response",
+                                    "results": results_list,
+                                }
+                            )
+                            + "\n"
+                        )
+                    continue
+
                 # This is the final execution result
                 return ExecutionResult(
                     status=result.get("status", "error"),

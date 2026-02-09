@@ -124,11 +124,13 @@ class RLMEngine:
                 on_progress(StepType.SUBCALL_RESPONSE, iteration, error_msg, copy.copy(token_usage))
             raise SubcallContentError(error_msg)
 
-        # Wrap content in untrusted tags (code-level security boundary)
-        wrapped_content = wrap_subcall_content(content)
-
-        # Build prompt and call LLM
-        prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
+        # Build prompt: when content is empty (single-arg llm_query), send
+        # instruction directly. When content is provided, wrap in untrusted tags.
+        if content:
+            wrapped_content = wrap_subcall_content(content)
+            prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
+        else:
+            prompt = instruction
         sub_llm = LLMClient(model=self.model, api_key=self.api_key)
         response = sub_llm.complete(messages=[{"role": "user", "content": prompt}])
 
@@ -601,8 +603,15 @@ class RLMEngine:
                 combined_output = "\n\n".join(all_output)
                 wrapped_output = wrap_repl_output(combined_output, self.max_output_chars)
 
+                # Append query reminder so the model stays focused across iterations
+                iteration_msg = (
+                    f"{wrapped_output}\n\n"
+                    f'Continue using the REPL environment to answer the original query: "{question}"\n'
+                    f"Your next action:"
+                )
+
                 messages.append({"role": "assistant", "content": response.content})
-                messages.append({"role": "user", "content": wrapped_output})
+                messages.append({"role": "user", "content": iteration_msg})
 
             # Max iterations reached
             answer = "[Max iterations reached without final answer]"

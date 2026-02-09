@@ -462,6 +462,40 @@ class TestRLMEngine:
         mock_llm_cls.assert_called_once()  # Sub-LLM was called
 
     @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_skips_wrapping_when_content_empty(
+        self,
+        mock_llm_cls: MagicMock,
+    ):
+        """_handle_llm_query sends instruction directly when content is empty."""
+        mock_sub_llm = MagicMock()
+        mock_sub_llm.complete.return_value = MagicMock(
+            content="Result",
+            prompt_tokens=50,
+            completion_tokens=25,
+            total_tokens=75,
+        )
+        mock_llm_cls.return_value = mock_sub_llm
+
+        engine = RLMEngine(model="test-model", max_subcall_content_chars=10000)
+        trace = Trace()
+        token_usage = TokenUsage()
+
+        engine._handle_llm_query(
+            instruction="What is 2+2?",
+            content="",
+            trace=trace,
+            token_usage=token_usage,
+            iteration=0,
+        )
+
+        # Verify the prompt sent does NOT contain untrusted wrapping tags
+        call_args = mock_sub_llm.complete.call_args
+        messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
+        prompt_text = messages[0]["content"]
+        assert "<untrusted_document_content>" not in prompt_text
+        assert "What is 2+2?" in prompt_text
+
+    @patch("shesha.rlm.engine.LLMClient")
     def test_engine_wraps_subcall_content_in_untrusted_tags(
         self,
         mock_llm_cls: MagicMock,
@@ -787,6 +821,70 @@ class TestRLMEngine:
         assert result.semantic_verification is None
         # Only 1 LLM call (main query), no verification calls
         assert mock_llm.complete.call_count == 1
+
+
+class TestIterationQueryReminder:
+    """Tests for query reminder appended to iteration messages."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_iteration_message_contains_query_reminder(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ) -> None:
+        """After iteration 0, user messages should contain the original query."""
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            # Iteration 0: code with no FINAL
+            MagicMock(
+                content='```repl\nprint("exploring")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Iteration 1: code with FINAL
+            MagicMock(
+                content='```repl\nFINAL("done")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # Iteration 0: no FINAL
+            MagicMock(
+                status="ok", stdout="exploring\n", stderr="",
+                error=None, final_answer=None, final_var=None,
+            ),
+            # Iteration 1: FINAL
+            MagicMock(
+                status="ok", stdout="", stderr="",
+                error=None, final_answer="done", final_var=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")
+        engine.query(
+            documents=["test doc"],
+            question="What color is the sky?",
+        )
+
+        # Check the messages sent on the second LLM call (iteration 1)
+        # The second call's messages should include the query reminder
+        second_call_args = mock_llm.complete.call_args_list[1]
+        messages = second_call_args[1].get("messages", second_call_args[0][0] if second_call_args[0] else None)
+        # The last user message (from iteration 0's output) should have the reminder
+        user_messages = [m for m in messages if m["role"] == "user"]
+        # The iteration output message (not the initial question) should contain reminder
+        iteration_output_msg = user_messages[-1]["content"]
+        assert "What color is the sky?" in iteration_output_msg
+        assert "repl_output" in iteration_output_msg  # Still has the REPL output
 
 
 class TestCallbackIterationCapture:

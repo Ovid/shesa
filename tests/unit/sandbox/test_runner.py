@@ -226,3 +226,250 @@ class TestLlmQueryErrorHandling:
         exec_result = json.loads(output_lines[1])
         assert exec_result["status"] == "ok"
         assert "Analysis complete" in exec_result["stdout"]
+
+
+class TestLlmQueryOptionalContent:
+    """Tests for llm_query() with optional content argument."""
+
+    def test_llm_query_single_arg_sends_empty_content(self) -> None:
+        """llm_query('prompt') sends empty string as content field."""
+        import io
+        import sys
+
+        from shesha.sandbox.runner import main
+
+        normal_response = json.dumps({"action": "llm_response", "result": "42"})
+        commands = [
+            json.dumps(
+                {
+                    "action": "execute",
+                    "code": "result = llm_query('What is the answer?')\nprint(result)",
+                }
+            )
+            + "\n",
+            normal_response + "\n",
+        ]
+        stdin = io.StringIO("".join(commands))
+        stdout = io.StringIO()
+
+        old_stdin = sys.stdin
+        old_stdout = sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            main()
+        finally:
+            sys.stdin = old_stdin
+            sys.stdout = old_stdout
+
+        output_lines = stdout.getvalue().strip().split("\n")
+        llm_request = json.loads(output_lines[0])
+        assert llm_request["action"] == "llm_query"
+        assert llm_request["instruction"] == "What is the answer?"
+        assert llm_request["content"] == ""
+
+        exec_result = json.loads(output_lines[1])
+        assert exec_result["status"] == "ok"
+        assert "42" in exec_result["stdout"]
+
+    def test_llm_query_two_args_still_works(self) -> None:
+        """llm_query('instruction', 'content') still sends both fields."""
+        import io
+        import sys
+
+        from shesha.sandbox.runner import main
+
+        normal_response = json.dumps({"action": "llm_response", "result": "done"})
+        commands = [
+            json.dumps(
+                {
+                    "action": "execute",
+                    "code": "result = llm_query('classify', 'some data')\nprint(result)",
+                }
+            )
+            + "\n",
+            normal_response + "\n",
+        ]
+        stdin = io.StringIO("".join(commands))
+        stdout = io.StringIO()
+
+        old_stdin = sys.stdin
+        old_stdout = sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            main()
+        finally:
+            sys.stdin = old_stdin
+            sys.stdout = old_stdout
+
+        output_lines = stdout.getvalue().strip().split("\n")
+        llm_request = json.loads(output_lines[0])
+        assert llm_request["action"] == "llm_query"
+        assert llm_request["instruction"] == "classify"
+        assert llm_request["content"] == "some data"
+
+
+class TestLlmQueryBatched:
+    """Tests for llm_query_batched() function."""
+
+    def test_llm_query_batched_sends_batch_request(self) -> None:
+        """llm_query_batched sends a batch action with all prompts."""
+        import io
+        import sys
+
+        from shesha.sandbox.runner import main
+
+        batch_response = json.dumps(
+            {"action": "llm_batch_response", "results": ["cat", "dog", "bird"]}
+        )
+        commands = [
+            json.dumps(
+                {
+                    "action": "execute",
+                    "code": (
+                        "results = llm_query_batched(['classify: cat', 'classify: dog', 'classify: bird'])\n"
+                        "print(results)"
+                    ),
+                }
+            )
+            + "\n",
+            batch_response + "\n",
+        ]
+        stdin = io.StringIO("".join(commands))
+        stdout = io.StringIO()
+
+        old_stdin = sys.stdin
+        old_stdout = sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            main()
+        finally:
+            sys.stdin = old_stdin
+            sys.stdout = old_stdout
+
+        output_lines = stdout.getvalue().strip().split("\n")
+        batch_request = json.loads(output_lines[0])
+        assert batch_request["action"] == "llm_query_batch"
+        assert batch_request["prompts"] == ["classify: cat", "classify: dog", "classify: bird"]
+
+        exec_result = json.loads(output_lines[1])
+        assert exec_result["status"] == "ok"
+        assert "cat" in exec_result["stdout"]
+        assert "dog" in exec_result["stdout"]
+        assert "bird" in exec_result["stdout"]
+
+    def test_llm_query_batched_raises_on_error(self) -> None:
+        """llm_query_batched raises ValueError when host sends error."""
+        import io
+        import sys
+
+        from shesha.sandbox.runner import main
+
+        error_response = json.dumps(
+            {"action": "llm_batch_response", "error": "Batch failed"}
+        )
+        commands = [
+            json.dumps(
+                {
+                    "action": "execute",
+                    "code": "results = llm_query_batched(['prompt1'])",
+                }
+            )
+            + "\n",
+            error_response + "\n",
+        ]
+        stdin = io.StringIO("".join(commands))
+        stdout = io.StringIO()
+
+        old_stdin = sys.stdin
+        old_stdout = sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            main()
+        finally:
+            sys.stdin = old_stdin
+            sys.stdout = old_stdout
+
+        output_lines = stdout.getvalue().strip().split("\n")
+        exec_result = json.loads(output_lines[1])
+        assert exec_result["status"] == "error"
+        assert "ValueError" in exec_result["error"]
+
+    def test_llm_query_batched_preserves_order(self) -> None:
+        """llm_query_batched returns results in same order as prompts."""
+        import io
+        import sys
+
+        from shesha.sandbox.runner import main
+
+        batch_response = json.dumps(
+            {"action": "llm_batch_response", "results": ["first", "second", "third"]}
+        )
+        commands = [
+            json.dumps(
+                {
+                    "action": "execute",
+                    "code": (
+                        "results = llm_query_batched(['a', 'b', 'c'])\n"
+                        "for i, r in enumerate(results):\n"
+                        "    print(f'{i}:{r}')"
+                    ),
+                }
+            )
+            + "\n",
+            batch_response + "\n",
+        ]
+        stdin = io.StringIO("".join(commands))
+        stdout = io.StringIO()
+
+        old_stdin = sys.stdin
+        old_stdout = sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            main()
+        finally:
+            sys.stdin = old_stdin
+            sys.stdout = old_stdout
+
+        output_lines = stdout.getvalue().strip().split("\n")
+        exec_result = json.loads(output_lines[1])
+        assert exec_result["status"] == "ok"
+        assert "0:first" in exec_result["stdout"]
+        assert "1:second" in exec_result["stdout"]
+        assert "2:third" in exec_result["stdout"]
+
+    def test_llm_query_batched_available_after_reset(self) -> None:
+        """llm_query_batched persists after namespace reset."""
+        import io
+        import sys
+
+        from shesha.sandbox.runner import main
+
+        commands = [
+            json.dumps({"action": "reset"}) + "\n",
+            json.dumps(
+                {"action": "execute", "code": "print(callable(llm_query_batched))"}
+            )
+            + "\n",
+        ]
+        stdin = io.StringIO("".join(commands))
+        stdout = io.StringIO()
+
+        old_stdin = sys.stdin
+        old_stdout = sys.stdout
+        try:
+            sys.stdin = stdin
+            sys.stdout = stdout
+            main()
+        finally:
+            sys.stdin = old_stdin
+            sys.stdout = old_stdout
+
+        output_lines = stdout.getvalue().strip().split("\n")
+        exec_result = json.loads(output_lines[1])
+        assert exec_result["status"] == "ok"
+        assert exec_result["stdout"] == "True\n"
