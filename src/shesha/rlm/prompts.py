@@ -31,6 +31,17 @@ def wrap_repl_output(output: str) -> str:
 </repl_output>"""
 
 
+def format_code_echo(code: str, output: str) -> str:
+    """Format a code block and its output as a code echo message.
+
+    Matches the reference RLM's per-block feedback format
+    (rlm/rlm/utils/parsing.py:93-96), but keeps Shesha's
+    <repl_output> security tags.
+    """
+    wrapped = wrap_repl_output(output)
+    return f"Code executed:\n```python\n{code}\n```\n\n{wrapped}"
+
+
 def wrap_subcall_content(content: str) -> str:
     """Wrap sub-LLM content in untrusted document tags.
 

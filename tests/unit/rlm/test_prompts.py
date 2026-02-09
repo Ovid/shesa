@@ -396,3 +396,18 @@ def test_iteration_continue_prompt_mentions_sub_llms():
     loader = PromptLoader()
     result = loader.render_iteration_continue(question="What color is the sky?")
     assert "sub-LLM" in result or "sub-llm" in result.lower() or "querying" in result.lower()
+
+
+def test_format_code_echo_message():
+    """Code echo message contains both the code and wrapped output."""
+    from shesha.rlm.prompts import format_code_echo
+
+    code = 'print("hello")'
+    output = "hello"
+    result = format_code_echo(code, output)
+
+    assert "Code executed:" in result
+    assert 'print("hello")' in result
+    assert "```python" in result
+    assert '<repl_output type="untrusted_document_content">' in result
+    assert "hello" in result
