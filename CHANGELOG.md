@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Iteration feedback now sends per-code-block messages with code echo (matching reference RLM)
+- Per-iteration continuation prompt re-instructs model to use sub-LLMs via `iteration_continue.md`
+- Replaced inline reminder string with external prompt template
+
 ### Added
 
 - Analysis shortcut: questions answerable from the pre-computed codebase analysis are now answered directly via a single LLM call, skipping the full RLM pipeline (Docker sandbox, code execution, sub-LLM calls). Falls through to the full query automatically when deeper investigation is needed.

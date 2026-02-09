@@ -646,18 +646,22 @@ class RLMEngine:
                 # Add assistant response, then per-block code echo messages
                 messages.append({"role": "assistant", "content": response.content})
                 for code, output in zip(code_blocks, all_output):
-                    messages.append({
-                        "role": "user",
-                        "content": format_code_echo(code, output),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": format_code_echo(code, output),
+                        }
+                    )
 
                 # Per-iteration continuation prompt re-instructs sub-LLM usage
-                messages.append({
-                    "role": "user",
-                    "content": self.prompt_loader.render_iteration_continue(
-                        question=question,
-                    ),
-                })
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": self.prompt_loader.render_iteration_continue(
+                            question=question,
+                        ),
+                    }
+                )
 
             # Max iterations reached
             answer = "[Max iterations reached without final answer]"
