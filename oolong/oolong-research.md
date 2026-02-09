@@ -596,3 +596,50 @@ invasive option and risks overfitting to OOLONG.
 **Start with Option A.** It's zero-code-change and tells us whether the problem is
 our prompt or the model. If a different model scores significantly higher with the
 same prompt, we know the prompt is fine and gpt-5.2 is the bottleneck.
+
+---
+
+## Fix #3: Align with reference RLM implementation (2026-02-09)
+
+**Status: Applied — awaiting benchmark validation**
+
+After comparing Shesha's implementation with the paper's reference RLM (`rlm/`),
+identified and fixed 5 structural gaps:
+
+### Changes made
+
+1. **System prompt rewrite** — Added truncation warning ("you will only see truncated
+   outputs"), 4 examples (up from 1) matching the reference patterns, confidence
+   framing ("sub-LLMs are powerful"), and `llm_query_batched` documentation.
+
+2. **`llm_query_batched(prompts)`** — New concurrent sub-LLM call API matching the
+   reference. Critical for OOLONG where 188 entries need classification.
+
+3. **Optional `content` arg** — `llm_query(prompt)` now works with single arg
+   (matching reference API), reducing friction. Two-arg still supported.
+
+4. **Iteration query reminder** — Each iteration now appends "Continue using the REPL
+   to answer: {query}" matching the reference's `USER_PROMPT_WITH_ROOT`.
+
+5. **Line length fix** in engine (lint compliance).
+
+### Hypothesis
+
+The reference RLM makes `llm_query` the path of least resistance: simple API, many
+examples, truncated output forces delegation. Shesha was making it the path of MORE
+resistance: two-arg API, fewer examples, full output visible at small scales.
+
+If this hypothesis is correct, the model should now:
+- Use `llm_query()` or `llm_query_batched()` for semantic classification
+- Chunk entries and classify via sub-calls rather than regex
+- Produce significantly higher accuracy on comparison questions
+
+### How to test
+
+```bash
+# Rebuild Docker image first (runner.py changed)
+docker build -t shesha-sandbox -f docker/Dockerfile.sandbox .
+
+# Then run benchmark
+python oolong/run_oolong_and_pairs.py --model openai/gpt-5-mini
+```
