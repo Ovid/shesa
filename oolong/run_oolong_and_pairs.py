@@ -92,6 +92,10 @@ import traceback
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from types import UnraisableHookArgs
 
 import matplotlib
 
@@ -646,7 +650,26 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _install_urllib3_cleanup_hook() -> None:
+    """Suppress harmless urllib3 shutdown errors on Python 3.14+.
+
+    During GC, HTTP response finalizers may run after file handles close,
+    producing "ValueError: I/O operation on closed file". This is harmless.
+    """
+    original_hook = sys.unraisablehook
+
+    def suppress_urllib3_error(unraisable: "UnraisableHookArgs") -> None:
+        if unraisable.exc_type is ValueError and "I/O operation on closed file" in str(
+            unraisable.exc_value
+        ):
+            return
+        original_hook(unraisable)
+
+    sys.unraisablehook = suppress_urllib3_error
+
+
 def main() -> None:
+    _install_urllib3_cleanup_hook()
     args = _parse_args()
 
     # Re-plot only mode
