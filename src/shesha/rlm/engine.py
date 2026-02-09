@@ -604,11 +604,12 @@ class RLMEngine:
                 wrapped_output = wrap_repl_output(combined_output, self.max_output_chars)
 
                 # Append query reminder so the model stays focused across iterations
-                iteration_msg = (
-                    f"{wrapped_output}\n\n"
-                    f'Continue using the REPL environment to answer the original query: "{question}"\n'
-                    f"Your next action:"
+                reminder = (
+                    "Continue using the REPL environment to answer"
+                    f' the original query: "{question}"\n'
+                    "Your next action:"
                 )
+                iteration_msg = f"{wrapped_output}\n\n{reminder}"
 
                 messages.append({"role": "assistant", "content": response.content})
                 messages.append({"role": "user", "content": iteration_msg})

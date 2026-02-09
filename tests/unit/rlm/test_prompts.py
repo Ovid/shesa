@@ -364,41 +364,39 @@ def test_system_prompt_encourages_subcall_use():
     assert "batch" in prompt_lower
 
 
-def test_system_prompt_discourages_brevity_in_subcall_instructions():
-    """System prompt steers LLM away from asking for concise/brief output."""
+def test_system_prompt_truncation_warning():
+    """System prompt warns that REPL output is truncated to motivate sub-call usage."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 
-    # Must warn against brevity
-    assert "avoid" in prompt_lower and "brief" in prompt_lower
-    # Must value depth over brevity
-    assert "depth" in prompt_lower
+    assert "truncated" in prompt_lower
+    assert "llm_query" in prompt_lower
 
 
-def test_system_prompt_encourages_mitigations():
-    """System prompt tells LLM to ask for mitigations/recommendations."""
+def test_system_prompt_confidence_framing():
+    """System prompt encourages heavy sub-call usage with confidence framing."""
     prompt = _render_default_prompt()
     prompt_lower = prompt.lower()
 
-    assert "mitigation" in prompt_lower or "recommendation" in prompt_lower
+    # Must frame sub-LLMs as powerful and encourage large payloads
+    assert "powerful" in prompt_lower
+    assert "don't be afraid" in prompt_lower
 
 
-def test_system_prompt_example_instructions_use_analyze_not_list():
-    """Example llm_query instructions model analytical depth, not listing."""
+def test_system_prompt_has_multiple_examples():
+    """System prompt has multiple example patterns showing llm_query usage."""
     prompt = _render_default_prompt()
 
-    # Example instructions should use "Analyze" not "List"
-    # The examples are inside llm_query() calls in the code blocks
-    assert 'instruction="Analyze' in prompt
-    assert 'instruction="List' not in prompt
+    # Must have at least 3 examples (simple, iterative, batched)
+    assert "Example 1" in prompt
+    assert "Example 2" in prompt
+    assert "Example 3" in prompt
 
 
-def test_system_prompt_subcall_instruction_quality():
-    """System prompt guides depth through better instructions."""
+def test_system_prompt_examples_use_llm_query():
+    """All examples demonstrate llm_query or llm_query_batched usage."""
     prompt = _render_default_prompt()
-    prompt_lower = prompt.lower()
 
-    # Must mention instruction quality as important for analysis depth
-    assert "instruction" in prompt_lower and "depth" in prompt_lower
-    # Must warn against asking for brief/concise output
-    assert "avoid" in prompt_lower and "brief" in prompt_lower
+    # Every example should use llm_query or llm_query_batched
+    assert "llm_query(" in prompt
+    assert "llm_query_batched(" in prompt
