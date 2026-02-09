@@ -655,9 +655,7 @@ class RLMEngine:
 
                 # Add assistant response, then per-block code echo messages
                 messages.append({"role": "assistant", "content": response.content})
-                for code_block, output, exec_result in zip(
-                    code_blocks, all_output, exec_results
-                ):
+                for code_block, output, exec_result in zip(code_blocks, all_output, exec_results):
                     messages.append(
                         {
                             "role": "user",

@@ -10,10 +10,18 @@ from typing import Any
 # Global namespace for code execution (persists across executions)
 NAMESPACE: dict[str, Any] = {}
 
-BUILTINS_SET: frozenset[str] = frozenset([
-    "llm_query", "llm_query_batched", "FINAL", "FINAL_VAR",
-    "FinalAnswer", "FinalVar", "SHOW_VARS", "context",
-])
+BUILTINS_SET: frozenset[str] = frozenset(
+    [
+        "llm_query",
+        "llm_query_batched",
+        "FINAL",
+        "FINAL_VAR",
+        "FinalAnswer",
+        "FinalVar",
+        "SHOW_VARS",
+        "context",
+    ]
+)
 
 
 def show_vars() -> str:

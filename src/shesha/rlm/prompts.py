@@ -20,10 +20,7 @@ def truncate_code_output(output: str, max_chars: int = 20_000) -> str:
     )
 
 
-
-def format_code_echo(
-    code: str, output: str, vars: dict[str, str] | None = None
-) -> str:
+def format_code_echo(code: str, output: str, vars: dict[str, str] | None = None) -> str:
     """Format a code block and its output as a code echo message.
 
     Matches the reference RLM's per-block feedback format

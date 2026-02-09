@@ -63,7 +63,6 @@ class TestInstructionOverride:
         assert open_tag_pos < injection_pos < close_tag_pos
 
 
-
 class TestNestedTags:
     """Test nested and malformed tag handling."""
 
