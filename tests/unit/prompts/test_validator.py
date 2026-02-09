@@ -46,8 +46,12 @@ def test_prompt_schemas_defined():
     assert "subcall.md" in PROMPT_SCHEMAS
     assert "code_required.md" in PROMPT_SCHEMAS
 
-    assert PROMPT_SCHEMAS["system.md"].required == {"max_subcall_chars"}
-    assert "doc_count" in PROMPT_SCHEMAS["context_metadata.md"].required
+    assert PROMPT_SCHEMAS["system.md"].required == set()
+    assert PROMPT_SCHEMAS["context_metadata.md"].required == {
+        "context_type",
+        "context_total_length",
+        "context_lengths",
+    }
     assert "question" in PROMPT_SCHEMAS["iteration_zero.md"].required
     assert "instruction" in PROMPT_SCHEMAS["subcall.md"].required
     assert PROMPT_SCHEMAS["code_required.md"].required == set()

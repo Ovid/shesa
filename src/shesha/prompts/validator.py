@@ -15,11 +15,11 @@ class PromptSchema:
 
 PROMPT_SCHEMAS: dict[str, PromptSchema] = {
     "system.md": PromptSchema(
-        required={"max_subcall_chars"},
+        required=set(),
         optional=set(),
     ),
     "context_metadata.md": PromptSchema(
-        required={"doc_count", "total_chars", "doc_sizes_list"},
+        required={"context_type", "context_total_length", "context_lengths"},
         optional=set(),
     ),
     "subcall.md": PromptSchema(

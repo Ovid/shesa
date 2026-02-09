@@ -14,7 +14,6 @@ from shesha.llm.client import LLMClient
 from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
 from shesha.rlm.prompts import (
-    MAX_SUBCALL_CHARS,
     format_code_echo,
     truncate_code_output,
     wrap_subcall_content,
@@ -348,28 +347,21 @@ class RLMEngine:
         if doc_names is None:
             doc_names = [f"doc_{i}" for i in range(len(documents))]
 
-        # Build system prompt with per-document sizes
+        # Build system prompt (no variables — 500K hardcoded in template)
         doc_sizes = [len(d) for d in documents]
         total_chars = sum(doc_sizes)
 
-        # Build document sizes list
-        size_lines = []
-        for i, (name, size) in enumerate(zip(doc_names, doc_sizes)):
-            warning = " EXCEEDS LIMIT - must chunk" if size > MAX_SUBCALL_CHARS else ""
-            size_lines.append(f"    - context[{i}] ({name}): {size:,} chars{warning}")
-        doc_sizes_list = "\n".join(size_lines)
-
-        system_prompt = self.prompt_loader.render_system_prompt(
-            max_subcall_chars=MAX_SUBCALL_CHARS,
-        )
+        system_prompt = self.prompt_loader.render_system_prompt()
 
         # Context metadata as assistant message: primes the model to
         # continue working rather than start fresh. Matches reference
         # rlm/rlm/utils/prompts.py:119-122.
+        context_type = "list" if len(documents) > 1 else "string"
+        context_lengths = str(doc_sizes)
         context_metadata = self.prompt_loader.render_context_metadata(
-            doc_count=len(documents),
-            total_chars=total_chars,
-            doc_sizes_list=doc_sizes_list,
+            context_type=context_type,
+            context_total_length=total_chars,
+            context_lengths=context_lengths,
         )
 
         # Set up incremental trace writer

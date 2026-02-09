@@ -957,9 +957,9 @@ class TestIterationQueryReminder:
         continuation_msg = user_messages[-1]["content"]
         assert "What color is the sky?" in continuation_msg
 
-        # Second-to-last user message is the code echo with repl_output
+        # Second-to-last user message is the code echo with REPL output
         code_echo_msg = user_messages[-2]["content"]
-        assert "repl_output" in code_echo_msg
+        assert "REPL output:" in code_echo_msg
         assert "Code executed:" in code_echo_msg
 
 
