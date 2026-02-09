@@ -834,3 +834,148 @@ python oolong/run_oolong_and_pairs.py --model openai/gpt-5-mini
 **Success criteria:** Model uses `llm_query()`/`llm_query_batched()` for semantic
 classification (visible in traces). Score improvement expected but behavioral shift
 is the primary signal.
+
+---
+
+## Run #5 Results (2026-02-09 20:51, post-fix #4)
+
+**Score: ~28% (estimated from 14 completed queries: 4/14)** — no meaningful improvement
+over runs #2-#3. The three structural forcing functions did not change behavior at 8K
+scale.
+
+### Partial results (benchmark still running when analyzed)
+
+| ID | Gold | Predicted | Score |
+|----|------|-----------|-------|
+| 13000009 | human being | Label: numeric value | 0.0 |
+| 13000010 | more common than | same frequency as | 0.0 |
+| 13000011 | more common than | same frequency as | 0.0 |
+| 13000012 | less common than | same frequency as | 0.0 |
+| 13000013 | less common than | same frequency as | 0.0 |
+| 13000014 | less common than | less common than abbreviation | **1.0** |
+| 13000015 | less common than | same frequency as location | 0.0 |
+| 13000016 | less common than | same frequency as entity | 0.0 |
+| 13000017 | less common than | less common than abbreviation | **1.0** |
+| 13000018 | less common than | same frequency as location | 0.0 |
+| 13000019 | less common than | same frequency as entity | 0.0 |
+| 13000020 | less common than | less common than abbreviation | **1.0** |
+| 13000021 | less common than | same frequency as entity | 0.0 |
+| 13000022 | less common than | less common than abbreviation | **1.0** |
+
+### Trace analysis — mixed sub-call usage
+
+Examined 15 traces from this run. Key finding: **inconsistent behavior**.
+
+**Earliest trace (ID 13000009: "Which label is least common?"):**
+- 3 iterations, **zero sub-calls**
+- Used `doc.count(label)` and `re.search()` — pure regex on header text
+- Found all labels appear 2 times (from header), picked "numeric value"
+- Duration: 26s, 10,986 tokens
+
+**Most recent trace (ID ~13000022: "How many data points classified as numeric value?"):**
+- 2 iterations, **uses `llm_query_batched()` correctly**
+- Chunked 188 questions into batches of 20, sent each batch to sub-LLM for semantic
+  classification with proper per-line label instructions
+- This IS the correct RLM pattern — exactly what we want to see
+- Duration: 95+ seconds (trace incomplete)
+
+### Why fix #4 didn't help at 8K scale
+
+The three structural changes were:
+1. **20K per-block truncation** — but 8K context is only 19K chars, so
+   `print(context[0])` fits within the limit. **Not a forcing function at this scale.**
+2. **Iteration-0 safeguard** — prevents immediate FINAL(), but the model still does
+   regex on iteration 1-2 before calling FINAL() on iteration 2-3
+3. **Assistant-first context metadata** — primes continuation but doesn't force sub-calls
+
+The truncation forcing function only becomes effective at **16K+ scale** (39K chars)
+where `print(context[0])` would be truncated. At 8K, the model can see everything and
+has no architectural reason to delegate.
+
+### Updated run summary
+
+| Run | Fix | Score | llm_query usage | Key finding |
+|-----|-----|-------|-----------------|-------------|
+| #1 | Baseline | 0% | Zero | Pure regex |
+| #2 | Encouragement | 27% | 1 call (wrong content) | Regex + 1 llm_query on excerpts |
+| #3 | Simplified examples | 24% | Minimal | No change |
+| #4 | Corrupted log | ~12.5% F1 (pairs only) | Unknown | More iterations (16 vs 1) |
+| #5 | 20K truncation + iteration-0 + assistant metadata | ~28% | **Mixed** — some queries use llm_query_batched correctly, others pure regex | Forcing functions work for SOME queries but not consistently |
+
+---
+
+## Reference RLM Deep Comparison (2026-02-09)
+
+After Run #5, performed detailed comparison of Shesha's engine against the reference
+implementation in `rlm/`. Found **two remaining structural gaps** beyond the three
+already fixed:
+
+### Gap 1: Code echo in iteration feedback
+
+**Reference** (`rlm/rlm/utils/parsing.py:93-96`): Each code block's output is sent as
+a **separate user message** that echoes the code back alongside the result:
+
+```
+Code executed:
+\`\`\`python
+{code}
+\`\`\`
+
+REPL output:
+{result}
+```
+
+**Shesha** (`engine.py:636-637`): All code block outputs are combined into one
+`<repl_output>` wrapper with NO code echo. The model can't see what it ran.
+
+**Impact:** The model loses context about what approaches it already tried. Without
+seeing its own code, it may re-try the same regex approach or not build on previous
+work effectively.
+
+### Gap 2: Per-iteration user prompt re-instruction
+
+**Reference** (`rlm/rlm/utils/prompts.py:141-143`): After every iteration (not just
+iteration 0), the user message explicitly re-instructs the model:
+
+```
+"The history before is your previous interactions with the REPL environment.
+Think step-by-step on what to do using the REPL environment (which contains
+the context) to answer the original prompt: "{root_prompt}". Continue using
+the REPL environment, which has the `context` variable, and querying sub-LLMs
+by writing to ```repl``` tags, and determine your answer. Your next action:"
+```
+
+**Shesha** (`engine.py:629-634`): Much weaker reminder:
+
+```
+"Continue using the REPL environment to answer the original query: "{question}"
+Your next action:"
+```
+
+The reference explicitly says "querying sub-LLMs" every iteration. Shesha doesn't
+mention sub-LLMs in the iteration reminder at all.
+
+**Impact:** Each iteration is a fresh opportunity for the model to choose regex vs
+llm_query(). The reference explicitly nudges toward sub-LLMs every time.
+
+### Gap 3: "Extremely important information" framing
+
+**Reference** (`rlm/rlm/utils/prompts.py:10`):
+> "A `context` variable that contains extremely important information about your query.
+> You should check the content of the `context` variable to understand what you are
+> working with. Make sure you look through it sufficiently."
+
+**Shesha**: `"A context variable — a list of document contents as strings."` — neutral,
+no urgency.
+
+**Impact:** Minor — but the stronger framing may encourage more thorough exploration
+before jumping to regex solutions.
+
+### What Shesha has that the reference lacks (KEEP)
+
+- `<repl_output type="untrusted_document_content">` security tagging
+- Prompt injection warnings
+- `wrap_subcall_content()` security boundary
+- Document-grounded answer requirement
+- Error handling guidance (try/except ValueError pattern)
+- Source priority (code > docs)
