@@ -1,7 +1,10 @@
 """Tests for main SheshaTUI app."""
 
+from datetime import datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from textual.widgets import Static
 
 from shesha.rlm.engine import QueryResult
@@ -325,6 +328,78 @@ class TestIncrementalTokenDisplay:
             assert "500" in line1
             assert "100" in line1
 
+    async def test_query_complete_does_not_double_count_tokens(self) -> None:
+        """_on_query_complete must not double-count tokens already reported by _on_progress."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._query_in_progress = True
+            pilot.app._query_start_time = 0.0
+            pilot.app._query_id = 1
+
+            # Simulate progress callback setting cumulative tokens (as engine does)
+            token_usage = TokenUsage(prompt_tokens=500, completion_tokens=100)
+
+            def worker_fn() -> None:
+                pilot.app._on_progress(StepType.CODE_GENERATED, 0, "code", token_usage)
+
+            worker = pilot.app.run_worker(worker_fn, thread=True)
+            await worker.wait()
+            await pilot.pause()
+
+            # Now simulate query completion with the same cumulative token_usage
+            result = QueryResult(
+                answer="done",
+                trace=Trace(),
+                token_usage=token_usage,
+                execution_time=1.0,
+            )
+            pilot.app._on_query_complete(1, result, "q")
+            await pilot.pause()
+
+            # Should be 500/100, NOT 1000/200 (double-counted)
+            assert pilot.app._cumulative_prompt_tokens == 500
+            assert pilot.app._cumulative_completion_tokens == 100
+
+    async def test_tokens_accumulate_across_queries(self) -> None:
+        """Token totals accumulate across multiple queries in a session."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            # First query
+            pilot.app._query_in_progress = True
+            pilot.app._query_start_time = 0.0
+            pilot.app._query_id = 1
+            result1 = QueryResult(
+                answer="a1",
+                trace=Trace(),
+                token_usage=TokenUsage(prompt_tokens=200, completion_tokens=40),
+                execution_time=1.0,
+            )
+            pilot.app._on_query_complete(1, result1, "q1")
+            await pilot.pause()
+
+            assert pilot.app._cumulative_prompt_tokens == 200
+            assert pilot.app._cumulative_completion_tokens == 40
+
+            # Second query — save baseline as _run_query would
+            pilot.app._query_in_progress = True
+            pilot.app._query_id = 2
+            pilot.app._baseline_prompt_tokens = pilot.app._cumulative_prompt_tokens
+            pilot.app._baseline_completion_tokens = pilot.app._cumulative_completion_tokens
+            result2 = QueryResult(
+                answer="a2",
+                trace=Trace(),
+                token_usage=TokenUsage(prompt_tokens=300, completion_tokens=60),
+                execution_time=1.0,
+            )
+            pilot.app._on_query_complete(2, result2, "q2")
+            await pilot.pause()
+
+            # Should be 200+300=500 and 40+60=100
+            assert pilot.app._cumulative_prompt_tokens == 500
+            assert pilot.app._cumulative_completion_tokens == 100
+
 
 class TestQueryCancellation:
     """Tests for Esc×2 query cancellation."""
@@ -416,6 +491,99 @@ class TestQueryCancellation:
             assert statics_after == statics_before
 
 
+class TestAnalysisShortcutTokenDisplay:
+    """Tests that analysis shortcut answers update token counts in the info bar."""
+
+    async def test_shortcut_answer_updates_token_count(self) -> None:
+        """When shortcut answers a query, token counts appear in the info bar."""
+        project = MagicMock()
+        app = SheshaTUI(
+            project=project,
+            project_name="test",
+            model="test-model",
+            api_key="key",
+        )
+        async with app.run_test() as pilot:
+            pilot.app._analysis_context = "Analysis: A web framework."
+
+            def mock_shortcut(question, analysis_context, model, api_key):
+                return ("Shortcut answer", 200, 50)
+
+            with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
+                pilot.app._run_query("What does this do?")
+                await pilot.app._worker_handle.wait()
+                await pilot.pause()
+
+            # Cumulative tokens should reflect shortcut usage
+            assert pilot.app._cumulative_prompt_tokens == 200
+            assert pilot.app._cumulative_completion_tokens == 50
+
+            # Info bar should display the token counts
+            info_bar = pilot.app.query_one(InfoBar)
+            line1, _ = info_bar._state.render_lines()
+            assert "200" in line1
+            assert "50" in line1
+
+    async def test_shortcut_answer_records_tokens_in_session(self) -> None:
+        """Shortcut session stats include token counts, matching normal query path."""
+        project = MagicMock()
+        app = SheshaTUI(
+            project=project,
+            project_name="test",
+            model="test-model",
+            api_key="key",
+        )
+        async with app.run_test() as pilot:
+            pilot.app._analysis_context = "Analysis: A web framework."
+
+            def mock_shortcut(question, analysis_context, model, api_key):
+                return ("Shortcut answer", 200, 50)
+
+            with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
+                pilot.app._run_query("What does this do?")
+                await pilot.app._worker_handle.wait()
+                await pilot.pause()
+
+            # Session stats should include token counts
+            assert len(pilot.app._session._history) == 1
+            _q, _a, stats = pilot.app._session._history[0]
+            assert "prompt: 200" in stats
+            assert "completion: 50" in stats
+
+    async def test_shortcut_answer_shows_thought_time(self) -> None:
+        """Shortcut answer displays 'Thought for N seconds' above the response."""
+        project = MagicMock()
+        app = SheshaTUI(
+            project=project,
+            project_name="test",
+            model="test-model",
+            api_key="key",
+        )
+        async with app.run_test() as pilot:
+            pilot.app._analysis_context = "Analysis: A web framework."
+
+            def mock_shortcut(question, analysis_context, model, api_key):
+                return ("Shortcut answer", 200, 50)
+
+            with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
+                pilot.app._run_query("What does this do?")
+                await pilot.app._worker_handle.wait()
+                await pilot.pause()
+
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            # Should have a "Thought for" indicator
+            assert any("Thought for" in t for t in texts)
+            # Should also have the "Answered from codebase analysis." note
+            # (rendered as markdown or static, check both)
+            all_text = " ".join(texts)
+            markdown_widgets = output.query("Markdown")
+            md_texts = [str(m.render()) for m in markdown_widgets]
+            all_text += " ".join(md_texts)
+            assert "Answered from codebase analysis." in all_text
+
+
 class TestAnalysisShortcutHistoryContext:
     """Analysis shortcut must receive conversation history with the question."""
 
@@ -439,12 +607,12 @@ class TestAnalysisShortcutHistoryContext:
 
             def mock_shortcut(question, analysis_context, model, api_key):
                 captured_questions.append(question)
-                return "Shortcut answer"
+                return ("Shortcut answer", 100, 25)
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
                 pilot.app._run_query("What about module B?")
-                # Give the worker thread a moment to call the shortcut
-                await pilot.pause(delay=0.5)
+                await pilot.app._worker_handle.wait()
+                await pilot.pause()
 
             assert len(captured_questions) == 1
             q = captured_questions[0]
@@ -453,3 +621,135 @@ class TestAnalysisShortcutHistoryContext:
             assert "Module A handles routing." in q
             # Must include the current question
             assert "What about module B?" in q
+
+
+class TestWriteOverwriteProtection:
+    """Tests for /write overwrite protection with force flag."""
+
+    async def test_write_force_flag_strips_bang(self, tmp_path: Path) -> None:
+        """Trailing ! is stripped and write_transcript is called with clean filename."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            # Add an exchange so write is allowed
+            pilot.app._session.add_exchange("q", "a", "stats")
+            # Use tmp_path so we don't pollute cwd
+            target = tmp_path / "notes.md"
+            with patch.object(
+                pilot.app._session, "write_transcript", return_value=str(target)
+            ) as mock_write:
+                pilot.app._cmd_write(f"{target.with_suffix('')}!")
+            mock_write.assert_called_once_with(str(target))
+
+    async def test_write_force_flag_with_md_extension(self, tmp_path: Path) -> None:
+        """notes.md! results in write_transcript('notes.md')."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            target = tmp_path / "notes.md"
+            with patch.object(
+                pilot.app._session, "write_transcript", return_value=str(target)
+            ) as mock_write:
+                pilot.app._cmd_write(f"{target}!")
+            mock_write.assert_called_once_with(str(target))
+
+    async def test_write_blocked_when_file_exists(self, tmp_path: Path) -> None:
+        """Existing file blocks write and shows 'already exists' message."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            # Create the file on disk
+            target = tmp_path / "notes.md"
+            target.write_text("original content")
+            with patch.object(pilot.app._session, "write_transcript") as mock_write:
+                pilot.app._cmd_write(str(target))
+            # write_transcript should NOT have been called
+            mock_write.assert_not_called()
+            # Should show "already exists" message
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("already exists" in t for t in texts)
+            # Original file should be untouched
+            assert target.read_text() == "original content"
+
+    async def test_write_force_overwrites_existing(self, tmp_path: Path) -> None:
+        """Force flag bypasses existence check and writes."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            target = tmp_path / "notes.md"
+            target.write_text("original content")
+            with patch.object(
+                pilot.app._session, "write_transcript", return_value=str(target)
+            ) as mock_write:
+                pilot.app._cmd_write(f"{target}!")
+            mock_write.assert_called_once_with(str(target))
+
+    async def test_write_shows_actual_filename_on_collision(self, tmp_path: Path) -> None:
+        """Case-insensitive collision shows actual on-disk name."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            # Create NOTES.md on disk
+            actual_file = tmp_path / "NOTES.md"
+            actual_file.write_text("content")
+            # Detect case-insensitive FS *before* _cmd_write (which would
+            # create the file on case-sensitive FS, making exists() true).
+            requested = tmp_path / "notes.md"
+            case_insensitive = requested.exists()
+            pilot.app._cmd_write(str(requested))
+            if case_insensitive:
+                output = pilot.app.query_one(OutputArea)
+                statics = output.query("Static")
+                texts = [str(s.render()) for s in statics]
+                assert any("NOTES.md" in t and "already exists" in t for t in texts)
+
+    async def test_write_iterdir_permission_error_falls_back(self, tmp_path: Path) -> None:
+        """PermissionError from iterdir() still shows warning, not a crash."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            target = tmp_path / "notes.md"
+            target.write_text("content")
+            with patch.object(
+                type(target.parent), "iterdir", side_effect=PermissionError("denied")
+            ):
+                pilot.app._cmd_write(str(target))
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("already exists" in t for t in texts)
+
+    async def test_write_auto_name_blocked_when_exists(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Auto-generated filename collision is blocked."""
+        monkeypatch.chdir(tmp_path)
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            frozen = datetime(2025, 6, 15, 14, 30, 45)
+            auto_name = f"session-{frozen.strftime('%Y-%m-%d-%H%M%S')}.md"
+            # Create the auto-generated file in tmp_path
+            auto_path = tmp_path / auto_name
+            auto_path.write_text("existing")
+            with (
+                patch("shesha.tui.app.datetime") as mock_dt,
+                patch.object(pilot.app._session, "write_transcript") as mock_write,
+            ):
+                mock_dt.now.return_value = frozen
+                mock_dt.side_effect = datetime
+                pilot.app._cmd_write("")
+            mock_write.assert_not_called()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("already exists" in t for t in texts)
+            assert any(auto_name in t for t in texts)

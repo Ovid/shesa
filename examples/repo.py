@@ -9,7 +9,7 @@ Features:
     - Interactive picker for previously indexed repositories
     - Automatic update detection and application
     - Textual-based TUI with rich output, progress tracking, and token stats
-    - Slash commands: /help, /write, /summary, /analyze, /fast, /deep, /clear, /quit
+    - Slash commands: /help, /write, /summary, /analyze, /clear, /quit
     - Session transcript export with /write command
 
 Usage:
@@ -78,7 +78,6 @@ from shesha.exceptions import ProjectNotFoundError, RepoIngestError
 # Guard TUI imports: textual is an optional dependency (shesha[tui]).
 try:
     from shesha.tui import SheshaTUI
-    from shesha.tui.widgets.info_bar import InfoBar
     from shesha.tui.widgets.output_area import OutputArea
 except ModuleNotFoundError:
     if __name__ == "__main__":
@@ -486,16 +485,6 @@ def main() -> None:
         except Exception as e:
             _post_message(f"Error: {e}")
 
-    def handle_fast(args: str) -> None:
-        project.execution_mode = "fast"
-        tui.query_one(InfoBar).update_mode("fast")
-        tui.query_one(OutputArea).add_system_message("Switched to fast mode (concurrent).")
-
-    def handle_deep(args: str) -> None:
-        project.execution_mode = "deep"
-        tui.query_one(InfoBar).update_mode("deep")
-        tui.query_one(OutputArea).add_system_message("Switched to deep mode (sequential).")
-
     def handle_clear(args: str) -> None:
         tui._session.clear_history()
         tui.query_one(OutputArea).clear()
@@ -504,8 +493,6 @@ def main() -> None:
     tui.register_command(
         "/analyze", handle_analyze, "Generate/regenerate analysis", threaded=True
     )
-    tui.register_command("/fast", handle_fast, "Switch to fast mode (concurrent)")
-    tui.register_command("/deep", handle_deep, "Switch to deep mode (sequential)")
     tui.register_command("/clear", handle_clear, "Clear conversation history")
     tui.run()
     print("Cleaning up containers...")

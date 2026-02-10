@@ -2,19 +2,30 @@
 
 from unittest.mock import MagicMock, patch
 
-from shesha.analysis.shortcut import try_answer_from_analysis
+from shesha.analysis.shortcut import _SYSTEM_PROMPT, try_answer_from_analysis
 
 
 class TestTryAnswerFromAnalysis:
     """Tests for try_answer_from_analysis()."""
 
     def test_returns_answer_when_llm_can_answer(self):
-        """When LLM returns a real answer, function returns it."""
-        mock_response = MagicMock()
-        mock_response.content = "This codebase implements a web framework."
+        """When LLM returns a real answer, function returns answer with token counts."""
+        classifier_response = MagicMock()
+        classifier_response.content = "ANALYSIS_OK"
+        classifier_response.prompt_tokens = 15
+        classifier_response.completion_tokens = 3
+
+        answer_response = MagicMock()
+        answer_response.content = "This codebase implements a web framework."
+        answer_response.prompt_tokens = 100
+        answer_response.completion_tokens = 20
 
         with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
-            mock_cls.return_value.complete.return_value = mock_response
+            classifier_client = MagicMock()
+            classifier_client.complete.return_value = classifier_response
+            answer_client = MagicMock()
+            answer_client.complete.return_value = answer_response
+            mock_cls.side_effect = [classifier_client, answer_client]
             result = try_answer_from_analysis(
                 question="What does this codebase do?",
                 analysis_context="Overview: A web framework...",
@@ -22,7 +33,8 @@ class TestTryAnswerFromAnalysis:
                 api_key="test-key",
             )
 
-        assert result == "This codebase implements a web framework."
+        # Totals include classifier (15+3) + answer (100+20)
+        assert result == ("This codebase implements a web framework.", 115, 23)
 
     def test_returns_none_when_need_deeper(self):
         """When LLM returns NEED_DEEPER, function returns None."""
@@ -105,6 +117,26 @@ class TestTryAnswerFromAnalysis:
         assert "</untrusted_document_content>" in user_content
         assert "Overview: A web framework..." in user_content
 
+    def test_returns_stripped_answer(self):
+        """Answer is stripped of leading/trailing whitespace."""
+        mock_response = MagicMock()
+        mock_response.content = "  The answer is Flask.\n"
+        mock_response.prompt_tokens = 100
+        mock_response.completion_tokens = 20
+
+        with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
+            mock_cls.return_value.complete.return_value = mock_response
+            result = try_answer_from_analysis(
+                question="What framework?",
+                analysis_context="Overview: Uses Flask...",
+                model="test-model",
+                api_key="test-key",
+            )
+
+        assert result is not None
+        answer, _, _ = result
+        assert answer == "The answer is Flask."
+
     def test_returns_none_on_llm_error(self):
         """LLM exception -> None (graceful fallback)."""
         with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
@@ -117,3 +149,22 @@ class TestTryAnswerFromAnalysis:
             )
 
         assert result is None
+
+
+class TestShortcutPromptContent:
+    """Tests that the shortcut LLM prompt prevents absence-as-answer."""
+
+    def test_contains_absence_rule(self):
+        """Prompt explicitly forbids answering with 'analysis doesn't mention X'."""
+        assert "Never answer by describing what the analysis lacks" in _SYSTEM_PROMPT
+
+    def test_contains_need_deeper_for_missing_info(self):
+        """Prompt lists 'analysis does not contain the information' as NEED_DEEPER case."""
+        assert "The analysis does not contain the information needed to answer" in _SYSTEM_PROMPT
+
+    def test_contains_absence_not_absence_principle(self):
+        """Prompt states absence from analysis != absence from codebase."""
+        assert (
+            "Absence of information in the analysis does not mean absence in the codebase"
+            in _SYSTEM_PROMPT
+        )

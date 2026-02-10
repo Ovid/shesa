@@ -8,6 +8,12 @@
 
 Shesha lets AI explore your documents, [even large codebases](examples/repo.py), the way a researcher would: reading, searching, cross-referencing, and iterating until it finds the answer. Unlike simple RAG that retrieves chunks, Shesha reasons across your entire corpus.
 
+<p align="center">
+  <img src="images/tui.png" alt="Shesha TUI screenshot (examples/repo.py screenshot)">
+</p>
+
+_**Note** for fans of [Perl's Dancer2 framework](https://github.com/PerlDancer/Dancer2): I'm not seriously proposing the above._
+
 **Why this matters:** [Recursive Language Models (RLMs)](https://arxiv.org/abs/2512.24601) give LLMs effectively unlimited context and dramatically better long-horizon reasoning. The AI writes Python code to actively explore your documents in a secure sandbox, iterating until confident in the answer—no context window limits, no lost information.
 
 See [Sample Session](#sample-session) for a demo: tracking 30 chronological events across 7 novels with supporting quotes.
@@ -453,11 +459,15 @@ See [SECURITY.md](SECURITY.md) for details on:
 
 Internal engine borrows heavily from [this reference implementation](https://github.com/alexzhang13/rlm) by the authors of the original paper.
 
-## When to Choose Which
+## Why use Shesha?
 
-Choose Reference RLM (rlms) if you:
+Shesha is designed to handle common-case problems that developers and businesses face.
 
-- Want a lightweight library to integrate into your own application
+## Using the Reference RLM or Shesha?
+
+Choose Reference RLM if you:
+
+- Want a lightweight library to integrate into your own application (Shesha is a bit heavier-weight, but can also be embedded)
 - Need cloud sandbox support (Modal, Prime Intellect, Daytona)
 - Want to use different models for root vs. sub-LM calls
 - Prefer minimal dependencies
@@ -466,16 +476,33 @@ Choose Reference RLM (rlms) if you:
 
 Choose Shesha if you:
 
-- Need security — running on untrusted documents or in shared environments
-- Want document parsing (PDF, DOCX, HTML, code) out of the box
-- Want project organization and document management
-- Want an interactive TUI or CLI experience
 - Need conversation history and follow-up questions
 - Want answer verification (citation + semantic)
+- Need an RLM designed for code as well as for raw documents
+- Need security — running on untrusted documents or in shared environments
+- Want document parsing (PDF, DOCX, HTML, code) out of the box
+- Want an interactive TUI or CLI experience
 - Need production resilience (retry, container pooling, incremental traces)
 - Want a git repository analysis tool
 
-Shesha is designed to take the RLMs and apply them to common-case problems that developers and businesses face.
+## What About RAG?
+
+Use RAG when:
+
+- Answer lives in few retrievable chunks
+- Information density is low
+- Input fits model's context window
+- Predictable cost and latency matter
+
+Use RLM when:
+
+- Answer depends on most of the input
+- Input exceeds model's context window
+- Task requires semantic transformation then aggregation
+- Complexity scales with input length
+- Multi-hop reasoning across many documents
+
+RAG often has a predefined (and lossy) workflow up front. RLMs design their workflow based on your query.
 
 ## License
 

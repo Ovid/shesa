@@ -2,6 +2,7 @@
 
 import copy
 import json
+import keyword
 import re
 import threading
 import time
@@ -58,6 +59,16 @@ def extract_code_blocks(text: str) -> list[str]:
     return matches
 
 
+def _is_python_identifier(s: str) -> bool:
+    """Check if a string is a valid Python identifier (variable name).
+
+    Used by find_final_answer to distinguish FINAL(variable_name) from
+    FINAL(literal text). Python keywords like "True"/"False" are excluded
+    because they are more likely literal values than variable names.
+    """
+    return s.isidentifier() and not keyword.iskeyword(s)
+
+
 def find_final_answer(text: str) -> tuple[str, str] | None:
     """Find bare FINAL(...) or FINAL_VAR(...) in response text outside code blocks.
 
@@ -65,9 +76,29 @@ def find_final_answer(text: str) -> tuple[str, str] | None:
     The model sometimes outputs FINAL_VAR(x) as bare text instead of inside a
     ```repl block. This function catches those cases.
 
+    **Important: FINAL(identifier) heuristic**
+
+    When the LLM writes FINAL(x) as bare text, this function must decide
+    whether x is a literal answer string or a Python variable name. Inside a
+    ```repl code block, FINAL(x) is executed as Python and x is naturally
+    resolved as a variable. But the bare-text regex parser has no Python
+    runtime — it just captures the text between the parentheses.
+
+    This caused a real bug (trace 2026-02-10T11-03-50): the LLM stored a
+    38K-char audit report in a variable called `final_answer`, then wrote
+    bare text `FINAL(final_answer)`. The parser returned ("final",
+    "final_answer") — treating the variable name as the literal answer. The
+    user saw just the word "final_answer" instead of the full report.
+
+    The fix: when the captured content of FINAL(...) is a bare Python
+    identifier (no quotes, no spaces, no operators — just a valid variable
+    name), we treat it as a variable reference and return ("final_var", name)
+    so the engine retrieves the value from the sandbox. Quoted strings,
+    numbers, expressions, and sentences are still treated as literal answers.
+
     Returns:
-        ("final", answer_string) for FINAL(...)
-        ("final_var", variable_name) for FINAL_VAR(...)
+        ("final", answer_string) for FINAL(...) with literal content
+        ("final_var", variable_name) for FINAL_VAR(...) or FINAL(identifier)
         None if no pattern found
     """
     # Strip code blocks so we don't match FINAL inside ```repl blocks
@@ -79,14 +110,30 @@ def find_final_answer(text: str) -> tuple[str, str] | None:
     match = re.search(final_var_pattern, stripped, re.MULTILINE | re.DOTALL)
     if match:
         var_name = match.group(1).strip().strip('"').strip("'")
-        return ("final_var", var_name)
+        if _is_python_identifier(var_name):
+            return ("final_var", var_name)
+        return ("final", var_name)
 
     # Check FINAL pattern — greedy match to handle nested parentheses,
     # no quote requirement (aligned with reference RLM rlm/utils/parsing.py:58)
     final_pattern = r"^\s*FINAL\((.*)\)\s*$"
     match = re.search(final_pattern, stripped, re.MULTILINE | re.DOTALL)
     if match:
-        return ("final", match.group(1).strip())
+        content = match.group(1).strip()
+        # Heuristic: if the content is a bare Python identifier (valid variable
+        # name, no quotes, no spaces, no operators), the LLM almost certainly
+        # meant to reference a sandbox variable — not return the identifier
+        # itself as a literal answer. Treat it as a variable reference so the
+        # engine retrieves the actual value from the sandbox.
+        #
+        # Examples:
+        #   FINAL(final_answer) → ("final_var", "final_answer")  # variable ref
+        #   FINAL("the answer")  → ("final", '"the answer"')     # literal
+        #   FINAL(42)            → ("final", "42")                # literal
+        #   FINAL(x + y)         → ("final", "x + y")            # literal
+        if _is_python_identifier(content):
+            return ("final_var", content)
+        return ("final", content)
 
     return None
 
@@ -110,7 +157,6 @@ class RLMEngine:
         max_traces_per_project: int = 50,
         verify_citations: bool = True,
         verify: bool = False,
-        execution_mode: str = "fast",
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -124,7 +170,6 @@ class RLMEngine:
         self.max_traces_per_project = max_traces_per_project
         self.verify_citations = verify_citations
         self.verify = verify
-        self.execution_mode = execution_mode
         self._subcall_lock = threading.Lock()
 
     def _handle_llm_query(
@@ -469,11 +514,9 @@ class RLMEngine:
         if self._pool is not None:
             executor = self._pool.acquire()
             executor.llm_query_handler = _make_llm_callback(0)
-            executor.execution_mode = self.execution_mode
             owns_executor = False
         else:
             executor = ContainerExecutor(llm_query_handler=_make_llm_callback(0))
-            executor.execution_mode = self.execution_mode
             executor.start()
             owns_executor = True
 
@@ -503,50 +546,59 @@ class RLMEngine:
                         copy.copy(token_usage),
                     )
 
+                # Extract code blocks first so they execute before bare FINAL
+                # resolution. The LLM may define a variable in a code block
+                # and then write bare FINAL(variable) in the same response;
+                # the code block must run first so the variable exists in the
+                # sandbox when we try to resolve it.
+                code_blocks = extract_code_blocks(response.content)
+
                 # Check for bare FINAL/FINAL_VAR in response text (outside code blocks).
                 # The model sometimes outputs FINAL_VAR(x) as bare text without a
                 # ```repl block. Matches reference rlm/rlm/core/rlm.py:240.
                 bare_final = find_final_answer(response.content)
-                if bare_final is not None:
-                    final_type, final_value = bare_final
-                    if final_type == "final_var":
-                        # Retrieve variable value from sandbox
-                        retrieve_result = executor.execute(
-                            f"print({final_value})", timeout=self.execution_timeout
-                        )
-                        bare_answer = (
-                            retrieve_result.stdout.strip() if retrieve_result.stdout else ""
-                        )
-                    else:
-                        bare_answer = final_value
 
-                    step = trace.add_step(
-                        type=StepType.FINAL_ANSWER,
-                        content=bare_answer,
-                        iteration=iteration,
-                    )
-                    _write_step(step)
-                    if on_progress:
-                        on_progress(
-                            StepType.FINAL_ANSWER,
-                            iteration,
-                            bare_answer,
-                            copy.copy(token_usage),
-                        )
-
-                    query_result = QueryResult(
-                        answer=bare_answer,
-                        trace=trace,
-                        token_usage=token_usage,
-                        execution_time=time.time() - start_time,
-                    )
-                    _finalize_trace(bare_answer, "success")
-                    return query_result
-
-                # Extract code blocks
-                code_blocks = extract_code_blocks(response.content)
                 if not code_blocks:
-                    # No code - add assistant response and prompt for code
+                    # No code blocks — handle bare FINAL or prompt for code
+                    if bare_final is not None:
+                        final_type, final_value = bare_final
+                        if final_type == "final_var":
+                            # Retrieve variable value from sandbox
+                            retrieve_result = executor.execute(
+                                f"print({final_value})", timeout=self.execution_timeout
+                            )
+                            bare_answer = (
+                                retrieve_result.stdout.strip()
+                                if retrieve_result.status == "ok"
+                                else final_value  # fallback to literal if var undefined
+                            )
+                        else:
+                            bare_answer = final_value
+
+                        step = trace.add_step(
+                            type=StepType.FINAL_ANSWER,
+                            content=bare_answer,
+                            iteration=iteration,
+                        )
+                        _write_step(step)
+                        if on_progress:
+                            on_progress(
+                                StepType.FINAL_ANSWER,
+                                iteration,
+                                bare_answer,
+                                copy.copy(token_usage),
+                            )
+
+                        query_result = QueryResult(
+                            answer=bare_answer,
+                            trace=trace,
+                            token_usage=token_usage,
+                            execution_time=time.time() - start_time,
+                        )
+                        _finalize_trace(bare_answer, "success")
+                        return query_result
+
+                    # No bare FINAL either — prompt for code
                     messages.append({"role": "assistant", "content": response.content})
                     messages.append(
                         {
@@ -632,6 +684,37 @@ class RLMEngine:
                                 copy.copy(token_usage),
                             )
                         break
+
+                # If code blocks didn't produce a final answer, check for
+                # bare FINAL in the same response. Now that code blocks have
+                # executed, any variables they defined exist in the sandbox.
+                if final_answer is None and bare_final is not None:
+                    final_type, final_value = bare_final
+                    if final_type == "final_var":
+                        retrieve_result = executor.execute(
+                            f"print({final_value})", timeout=self.execution_timeout
+                        )
+                        final_answer = (
+                            retrieve_result.stdout.strip()
+                            if retrieve_result.status == "ok"
+                            else final_value
+                        )
+                    else:
+                        final_answer = final_value
+
+                    step = trace.add_step(
+                        type=StepType.FINAL_ANSWER,
+                        content=final_answer,
+                        iteration=iteration,
+                    )
+                    _write_step(step)
+                    if on_progress:
+                        on_progress(
+                            StepType.FINAL_ANSWER,
+                            iteration,
+                            final_answer,
+                            copy.copy(token_usage),
+                        )
 
                 if final_answer is not None:
                     verification = None

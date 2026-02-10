@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual import events
@@ -100,6 +102,8 @@ class SheshaTUI(App[None]):
         self._last_step_name = ""
         self._cumulative_prompt_tokens = 0
         self._cumulative_completion_tokens = 0
+        self._baseline_prompt_tokens = 0
+        self._baseline_completion_tokens = 0
         self._timer_handle: Timer | None = None
         self._worker_handle: Worker[object] | None = None
         self._register_builtin_commands()
@@ -276,6 +280,8 @@ class SheshaTUI(App[None]):
         self.query_one(InputArea).query_in_progress = True
         self._query_start_time = time.time()
         self._last_iteration = 0
+        self._baseline_prompt_tokens = self._cumulative_prompt_tokens
+        self._baseline_completion_tokens = self._cumulative_completion_tokens
 
         # Start elapsed timer
         info_bar = self.query_one(InfoBar)
@@ -329,12 +335,15 @@ class SheshaTUI(App[None]):
                     self._api_key,
                 )
                 if shortcut is not None:
+                    answer, prompt_tokens, completion_tokens = shortcut
                     if self._query_id == my_query_id:
                         self.call_from_thread(
                             self._on_shortcut_answer,
                             my_query_id,
-                            shortcut,
+                            answer,
                             display_question,
+                            prompt_tokens,
+                            completion_tokens,
                         )
                     return None
 
@@ -371,12 +380,16 @@ class SheshaTUI(App[None]):
         self._last_step_name = step_name
         info_bar = self.query_one(InfoBar)
         if token_usage is not None:
-            self._cumulative_prompt_tokens = token_usage.prompt_tokens
-            self._cumulative_completion_tokens = token_usage.completion_tokens
+            self._cumulative_prompt_tokens = (
+                self._baseline_prompt_tokens + token_usage.prompt_tokens
+            )
+            self._cumulative_completion_tokens = (
+                self._baseline_completion_tokens + token_usage.completion_tokens
+            )
             self.call_from_thread(
                 info_bar.update_tokens,
-                token_usage.prompt_tokens,
-                token_usage.completion_tokens,
+                self._cumulative_prompt_tokens,
+                self._cumulative_completion_tokens,
             )
         self.call_from_thread(
             info_bar.update_progress,
@@ -402,9 +415,13 @@ class SheshaTUI(App[None]):
             return
         self._stop_query()
 
-        # Update tokens
-        self._cumulative_prompt_tokens += result.token_usage.prompt_tokens
-        self._cumulative_completion_tokens += result.token_usage.completion_tokens
+        # Update tokens (baseline + this query's cumulative total)
+        self._cumulative_prompt_tokens = (
+            self._baseline_prompt_tokens + result.token_usage.prompt_tokens
+        )
+        self._cumulative_completion_tokens = (
+            self._baseline_completion_tokens + result.token_usage.completion_tokens
+        )
         info_bar = self.query_one(InfoBar)
         info_bar.update_tokens(self._cumulative_prompt_tokens, self._cumulative_completion_tokens)
         info_bar.update_done(result.execution_time, self._last_iteration)
@@ -436,22 +453,37 @@ class SheshaTUI(App[None]):
         self.query_one(OutputArea).add_system_message(f"Error: {error_msg}")
         self.query_one(InfoBar).reset_phase()
 
-    def _on_shortcut_answer(self, query_id: int, answer: str, question: str) -> None:
+    def _on_shortcut_answer(
+        self,
+        query_id: int,
+        answer: str,
+        question: str,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+    ) -> None:
         """Handle answer from analysis shortcut (called on main thread)."""
         if self._query_id != query_id:
             return
         elapsed = time.time() - self._query_start_time
         self._stop_query()
 
+        self._cumulative_prompt_tokens += prompt_tokens
+        self._cumulative_completion_tokens += completion_tokens
         info_bar = self.query_one(InfoBar)
+        info_bar.update_tokens(self._cumulative_prompt_tokens, self._cumulative_completion_tokens)
         info_bar.update_done(elapsed, 0)
 
         output = self.query_one(OutputArea)
-        output.add_system_markdown(answer + "\n\n*Answered from codebase analysis.*")
+        output.add_response(answer + "\n\n*Answered from codebase analysis.*", elapsed)
 
-        self._session.add_exchange(
-            question, answer, f"---\nAnswered from analysis in {elapsed:.2f}s"
+        total = prompt_tokens + completion_tokens
+        stats = (
+            f"---\n"
+            f"Answered from analysis in {elapsed:.2f}s\n"
+            f"Tokens: {total} "
+            f"(prompt: {prompt_tokens}, completion: {completion_tokens})"
         )
+        self._session.add_exchange(question, answer, stats)
 
         self.set_timer(2.0, info_bar.reset_phase)
 
@@ -477,9 +509,47 @@ class SheshaTUI(App[None]):
         if self._session.exchange_count == 0:
             self.query_one(OutputArea).add_system_message("Nothing to save - no exchanges yet.")
             return
-        filename = args.strip() or None
+
+        raw_args = args.strip()
+
+        # Parse force flag (trailing !)
+        force = raw_args.endswith("!")
+        if force:
+            raw_args = raw_args[:-1].rstrip()
+
+        filename = raw_args or None
         if filename and not filename.lower().endswith(".md"):
             filename = filename + ".md"
+
+        # Check for existing file
+        if filename is not None:
+            filepath = Path(filename)
+            if filepath.exists() and not force:
+                # Resolve actual on-disk name (handles case-insensitive filesystems)
+                parent = filepath.parent
+                try:
+                    actual = next(
+                        (p for p in parent.iterdir() if p.name.lower() == filepath.name.lower()),
+                        filepath,
+                    )
+                except OSError:
+                    actual = filepath
+                self.query_one(OutputArea).add_system_message(
+                    f"File {actual.name} already exists. Use /write {raw_args}! to overwrite."
+                )
+                return
+        else:
+            # Auto-generated filename — still check for collision
+            timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+            auto_name = f"session-{timestamp}.md"
+            filepath = Path(auto_name)
+            if filepath.exists():
+                self.query_one(OutputArea).add_system_message(
+                    f"File {auto_name} already exists. Use /write {auto_name}! to overwrite."
+                )
+                return
+            filename = auto_name
+
         try:
             path = self._session.write_transcript(filename)
             self.query_one(OutputArea).add_system_message(

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Analysis shortcut classifier now includes few-shot examples and a "when in doubt, NEED_DEEPER" bias, reducing false ANALYSIS_OK classifications on terse or ambiguous queries (e.g. "SECURITY.md?", "I think that's out of date").
+- Analysis shortcut LLM now responds NEED_DEEPER when the analysis lacks information instead of answering with "the analysis does not mention X". Absence from the analysis no longer produces misleading non-answers.
+
+### Fixed
+
+- Analysis shortcut answers now display token usage in the TUI info bar. Previously, the shortcut discarded token counts from the LLM response, leaving the info bar showing `Tokens: 0 (prompt: 0, comp: 0)`.
+- Analysis shortcut answers now display `[Thought for N seconds]` above the response, matching the normal query route. Previously, shortcut answers skipped the thought-time indicator entirely.
+- Bare `FINAL(variable_name)` in LLM response now correctly resolves the variable from the sandbox instead of returning the variable name as a literal string. Previously, if the LLM wrote `FINAL(final_answer)` as bare text (outside a code block) intending to return a variable's value, the answer displayed was the literal string "final_answer" instead of the variable's content.
+- `FINAL(identifier)` variable resolution now falls back to the literal identifier when the variable is undefined in the sandbox, instead of returning an empty answer.
+- Bare `FINAL(variable)` in the same response as code blocks that define the variable now works correctly. Previously, the bare FINAL check fired before code blocks executed, so the variable didn't exist yet and the user saw the literal variable name (e.g. "my_answer") instead of the actual answer.
+- Analysis shortcut session transcript now includes token counts, matching the normal query path. Previously, `/write` transcripts omitted token usage for shortcut-answered questions.
+- `/write` command now warns before overwriting existing files (including case-insensitive collisions on macOS). Use `/write filename!` to force overwrite.
+
+### Removed
+
+- Fast/deep execution mode toggle (`/fast`, `/deep` commands, `execution_mode` parameter, `--fast` CLI flag). Batch sub-LLM calls now always run concurrently. The sequential "deep" mode offered no quality benefit over concurrent execution.
+
 ## [0.8.0] - 2026-02-10
 
 ### Changed
