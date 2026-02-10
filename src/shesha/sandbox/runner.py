@@ -132,9 +132,9 @@ def handle_llm_query_batch(prompts: list[str]) -> dict[str, Any]:
 def main() -> None:
     """Main loop: read JSON commands, execute, write JSON responses."""
 
-    # Capture real stdout/stdin before any redirection happens during exec
-    real_stdout = sys.stdout
-    real_stdin = sys.stdin
+    # Capture real binary stdout/stdin before any redirection happens during exec
+    real_stdout_buf = sys.stdout.buffer
+    real_stdin_buf = sys.stdin.buffer
 
     # Define FINAL and FINAL_VAR
     class FinalAnswer:
@@ -148,12 +148,8 @@ def main() -> None:
     def llm_query(instruction: str, content: str = "") -> str:
         """Request LLM query from host - blocks until response."""
         request = handle_llm_query(instruction, content)
-        # Use real stdout, not the captured one during exec
-        real_stdout.write(json.dumps(request) + "\n")
-        real_stdout.flush()
-        # Wait for response from host using real stdin
-        response_line = real_stdin.readline()
-        response = json.loads(response_line)
+        _write_message(real_stdout_buf, request)
+        response = _read_message(real_stdin_buf)
         if response.get("action") == "llm_response":
             if "error" in response:
                 raise ValueError(str(response["error"]))
@@ -163,10 +159,8 @@ def main() -> None:
     def llm_query_batched(prompts: list[str]) -> list[str]:
         """Request batched LLM queries from host - blocks until all complete."""
         request = handle_llm_query_batch(prompts)
-        real_stdout.write(json.dumps(request) + "\n")
-        real_stdout.flush()
-        response_line = real_stdin.readline()
-        response = json.loads(response_line)
+        _write_message(real_stdout_buf, request)
+        response = _read_message(real_stdin_buf)
         if response.get("action") == "llm_batch_response":
             if "error" in response:
                 raise ValueError(str(response["error"]))
@@ -197,9 +191,14 @@ def main() -> None:
 
     register_builtins()
 
-    for line in sys.stdin:
+    while True:
         try:
-            command = json.loads(line.strip())
+            command = _read_message(real_stdin_buf)
+        except (ConnectionError, json.JSONDecodeError):
+            # ConnectionError: host closed the connection (normal shutdown).
+            # JSONDecodeError: corrupted protocol stream (fail-closed).
+            break
+        try:
             action = command.get("action")
 
             if action == "execute":
@@ -213,32 +212,27 @@ def main() -> None:
                     result["final_var"] = rv.var_name
                     result["final_value"] = str(NAMESPACE.get(rv.var_name, ""))
                     result["return_value"] = None  # Not JSON serializable
-                print(json.dumps(result), flush=True)
+                _write_message(real_stdout_buf, result)
 
             elif action == "setup":
                 # Initialize context variable
                 NAMESPACE["context"] = command.get("context", [])
-                print(json.dumps({"status": "ok"}), flush=True)
+                _write_message(real_stdout_buf, {"status": "ok"})
 
             elif action == "reset":
                 NAMESPACE.clear()
                 register_builtins()
-                print(json.dumps({"status": "ok"}), flush=True)
+                _write_message(real_stdout_buf, {"status": "ok"})
 
             elif action == "ping":
-                print(json.dumps({"status": "ok", "message": "pong"}), flush=True)
+                _write_message(real_stdout_buf, {"status": "ok", "message": "pong"})
 
             else:
                 err = {"status": "error", "error": f"Unknown action: {action}"}
-                print(json.dumps(err), flush=True)
+                _write_message(real_stdout_buf, err)
 
-        except json.JSONDecodeError:
-            # Fail-closed: invalid JSON implies corrupted protocol stream.
-            # Break out rather than continuing to process potentially
-            # malformed data from a compromised or buggy host.
-            break
         except Exception as e:
-            print(json.dumps({"status": "error", "error": str(e)}), flush=True)
+            _write_message(real_stdout_buf, {"status": "error", "error": str(e)})
 
 
 if __name__ == "__main__":
