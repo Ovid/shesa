@@ -1,8 +1,16 @@
 """Tests for sandbox runner."""
 
+import io
 import json
+import struct
 
 from shesha.sandbox.runner import NAMESPACE, execute_code
+
+
+def frame_message(data: dict) -> bytes:
+    """Create a length-prefixed message frame for testing."""
+    payload = json.dumps(data).encode("utf-8")
+    return struct.pack(">I", len(payload)) + payload
 
 
 class TestExecuteCode:
@@ -469,3 +477,80 @@ class TestLlmQueryBatched:
         exec_result = json.loads(output_lines[1])
         assert exec_result["status"] == "ok"
         assert exec_result["stdout"] == "True\n"
+
+
+class TestLengthPrefixHelpers:
+    """Tests for length-prefix protocol helpers."""
+
+    def test_read_message_reads_length_prefixed_json(self) -> None:
+        """_read_message reads 4-byte BE length prefix then exact payload."""
+        from shesha.sandbox.runner import _read_message
+
+        data = {"action": "execute", "code": "print('hello')"}
+        stream = io.BytesIO(frame_message(data))
+        result = _read_message(stream)
+        assert result == data
+
+    def test_read_message_handles_large_payload(self) -> None:
+        """_read_message handles payloads larger than typical buffers."""
+        from shesha.sandbox.runner import _read_message
+
+        data = {"action": "llm_response", "result": "x" * 100_000}
+        stream = io.BytesIO(frame_message(data))
+        result = _read_message(stream)
+        assert result == data
+
+    def test_write_message_writes_length_prefixed_json(self) -> None:
+        """_write_message writes 4-byte BE length prefix + JSON payload."""
+        from shesha.sandbox.runner import _write_message
+
+        data = {"status": "ok", "stdout": "hello\n"}
+        stream = io.BytesIO()
+        _write_message(stream, data)
+        written = stream.getvalue()
+
+        # Verify length prefix
+        length = struct.unpack(">I", written[:4])[0]
+        payload = written[4:]
+        assert len(payload) == length
+        assert json.loads(payload.decode("utf-8")) == data
+
+    def test_write_message_flushes_stream(self) -> None:
+        """_write_message calls flush() on the stream."""
+        from unittest.mock import MagicMock
+
+        from shesha.sandbox.runner import _write_message
+
+        mock_stream = MagicMock()
+        _write_message(mock_stream, {"status": "ok"})
+        mock_stream.flush.assert_called_once()
+
+    def test_read_exactly_raises_on_eof(self) -> None:
+        """_read_exactly raises ConnectionError on EOF mid-read."""
+        from shesha.sandbox.runner import _read_exactly
+
+        stream = io.BytesIO(b"abc")  # Only 3 bytes
+        with __import__("pytest").raises(ConnectionError, match="Connection closed"):
+            _read_exactly(stream, 10)  # Ask for 10
+
+    def test_read_exactly_reads_exact_bytes(self) -> None:
+        """_read_exactly reads exactly n bytes from stream."""
+        from shesha.sandbox.runner import _read_exactly
+
+        stream = io.BytesIO(b"hello world")
+        result = _read_exactly(stream, 5)
+        assert result == b"hello"
+
+    def test_read_message_multiple_messages(self) -> None:
+        """_read_message reads only one message, leaving rest in stream."""
+        from shesha.sandbox.runner import _read_message
+
+        msg1 = {"action": "ping"}
+        msg2 = {"action": "reset"}
+        stream = io.BytesIO(frame_message(msg1) + frame_message(msg2))
+
+        result1 = _read_message(stream)
+        assert result1 == msg1
+
+        result2 = _read_message(stream)
+        assert result2 == msg2

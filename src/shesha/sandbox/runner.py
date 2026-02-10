@@ -2,10 +2,40 @@
 """Sandbox runner - executes Python code in isolation."""
 
 import json
+import struct
 import sys
 import traceback
 from io import StringIO
 from typing import Any
+
+BinaryStream = Any  # Type alias for binary I/O streams
+
+
+def _read_exactly(stream: BinaryStream, n: int) -> bytes:
+    """Read exactly n bytes from binary stream. Raises ConnectionError on EOF."""
+    data = b""
+    while len(data) < n:
+        chunk = stream.read(n - len(data))
+        if not chunk:
+            raise ConnectionError("Connection closed before message complete")
+        data += chunk
+    return data
+
+
+def _read_message(stream: BinaryStream) -> dict[str, Any]:
+    """Read a length-prefixed JSON message from binary stream."""
+    raw_len = _read_exactly(stream, 4)
+    length = struct.unpack(">I", raw_len)[0]
+    payload = _read_exactly(stream, length)
+    return json.loads(payload.decode("utf-8"))
+
+
+def _write_message(stream: BinaryStream, data: dict[str, Any]) -> None:
+    """Write a length-prefixed JSON message to binary stream."""
+    payload = json.dumps(data).encode("utf-8")
+    stream.write(struct.pack(">I", len(payload)) + payload)
+    stream.flush()
+
 
 # Global namespace for code execution (persists across executions)
 NAMESPACE: dict[str, Any] = {}
