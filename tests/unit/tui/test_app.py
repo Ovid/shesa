@@ -1,7 +1,10 @@
 """Tests for main SheshaTUI app."""
 
+from datetime import datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from textual.widgets import Static
 
 from shesha.rlm.engine import QueryResult
@@ -546,3 +549,117 @@ class TestAnalysisShortcutHistoryContext:
             assert "Module A handles routing." in q
             # Must include the current question
             assert "What about module B?" in q
+
+
+class TestWriteOverwriteProtection:
+    """Tests for /write overwrite protection with force flag."""
+
+    async def test_write_force_flag_strips_bang(self, tmp_path: Path) -> None:
+        """Trailing ! is stripped and write_transcript is called with clean filename."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            # Add an exchange so write is allowed
+            pilot.app._session.add_exchange("q", "a", "stats")
+            # Use tmp_path so we don't pollute cwd
+            target = tmp_path / "notes.md"
+            with patch.object(
+                pilot.app._session, "write_transcript", return_value=str(target)
+            ) as mock_write:
+                pilot.app._cmd_write(f"{target.with_suffix('')}!")
+            mock_write.assert_called_once_with(str(target))
+
+    async def test_write_force_flag_with_md_extension(self, tmp_path: Path) -> None:
+        """notes.md! results in write_transcript('notes.md')."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            target = tmp_path / "notes.md"
+            with patch.object(
+                pilot.app._session, "write_transcript", return_value=str(target)
+            ) as mock_write:
+                pilot.app._cmd_write(f"{target}!")
+            mock_write.assert_called_once_with(str(target))
+
+    async def test_write_blocked_when_file_exists(self, tmp_path: Path) -> None:
+        """Existing file blocks write and shows 'already exists' message."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            # Create the file on disk
+            target = tmp_path / "notes.md"
+            target.write_text("original content")
+            with patch.object(pilot.app._session, "write_transcript") as mock_write:
+                pilot.app._cmd_write(str(target))
+            # write_transcript should NOT have been called
+            mock_write.assert_not_called()
+            # Should show "already exists" message
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("already exists" in t for t in texts)
+            # Original file should be untouched
+            assert target.read_text() == "original content"
+
+    async def test_write_force_overwrites_existing(self, tmp_path: Path) -> None:
+        """Force flag bypasses existence check and writes."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            target = tmp_path / "notes.md"
+            target.write_text("original content")
+            with patch.object(
+                pilot.app._session, "write_transcript", return_value=str(target)
+            ) as mock_write:
+                pilot.app._cmd_write(f"{target}!")
+            mock_write.assert_called_once_with(str(target))
+
+    async def test_write_shows_actual_filename_on_collision(self, tmp_path: Path) -> None:
+        """Case-insensitive collision shows actual on-disk name."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            # Create NOTES.md on disk
+            actual_file = tmp_path / "NOTES.md"
+            actual_file.write_text("content")
+            # Try to write notes.md (lowercase) — may collide on case-insensitive FS
+            requested = tmp_path / "notes.md"
+            pilot.app._cmd_write(str(requested))
+            # On case-insensitive FS (macOS), notes.md resolves to NOTES.md
+            if requested.exists():
+                output = pilot.app.query_one(OutputArea)
+                statics = output.query("Static")
+                texts = [str(s.render()) for s in statics]
+                assert any("NOTES.md" in t and "already exists" in t for t in texts)
+
+    async def test_write_auto_name_blocked_when_exists(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Auto-generated filename collision is blocked."""
+        monkeypatch.chdir(tmp_path)
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            frozen = datetime(2025, 6, 15, 14, 30, 45)
+            auto_name = f"session-{frozen.strftime('%Y-%m-%d-%H%M%S')}.md"
+            # Create the auto-generated file in tmp_path
+            auto_path = tmp_path / auto_name
+            auto_path.write_text("existing")
+            with (
+                patch("shesha.tui.app.datetime") as mock_dt,
+                patch.object(pilot.app._session, "write_transcript") as mock_write,
+            ):
+                mock_dt.now.return_value = frozen
+                mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+                pilot.app._cmd_write("")
+            mock_write.assert_not_called()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("already exists" in t for t in texts)
+            assert any(auto_name in t for t in texts)

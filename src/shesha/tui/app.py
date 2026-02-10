@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual import events
@@ -495,9 +497,44 @@ class SheshaTUI(App[None]):
         if self._session.exchange_count == 0:
             self.query_one(OutputArea).add_system_message("Nothing to save - no exchanges yet.")
             return
-        filename = args.strip() or None
+
+        raw_args = args.strip()
+
+        # Parse force flag (trailing !)
+        force = raw_args.endswith("!")
+        if force:
+            raw_args = raw_args[:-1].rstrip()
+
+        filename = raw_args or None
         if filename and not filename.lower().endswith(".md"):
             filename = filename + ".md"
+
+        # Check for existing file
+        if filename is not None:
+            filepath = Path(filename)
+            if filepath.exists() and not force:
+                # Resolve actual on-disk name (handles case-insensitive filesystems)
+                parent = filepath.parent
+                actual = next(
+                    (p for p in parent.iterdir() if p.name.lower() == filepath.name.lower()),
+                    filepath,
+                )
+                self.query_one(OutputArea).add_system_message(
+                    f"File {actual.name} already exists. Use /write {raw_args}! to overwrite."
+                )
+                return
+        else:
+            # Auto-generated filename — still check for collision
+            timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+            auto_name = f"session-{timestamp}.md"
+            filepath = Path(auto_name)
+            if filepath.exists():
+                self.query_one(OutputArea).add_system_message(
+                    f"File {auto_name} already exists. Use /write {auto_name}! to overwrite."
+                )
+                return
+            filename = auto_name
+
         try:
             path = self._session.write_transcript(filename)
             self.query_one(OutputArea).add_system_message(
