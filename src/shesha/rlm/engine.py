@@ -544,52 +544,59 @@ class RLMEngine:
                         copy.copy(token_usage),
                     )
 
+                # Extract code blocks first so they execute before bare FINAL
+                # resolution. The LLM may define a variable in a code block
+                # and then write bare FINAL(variable) in the same response;
+                # the code block must run first so the variable exists in the
+                # sandbox when we try to resolve it.
+                code_blocks = extract_code_blocks(response.content)
+
                 # Check for bare FINAL/FINAL_VAR in response text (outside code blocks).
                 # The model sometimes outputs FINAL_VAR(x) as bare text without a
                 # ```repl block. Matches reference rlm/rlm/core/rlm.py:240.
                 bare_final = find_final_answer(response.content)
-                if bare_final is not None:
-                    final_type, final_value = bare_final
-                    if final_type == "final_var":
-                        # Retrieve variable value from sandbox
-                        retrieve_result = executor.execute(
-                            f"print({final_value})", timeout=self.execution_timeout
-                        )
-                        bare_answer = (
-                            retrieve_result.stdout.strip()
-                            if retrieve_result.status == "ok"
-                            else final_value  # fallback to literal if var undefined
-                        )
-                    else:
-                        bare_answer = final_value
 
-                    step = trace.add_step(
-                        type=StepType.FINAL_ANSWER,
-                        content=bare_answer,
-                        iteration=iteration,
-                    )
-                    _write_step(step)
-                    if on_progress:
-                        on_progress(
-                            StepType.FINAL_ANSWER,
-                            iteration,
-                            bare_answer,
-                            copy.copy(token_usage),
-                        )
-
-                    query_result = QueryResult(
-                        answer=bare_answer,
-                        trace=trace,
-                        token_usage=token_usage,
-                        execution_time=time.time() - start_time,
-                    )
-                    _finalize_trace(bare_answer, "success")
-                    return query_result
-
-                # Extract code blocks
-                code_blocks = extract_code_blocks(response.content)
                 if not code_blocks:
-                    # No code - add assistant response and prompt for code
+                    # No code blocks — handle bare FINAL or prompt for code
+                    if bare_final is not None:
+                        final_type, final_value = bare_final
+                        if final_type == "final_var":
+                            # Retrieve variable value from sandbox
+                            retrieve_result = executor.execute(
+                                f"print({final_value})", timeout=self.execution_timeout
+                            )
+                            bare_answer = (
+                                retrieve_result.stdout.strip()
+                                if retrieve_result.status == "ok"
+                                else final_value  # fallback to literal if var undefined
+                            )
+                        else:
+                            bare_answer = final_value
+
+                        step = trace.add_step(
+                            type=StepType.FINAL_ANSWER,
+                            content=bare_answer,
+                            iteration=iteration,
+                        )
+                        _write_step(step)
+                        if on_progress:
+                            on_progress(
+                                StepType.FINAL_ANSWER,
+                                iteration,
+                                bare_answer,
+                                copy.copy(token_usage),
+                            )
+
+                        query_result = QueryResult(
+                            answer=bare_answer,
+                            trace=trace,
+                            token_usage=token_usage,
+                            execution_time=time.time() - start_time,
+                        )
+                        _finalize_trace(bare_answer, "success")
+                        return query_result
+
+                    # No bare FINAL either — prompt for code
                     messages.append({"role": "assistant", "content": response.content})
                     messages.append(
                         {
@@ -675,6 +682,37 @@ class RLMEngine:
                                 copy.copy(token_usage),
                             )
                         break
+
+                # If code blocks didn't produce a final answer, check for
+                # bare FINAL in the same response. Now that code blocks have
+                # executed, any variables they defined exist in the sandbox.
+                if final_answer is None and bare_final is not None:
+                    final_type, final_value = bare_final
+                    if final_type == "final_var":
+                        retrieve_result = executor.execute(
+                            f"print({final_value})", timeout=self.execution_timeout
+                        )
+                        final_answer = (
+                            retrieve_result.stdout.strip()
+                            if retrieve_result.status == "ok"
+                            else final_value
+                        )
+                    else:
+                        final_answer = final_value
+
+                    step = trace.add_step(
+                        type=StepType.FINAL_ANSWER,
+                        content=final_answer,
+                        iteration=iteration,
+                    )
+                    _write_step(step)
+                    if on_progress:
+                        on_progress(
+                            StepType.FINAL_ANSWER,
+                            iteration,
+                            final_answer,
+                            copy.copy(token_usage),
+                        )
 
                 if final_answer is not None:
                     verification = None

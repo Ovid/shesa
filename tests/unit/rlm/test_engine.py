@@ -2380,6 +2380,85 @@ class TestFindFinalAnswerInText:
         # Only 1 LLM call needed
         assert mock_llm.complete.call_count == 1
 
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_resolves_bare_final_after_code_blocks_in_same_response(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine executes code blocks before resolving bare FINAL(var) in same response.
+
+        Reproduces bug where a single LLM response contains a code block
+        that defines a variable AND bare FINAL(variable_name) after it.
+        The code block must execute first so the variable exists in the
+        sandbox when the engine tries to resolve it.
+
+        Without the fix, the bare FINAL check fires before code execution,
+        print(my_answer) raises NameError, and the fallback returns the
+        literal string "my_answer" instead of the variable's value.
+        """
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            # Single response: code block defining variable + bare FINAL
+            MagicMock(
+                content=(
+                    "Here is my analysis:\n\n"
+                    "```repl\n"
+                    'my_answer = "The SECURITY.md is mostly accurate but..."\n'
+                    "```\n\n"
+                    "FINAL(my_answer)"
+                ),
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+
+        call_count = [0]
+
+        def execute_side_effect(code, timeout=30):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call: execute the code block (defines my_answer)
+                return MagicMock(
+                    status="ok",
+                    stdout="",
+                    stderr="",
+                    error=None,
+                    final_answer=None,
+                    final_var=None,
+                    vars={"my_answer": "str"},
+                )
+            else:
+                # Second call: print(my_answer) — variable is now defined
+                return MagicMock(
+                    status="ok",
+                    stdout="The SECURITY.md is mostly accurate but...",
+                    stderr="",
+                    error=None,
+                    final_answer=None,
+                    final_var=None,
+                    vars=None,
+                )
+
+        mock_executor.execute.side_effect = execute_side_effect
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["Doc content"],
+            question="Is the SECURITY.md accurate?",
+        )
+
+        # Must return the variable's VALUE, not the literal "my_answer"
+        assert result.answer == "The SECURITY.md is mostly accurate but..."
+        assert mock_llm.complete.call_count == 1
+
 
 class TestMaxIterationsFallback:
     """Tests for max-iterations LLM fallback."""
