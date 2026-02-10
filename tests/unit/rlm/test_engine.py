@@ -2014,7 +2014,7 @@ class TestFindFinalAnswerInText:
 
         text = 'FINAL("human being")'
         result = find_final_answer(text)
-        assert result == ("final", "human being")
+        assert result == ("final", '"human being"')
 
     def test_find_final_answer_bare_final_var(self):
         """Detects bare FINAL_VAR(var_name) outside code blocks."""
@@ -2046,7 +2046,7 @@ class TestFindFinalAnswerInText:
 
         text = '  FINAL("the answer")'
         result = find_final_answer(text)
-        assert result == ("final", "the answer")
+        assert result == ("final", '"the answer"')
 
     def test_find_final_answer_strips_quotes_from_var(self):
         """FINAL_VAR with quoted variable name strips quotes."""
@@ -2055,6 +2055,44 @@ class TestFindFinalAnswerInText:
         text = 'FINAL_VAR("my_var")'
         result = find_final_answer(text)
         assert result == ("final_var", "my_var")
+
+    def test_find_final_answer_unquoted_content(self):
+        """FINAL(bare text) without quotes is detected (reference RLM compat)."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL(42)")
+        assert result == ("final", "42")
+
+    def test_find_final_answer_single_quoted_content(self):
+        """FINAL('single quoted') is detected (reference RLM compat)."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL('hello world')")
+        assert result == ("final", "'hello world'")
+
+    def test_find_final_answer_nested_parentheses(self):
+        """FINAL with nested parens uses greedy match (reference RLM compat)."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL(func(arg1, arg2))")
+        assert result == ("final", "func(arg1, arg2)")
+
+    def test_find_final_answer_not_mid_line(self):
+        """FINAL mid-line (not at start) should NOT match."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("The result is FINAL(42)")
+        assert result is None
+
+    def test_find_final_answer_multiline_content(self):
+        """FINAL with multiline content is captured."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = "FINAL(This is a\nmultiline answer)"
+        result = find_final_answer(text)
+        assert result is not None
+        assert result[0] == "final"
+        assert "multiline" in result[1]
 
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")
@@ -2146,7 +2184,7 @@ class TestFindFinalAnswerInText:
             question="What?",
         )
 
-        assert result.answer == "the answer is 42"
+        assert result.answer == '"the answer is 42"'
         # Only 1 LLM call needed
         assert mock_llm.complete.call_count == 1
 

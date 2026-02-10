@@ -66,7 +66,7 @@ def find_final_answer(text: str) -> tuple[str, str] | None:
     ```repl block. This function catches those cases.
 
     Returns:
-        ("final", answer_string) for FINAL("...")
+        ("final", answer_string) for FINAL(...)
         ("final_var", variable_name) for FINAL_VAR(...)
         None if no pattern found
     """
@@ -81,8 +81,9 @@ def find_final_answer(text: str) -> tuple[str, str] | None:
         var_name = match.group(1).strip().strip('"').strip("'")
         return ("final_var", var_name)
 
-    # Check FINAL pattern
-    final_pattern = r'^\s*FINAL\("(.*?)"\)'
+    # Check FINAL pattern — greedy match to handle nested parentheses,
+    # no quote requirement (aligned with reference RLM rlm/utils/parsing.py:58)
+    final_pattern = r"^\s*FINAL\((.*)\)\s*$"
     match = re.search(final_pattern, stripped, re.MULTILINE | re.DOTALL)
     if match:
         return ("final", match.group(1).strip())

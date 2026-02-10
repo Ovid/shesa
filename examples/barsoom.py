@@ -293,6 +293,7 @@ def main() -> None:
     tui.register_command("/deep", handle_deep, "Switch to deep mode (sequential)")
     tui.register_command("/clear", handle_clear, "Clear conversation history")
     tui.run()
+    print("Cleaning up containers...")
 
 
 if __name__ == "__main__":
