@@ -9,7 +9,7 @@ Features:
     - Interactive picker for previously indexed repositories
     - Automatic update detection and application
     - Textual-based TUI with rich output, progress tracking, and token stats
-    - Slash commands: /help, /write, /summary, /analyze, /quit
+    - Slash commands: /help, /write, /summary, /analyze, /fast, /deep, /clear, /quit
     - Session transcript export with /write command
 
 Usage:
@@ -25,9 +25,13 @@ Usage:
     # Auto-apply updates
     python examples/repo.py https://github.com/org/repo --update
 
+    # Use a specific model
+    python examples/repo.py --model gpt-4o
+
 Environment Variables:
     SHESHA_API_KEY: Required. API key for your LLM provider.
     SHESHA_MODEL: Optional. Model name (default: claude-sonnet-4-20250514).
+                  Overridden by --model flag.
 
 Example:
     $ export SHESHA_API_KEY="your-api-key"
