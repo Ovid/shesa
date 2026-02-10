@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `FINAL(identifier)` variable resolution now falls back to the literal identifier when the variable is undefined in the sandbox, instead of returning an empty answer.
 - Bare `FINAL(variable)` in the same response as code blocks that define the variable now works correctly. Previously, the bare FINAL check fired before code blocks executed, so the variable didn't exist yet and the user saw the literal variable name (e.g. "my_answer") instead of the actual answer.
 - Analysis shortcut session transcript now includes token counts, matching the normal query path. Previously, `/write` transcripts omitted token usage for shortcut-answered questions.
+- `/write` command now warns before overwriting existing files (including case-insensitive collisions on macOS). Use `/write filename!` to force overwrite.
 
 ### Removed
 
