@@ -1298,3 +1298,108 @@ a full benchmark in `deep` mode.
 2. **Compare full results** — target is within 10% of reference (~60%).
 3. **If score is close to reference** — the engine rewrite is complete.
 4. **If score is still low** — investigate per-query strategy consistency.
+
+---
+
+## Bug: "Executor died" on large codebases (2026-02-10)
+
+**Status: Root-caused — protocol limit, not contention**
+
+### Symptom
+
+Running `examples/repo.py` against the Shesha codebase (228 files), the TUI
+showed `[Executor died — cannot continue]` after ~49 seconds of "thinking."
+Reproduced twice: once while `run_oolong_and_pairs.py` was also running, and
+once with nothing else running. Ruled out contention.
+
+### Root cause (trace analysis)
+
+Trace: `~/.shesha/repo-explorer/projects/Ovid-shesha/traces/2026-02-10T06-27-44-305_cf9afef5.jsonl`
+
+At iteration 3, the model generated:
+```python
+all_text = "\n\n".join(context)   # 228 docs → ~1MB string
+prompt = """...""" + all_text
+arch_flaws = llm_query(prompt)    # sends 1MB payload to host
+```
+
+The sandbox sends this as a JSON line back to the host:
+`{"action": "llm_query", "instruction": "...", "content": "..."}\n`
+
+That line was **1,081,344 bytes**. Shesha's `executor.py:354` enforces
+`MAX_LINE_LENGTH = 1,048,576` (1MB) on incoming lines from the container.
+This triggers `ProtocolError`, which calls `self.stop()` (kills container,
+sets `_socket = None`). The engine sees `is_alive == False` with no pool
+and returns the hardcoded failure string.
+
+All stopped containers show exit code 137 (SIGKILL from `stop()`), not OOM.
+Docker `inspect` confirms `OOMKilled: false`.
+
+### Protocol divergence from reference RLM
+
+This is where Shesha and the reference RLM differ architecturally:
+
+**Reference RLM** uses **4-byte length-prefix framing** (`comms_utils.py:146-165`):
+```python
+# Send: 4 bytes big-endian length + JSON payload (no size limit)
+sock.sendall(struct.pack(">I", len(payload)) + payload)
+# Recv: read 4 bytes for length, then read exactly that many bytes
+raw_len = sock.recv(4)
+```
+No line length limit. No buffer limit. Arbitrary payloads work.
+
+**Shesha** uses **newline-delimited JSON** over Docker attach sockets:
+```
+MAX_LINE_LENGTH = 1 * 1024 * 1024   # 1 MB — hard limit on any single line
+MAX_BUFFER_SIZE = 10 * 1024 * 1024  # 10 MB — total buffered content
+MAX_PAYLOAD_SIZE = 50 * 1024 * 1024 # 50 MB — outgoing to container
+```
+The 1MB line limit was designed as a DoS protection (prevent malicious
+containers from streaming unbounded data). But it also blocks legitimate
+`llm_query()` requests when the model passes large content.
+
+### Comparison of all size limits
+
+| Limit | Reference RLM | Shesha | Match? |
+|-------|---------------|--------|--------|
+| Per-block output truncation | 20K chars | 20K chars | Matched |
+| `llm_query` payload limit | None | 500K chars (engine-side) | Shesha more restrictive |
+| Protocol line/message limit | None (length-prefix) | 1MB (newline-delimited) | **Divergence — causes crash** |
+| Protocol buffer limit | None | 10MB | Shesha more restrictive |
+| Outgoing payload limit | None | 50MB | Shesha more restrictive |
+
+The 20K per-block output truncation (the "forcing function" that encourages
+the model to use `llm_query()` for analysis) is correctly matched. Both
+`prompts.py:truncate_code_output()` and the reference's
+`parsing.py:format_iteration()` use `max_character_length = 20000`.
+
+The divergence is at the protocol level: when the model follows the
+truncation signal and *does* use `llm_query()` with large content, the
+reference handles it fine (length-prefix protocol, no limit), but Shesha
+crashes (newline-delimited protocol, 1MB line limit). The 500K subcall
+content check in `engine.py:159-181` should reject oversized payloads
+gracefully, but the protocol error fires first because the container sends
+the raw JSON line before the engine-side check runs.
+
+### Impact on OOLONG
+
+This bug does **not** affect OOLONG benchmarking. OOLONG contexts are
+single documents (8K-1M chars) loaded as `context[0]`. The model accesses
+them via `context[0][:N]` or similar slicing. No `llm_query()` call in
+OOLONG would approach 1MB because the model works with one document at a
+time, not 228 concatenated files.
+
+It affects **repo explorer** and any project with many documents totaling
+>1MB, where the model might try to pass the full corpus into a single
+`llm_query()` call.
+
+### Fix options
+
+1. **Increase `MAX_LINE_LENGTH`** to 5-10MB. Simple, but weakens DoS
+   protection. The `MAX_BUFFER_SIZE` (10MB) already provides an outer bound.
+2. **Truncate `llm_query` content in the sandbox** before sending. Clip to
+   e.g. 500K chars container-side, so oversized payloads never reach the
+   protocol. This matches the engine-side `max_subcall_content_chars` check
+   and fails gracefully (truncated content) instead of fatally (dead executor).
+3. **Switch to length-prefix protocol** like the reference. Most robust, but
+   significant refactor of the Docker socket communication layer.
