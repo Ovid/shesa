@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Bare `FINAL(variable_name)` in LLM response now correctly resolves the variable from the sandbox instead of returning the variable name as a literal string. Previously, if the LLM wrote `FINAL(final_answer)` as bare text (outside a code block) intending to return a variable's value, the answer displayed was the literal string "final_answer" instead of the variable's content.
+
 ### Removed
 
 - Fast/deep execution mode toggle (`/fast`, `/deep` commands, `execution_mode` parameter, `--fast` CLI flag). Batch sub-LLM calls now always run concurrently. The sequential "deep" mode offered no quality benefit over concurrent execution.

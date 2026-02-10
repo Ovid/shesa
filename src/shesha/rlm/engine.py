@@ -2,6 +2,7 @@
 
 import copy
 import json
+import keyword
 import re
 import threading
 import time
@@ -58,16 +59,46 @@ def extract_code_blocks(text: str) -> list[str]:
     return matches
 
 
+def _is_python_identifier(s: str) -> bool:
+    """Check if a string is a valid Python identifier (variable name).
+
+    Used by find_final_answer to distinguish FINAL(variable_name) from
+    FINAL(literal text). Python keywords like "True"/"False" are excluded
+    because they are more likely literal values than variable names.
+    """
+    return s.isidentifier() and not keyword.iskeyword(s)
+
+
 def find_final_answer(text: str) -> tuple[str, str] | None:
     """Find bare FINAL(...) or FINAL_VAR(...) in response text outside code blocks.
 
     Matches the reference RLM's find_final_answer (rlm/rlm/utils/parsing.py:29-63).
     The model sometimes outputs FINAL_VAR(x) as bare text instead of inside a
-    ```repl block. This function catches those cases.
+    ``repl block. This function catches those cases.
+
+    **Important: FINAL(identifier) heuristic**
+
+    When the LLM writes FINAL(x) as bare text, this function must decide
+    whether x is a literal answer string or a Python variable name. Inside a
+    ``repl code block, FINAL(x) is executed as Python and x is naturally
+    resolved as a variable. But the bare-text regex parser has no Python
+    runtime — it just captures the text between the parentheses.
+
+    This caused a real bug (trace 2026-02-10T11-03-50): the LLM stored a
+    38K-char audit report in a variable called ``final_answer``, then wrote
+    bare text ``FINAL(final_answer)``. The parser returned ("final",
+    "final_answer") — treating the variable name as the literal answer. The
+    user saw just the word "final_answer" instead of the full report.
+
+    The fix: when the captured content of FINAL(...) is a bare Python
+    identifier (no quotes, no spaces, no operators — just a valid variable
+    name), we treat it as a variable reference and return ("final_var", name)
+    so the engine retrieves the value from the sandbox. Quoted strings,
+    numbers, expressions, and sentences are still treated as literal answers.
 
     Returns:
-        ("final", answer_string) for FINAL(...)
-        ("final_var", variable_name) for FINAL_VAR(...)
+        ("final", answer_string) for FINAL(...) with literal content
+        ("final_var", variable_name) for FINAL_VAR(...) or FINAL(identifier)
         None if no pattern found
     """
     # Strip code blocks so we don't match FINAL inside ```repl blocks
@@ -86,7 +117,21 @@ def find_final_answer(text: str) -> tuple[str, str] | None:
     final_pattern = r"^\s*FINAL\((.*)\)\s*$"
     match = re.search(final_pattern, stripped, re.MULTILINE | re.DOTALL)
     if match:
-        return ("final", match.group(1).strip())
+        content = match.group(1).strip()
+        # Heuristic: if the content is a bare Python identifier (valid variable
+        # name, no quotes, no spaces, no operators), the LLM almost certainly
+        # meant to reference a sandbox variable — not return the identifier
+        # itself as a literal answer. Treat it as a variable reference so the
+        # engine retrieves the actual value from the sandbox.
+        #
+        # Examples:
+        #   FINAL(final_answer) → ("final_var", "final_answer")  # variable ref
+        #   FINAL("the answer")  → ("final", '"the answer"')     # literal
+        #   FINAL(42)            → ("final", "42")                # literal
+        #   FINAL(x + y)         → ("final", "x + y")            # literal
+        if _is_python_identifier(content):
+            return ("final_var", content)
+        return ("final", content)
 
     return None
 

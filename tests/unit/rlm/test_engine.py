@@ -2055,6 +2055,137 @@ class TestFindFinalAnswerInText:
         assert result[0] == "final"
         assert "multiline" in result[1]
 
+    def test_find_final_answer_bare_identifier_treated_as_var(self):
+        """FINAL(python_identifier) is treated as a variable reference, not literal.
+
+        Root cause of a real bug: when the LLM writes FINAL(final_answer)
+        intending to return a variable's value, the bare-text regex parser
+        cannot distinguish this from FINAL("final_answer") meaning a literal
+        string. Since the sandbox is a Python REPL where FINAL(x) would
+        evaluate x as a variable, bare identifiers should be treated as
+        variable references (final_var), not literal strings.
+
+        See: trace 2026-02-10T11-03-50 where the answer displayed was the
+        literal string "final_answer" instead of the 38K-char report the
+        LLM had stored in the `final_answer` variable.
+        """
+        from shesha.rlm.engine import find_final_answer
+
+        # Single identifier — should be treated as variable reference
+        result = find_final_answer("FINAL(final_answer)")
+        assert result == ("final_var", "final_answer")
+
+    def test_find_final_answer_bare_identifier_with_underscores(self):
+        """FINAL(my_var_name) is treated as a variable reference."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL(my_report)")
+        assert result == ("final_var", "my_report")
+
+    def test_find_final_answer_bare_identifier_simple(self):
+        """FINAL(result) with a simple identifier is a variable reference."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL(result)")
+        assert result == ("final_var", "result")
+
+    def test_find_final_answer_quoted_string_stays_literal(self):
+        """FINAL("some text") with quotes stays as a literal string."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer('FINAL("final_answer")')
+        assert result == ("final", '"final_answer"')
+
+    def test_find_final_answer_number_stays_literal(self):
+        """FINAL(42) with a number stays as a literal (not a valid identifier)."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL(42)")
+        assert result == ("final", "42")
+
+    def test_find_final_answer_expression_stays_literal(self):
+        """FINAL(x + y) with operators stays as a literal."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL(x + y)")
+        assert result == ("final", "x + y")
+
+    def test_find_final_answer_sentence_stays_literal(self):
+        """FINAL(The answer is 42) with spaces stays as a literal."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL(The answer is 42)")
+        assert result == ("final", "The answer is 42")
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_resolves_bare_final_identifier_from_sandbox(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine resolves bare FINAL(var_name) by retrieving from sandbox.
+
+        Reproduces the real bug where the LLM stored its answer in a variable
+        called `final_answer` and then wrote bare text FINAL(final_answer).
+        The engine should resolve this as a variable reference, not return
+        the literal string "final_answer".
+        """
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            # Iteration 0: store answer in a variable
+            MagicMock(
+                content='```repl\nfinal_answer = "The real detailed answer"\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Iteration 1: bare FINAL(final_answer) — intending variable ref
+            MagicMock(
+                content="FINAL(final_answer)",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # Iteration 0: code execution (stores variable)
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer=None,
+                final_var=None,
+                vars={"final_answer": "str"},
+            ),
+            # Iteration 1: executor retrieves variable value via print()
+            MagicMock(
+                status="ok",
+                stdout="The real detailed answer",
+                stderr="",
+                error=None,
+                final_answer=None,
+                final_var=None,
+                vars=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["Doc content"],
+            question="What are the architectural flaws?",
+        )
+
+        # Must return the variable's VALUE, not the literal string "final_answer"
+        assert result.answer == "The real detailed answer"
+        assert mock_llm.complete.call_count == 2
+
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")
     def test_engine_detects_bare_final_var_in_response(
