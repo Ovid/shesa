@@ -626,11 +626,12 @@ class TestWriteOverwriteProtection:
             # Create NOTES.md on disk
             actual_file = tmp_path / "NOTES.md"
             actual_file.write_text("content")
-            # Try to write notes.md (lowercase) — may collide on case-insensitive FS
+            # Detect case-insensitive FS *before* _cmd_write (which would
+            # create the file on case-sensitive FS, making exists() true).
             requested = tmp_path / "notes.md"
+            case_insensitive = requested.exists()
             pilot.app._cmd_write(str(requested))
-            # On case-insensitive FS (macOS), notes.md resolves to NOTES.md
-            if requested.exists():
+            if case_insensitive:
                 output = pilot.app.query_one(OutputArea)
                 statics = output.query("Static")
                 texts = [str(s.render()) for s in statics]
