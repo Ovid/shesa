@@ -448,6 +448,38 @@ class TestAnalysisShortcutTokenDisplay:
             assert "200" in line1
             assert "50" in line1
 
+    async def test_shortcut_answer_shows_thought_time(self) -> None:
+        """Shortcut answer displays 'Thought for N seconds' above the response."""
+        project = MagicMock()
+        app = SheshaTUI(
+            project=project,
+            project_name="test",
+            model="test-model",
+            api_key="key",
+        )
+        async with app.run_test() as pilot:
+            pilot.app._analysis_context = "Analysis: A web framework."
+
+            def mock_shortcut(question, analysis_context, model, api_key):
+                return ("Shortcut answer", 200, 50)
+
+            with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
+                pilot.app._run_query("What does this do?")
+                await pilot.pause(delay=0.5)
+
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            # Should have a "Thought for" indicator
+            assert any("Thought for" in t for t in texts)
+            # Should also have the "Answered from codebase analysis." note
+            # (rendered as markdown or static, check both)
+            all_text = " ".join(texts)
+            markdown_widgets = output.query("Markdown")
+            md_texts = [str(m.render()) for m in markdown_widgets]
+            all_text += " ".join(md_texts)
+            assert "Answered from codebase analysis." in all_text
+
 
 class TestAnalysisShortcutHistoryContext:
     """Analysis shortcut must receive conversation history with the question."""

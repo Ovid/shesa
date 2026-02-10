@@ -460,7 +460,7 @@ class SheshaTUI(App[None]):
         info_bar.update_done(elapsed, 0)
 
         output = self.query_one(OutputArea)
-        output.add_system_markdown(answer + "\n\n*Answered from codebase analysis.*")
+        output.add_response(answer + "\n\n*Answered from codebase analysis.*", elapsed)
 
         self._session.add_exchange(
             question, answer, f"---\nAnswered from analysis in {elapsed:.2f}s"
