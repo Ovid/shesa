@@ -389,7 +389,9 @@ class RLMEngine:
         # Context metadata as assistant message: primes the model to
         # continue working rather than start fresh. Matches reference
         # rlm/rlm/utils/prompts.py:119-122.
-        context_type = "list" if len(documents) > 1 else "string"
+        # Always "list" — the sandbox sets context as list[str] regardless of count.
+        # Matches reference RLM (rlm/core/types.py:244-245).
+        context_type = "list"
         context_lengths = str(doc_sizes)
         context_metadata = self.prompt_loader.render_context_metadata(
             context_type=context_type,

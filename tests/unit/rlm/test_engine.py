@@ -147,6 +147,48 @@ class TestRLMEngine:
 
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")
+    def test_context_type_is_list_for_single_document(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Context metadata says 'list' even with one document (sandbox uses list)."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("done")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="done",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")
+        engine.query(documents=["Single document content"], question="Q?")
+
+        # Find the assistant message with context metadata
+        messages = mock_llm.complete.call_args.kwargs["messages"]
+        metadata_msgs = [
+            m
+            for m in messages
+            if m.get("role") == "assistant"
+            and "context" in m.get("content", "").lower()
+        ]
+        assert len(metadata_msgs) == 1
+        assert "list" in metadata_msgs[0]["content"]
+        assert "string" not in metadata_msgs[0]["content"]
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
     def test_engine_honors_falsy_final_answer(
         self,
         mock_llm_cls: MagicMock,
