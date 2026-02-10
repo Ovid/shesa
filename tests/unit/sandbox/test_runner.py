@@ -342,9 +342,7 @@ class TestLlmQueryBatched:
                         ),
                     }
                 ),
-                frame_message(
-                    {"action": "llm_batch_response", "results": ["cat", "dog", "bird"]}
-                ),
+                frame_message({"action": "llm_batch_response", "results": ["cat", "dog", "bird"]}),
             ]
         )
         stdin_buf = io.BytesIO(stdin_data)
@@ -451,9 +449,7 @@ class TestLlmQueryBatched:
         stdin_data = b"".join(
             [
                 frame_message({"action": "reset"}),
-                frame_message(
-                    {"action": "execute", "code": "print(callable(llm_query_batched))"}
-                ),
+                frame_message({"action": "execute", "code": "print(callable(llm_query_batched))"}),
             ]
         )
         stdin_buf = io.BytesIO(stdin_data)
