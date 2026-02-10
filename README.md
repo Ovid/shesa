@@ -9,7 +9,7 @@
 Shesha lets AI explore your documents, [even large codebases](examples/repo.py), the way a researcher would: reading, searching, cross-referencing, and iterating until it finds the answer. Unlike simple RAG that retrieves chunks, Shesha reasons across your entire corpus.
 
 <p align="center">
-  <img src="images/tui.png" alt="examples/repo.py">
+  <img src="images/tui.png" alt="Shesha TUI screenshot (examples/repo.py screenshot)">
 </p>
 
 _**Note** for fans of [Perl's Dancer2 framework](https://github.com/PerlDancer/Dancer2): I'm not seriously proposing the above._
