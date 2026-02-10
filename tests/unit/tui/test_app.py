@@ -328,6 +328,78 @@ class TestIncrementalTokenDisplay:
             assert "500" in line1
             assert "100" in line1
 
+    async def test_query_complete_does_not_double_count_tokens(self) -> None:
+        """_on_query_complete must not double-count tokens already reported by _on_progress."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._query_in_progress = True
+            pilot.app._query_start_time = 0.0
+            pilot.app._query_id = 1
+
+            # Simulate progress callback setting cumulative tokens (as engine does)
+            token_usage = TokenUsage(prompt_tokens=500, completion_tokens=100)
+
+            def worker_fn() -> None:
+                pilot.app._on_progress(StepType.CODE_GENERATED, 0, "code", token_usage)
+
+            worker = pilot.app.run_worker(worker_fn, thread=True)
+            await worker.wait()
+            await pilot.pause()
+
+            # Now simulate query completion with the same cumulative token_usage
+            result = QueryResult(
+                answer="done",
+                trace=Trace(),
+                token_usage=token_usage,
+                execution_time=1.0,
+            )
+            pilot.app._on_query_complete(1, result, "q")
+            await pilot.pause()
+
+            # Should be 500/100, NOT 1000/200 (double-counted)
+            assert pilot.app._cumulative_prompt_tokens == 500
+            assert pilot.app._cumulative_completion_tokens == 100
+
+    async def test_tokens_accumulate_across_queries(self) -> None:
+        """Token totals accumulate across multiple queries in a session."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            # First query
+            pilot.app._query_in_progress = True
+            pilot.app._query_start_time = 0.0
+            pilot.app._query_id = 1
+            result1 = QueryResult(
+                answer="a1",
+                trace=Trace(),
+                token_usage=TokenUsage(prompt_tokens=200, completion_tokens=40),
+                execution_time=1.0,
+            )
+            pilot.app._on_query_complete(1, result1, "q1")
+            await pilot.pause()
+
+            assert pilot.app._cumulative_prompt_tokens == 200
+            assert pilot.app._cumulative_completion_tokens == 40
+
+            # Second query — save baseline as _run_query would
+            pilot.app._query_in_progress = True
+            pilot.app._query_id = 2
+            pilot.app._baseline_prompt_tokens = pilot.app._cumulative_prompt_tokens
+            pilot.app._baseline_completion_tokens = pilot.app._cumulative_completion_tokens
+            result2 = QueryResult(
+                answer="a2",
+                trace=Trace(),
+                token_usage=TokenUsage(prompt_tokens=300, completion_tokens=60),
+                execution_time=1.0,
+            )
+            pilot.app._on_query_complete(2, result2, "q2")
+            await pilot.pause()
+
+            # Should be 200+300=500 and 40+60=100
+            assert pilot.app._cumulative_prompt_tokens == 500
+            assert pilot.app._cumulative_completion_tokens == 100
+
 
 class TestQueryCancellation:
     """Tests for Esc×2 query cancellation."""

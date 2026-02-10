@@ -102,6 +102,8 @@ class SheshaTUI(App[None]):
         self._last_step_name = ""
         self._cumulative_prompt_tokens = 0
         self._cumulative_completion_tokens = 0
+        self._baseline_prompt_tokens = 0
+        self._baseline_completion_tokens = 0
         self._timer_handle: Timer | None = None
         self._worker_handle: Worker[object] | None = None
         self._register_builtin_commands()
@@ -278,6 +280,8 @@ class SheshaTUI(App[None]):
         self.query_one(InputArea).query_in_progress = True
         self._query_start_time = time.time()
         self._last_iteration = 0
+        self._baseline_prompt_tokens = self._cumulative_prompt_tokens
+        self._baseline_completion_tokens = self._cumulative_completion_tokens
 
         # Start elapsed timer
         info_bar = self.query_one(InfoBar)
@@ -376,12 +380,16 @@ class SheshaTUI(App[None]):
         self._last_step_name = step_name
         info_bar = self.query_one(InfoBar)
         if token_usage is not None:
-            self._cumulative_prompt_tokens = token_usage.prompt_tokens
-            self._cumulative_completion_tokens = token_usage.completion_tokens
+            self._cumulative_prompt_tokens = (
+                self._baseline_prompt_tokens + token_usage.prompt_tokens
+            )
+            self._cumulative_completion_tokens = (
+                self._baseline_completion_tokens + token_usage.completion_tokens
+            )
             self.call_from_thread(
                 info_bar.update_tokens,
-                token_usage.prompt_tokens,
-                token_usage.completion_tokens,
+                self._cumulative_prompt_tokens,
+                self._cumulative_completion_tokens,
             )
         self.call_from_thread(
             info_bar.update_progress,
@@ -407,9 +415,13 @@ class SheshaTUI(App[None]):
             return
         self._stop_query()
 
-        # Update tokens
-        self._cumulative_prompt_tokens += result.token_usage.prompt_tokens
-        self._cumulative_completion_tokens += result.token_usage.completion_tokens
+        # Update tokens (baseline + this query's cumulative total)
+        self._cumulative_prompt_tokens = (
+            self._baseline_prompt_tokens + result.token_usage.prompt_tokens
+        )
+        self._cumulative_completion_tokens = (
+            self._baseline_completion_tokens + result.token_usage.completion_tokens
+        )
         info_bar = self.query_one(InfoBar)
         info_bar.update_tokens(self._cumulative_prompt_tokens, self._cumulative_completion_tokens)
         info_bar.update_done(result.execution_time, self._last_iteration)
