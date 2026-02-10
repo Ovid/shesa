@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-02-10
+
 ### Changed
 
 - Switched container-host protocol from newline-delimited JSON to 4-byte length-prefix framing; removes 1MB message size limit that caused executor crashes on large `llm_query()` payloads
