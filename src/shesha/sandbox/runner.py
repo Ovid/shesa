@@ -27,7 +27,8 @@ def _read_message(stream: BinaryStream) -> dict[str, Any]:
     raw_len = _read_exactly(stream, 4)
     length = struct.unpack(">I", raw_len)[0]
     payload = _read_exactly(stream, length)
-    return json.loads(payload.decode("utf-8"))
+    result: dict[str, Any] = json.loads(payload.decode("utf-8"))
+    return result
 
 
 def _write_message(stream: BinaryStream, data: dict[str, Any]) -> None:
