@@ -180,8 +180,7 @@ class TestRLMEngine:
         metadata_msgs = [
             m
             for m in messages
-            if m.get("role") == "assistant"
-            and "context" in m.get("content", "").lower()
+            if m.get("role") == "assistant" and "context" in m.get("content", "").lower()
         ]
         assert len(metadata_msgs) == 1
         assert "list" in metadata_msgs[0]["content"]
