@@ -515,10 +515,13 @@ class SheshaTUI(App[None]):
             if filepath.exists() and not force:
                 # Resolve actual on-disk name (handles case-insensitive filesystems)
                 parent = filepath.parent
-                actual = next(
-                    (p for p in parent.iterdir() if p.name.lower() == filepath.name.lower()),
-                    filepath,
-                )
+                try:
+                    actual = next(
+                        (p for p in parent.iterdir() if p.name.lower() == filepath.name.lower()),
+                        filepath,
+                    )
+                except OSError:
+                    actual = filepath
                 self.query_one(OutputArea).add_system_message(
                     f"File {actual.name} already exists. Use /write {raw_args}! to overwrite."
                 )

@@ -637,6 +637,23 @@ class TestWriteOverwriteProtection:
                 texts = [str(s.render()) for s in statics]
                 assert any("NOTES.md" in t and "already exists" in t for t in texts)
 
+    async def test_write_iterdir_permission_error_falls_back(self, tmp_path: Path) -> None:
+        """PermissionError from iterdir() still shows warning, not a crash."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            pilot.app._session.add_exchange("q", "a", "stats")
+            target = tmp_path / "notes.md"
+            target.write_text("content")
+            with patch.object(
+                type(target.parent), "iterdir", side_effect=PermissionError("denied")
+            ):
+                pilot.app._cmd_write(str(target))
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("already exists" in t for t in texts)
+
     async def test_write_auto_name_blocked_when_exists(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
