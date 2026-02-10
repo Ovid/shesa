@@ -74,19 +74,19 @@ def find_final_answer(text: str) -> tuple[str, str] | None:
 
     Matches the reference RLM's find_final_answer (rlm/rlm/utils/parsing.py:29-63).
     The model sometimes outputs FINAL_VAR(x) as bare text instead of inside a
-    ``repl block. This function catches those cases.
+    ```repl block. This function catches those cases.
 
     **Important: FINAL(identifier) heuristic**
 
     When the LLM writes FINAL(x) as bare text, this function must decide
     whether x is a literal answer string or a Python variable name. Inside a
-    ``repl code block, FINAL(x) is executed as Python and x is naturally
+    ```repl code block, FINAL(x) is executed as Python and x is naturally
     resolved as a variable. But the bare-text regex parser has no Python
     runtime — it just captures the text between the parentheses.
 
     This caused a real bug (trace 2026-02-10T11-03-50): the LLM stored a
-    38K-char audit report in a variable called ``final_answer``, then wrote
-    bare text ``FINAL(final_answer)``. The parser returned ("final",
+    38K-char audit report in a variable called `final_answer`, then wrote
+    bare text `FINAL(final_answer)`. The parser returned ("final",
     "final_answer") — treating the variable name as the literal answer. The
     user saw just the word "final_answer" instead of the full report.
 
