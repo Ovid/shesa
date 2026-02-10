@@ -2017,6 +2017,35 @@ class TestFindFinalAnswerInText:
         result = find_final_answer(text)
         assert result == ("final_var", "my_var")
 
+    def test_find_final_var_non_identifier_treated_as_literal(self):
+        """FINAL_VAR with non-identifier content falls back to literal."""
+        from shesha.rlm.engine import find_final_answer
+
+        # Dotted expression — not a valid identifier, must not become final_var
+        result = find_final_answer("FINAL_VAR(foo.bar)")
+        assert result == ("final", "foo.bar")
+
+    def test_find_final_var_expression_treated_as_literal(self):
+        """FINAL_VAR(x + y) with operators falls back to literal."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL_VAR(x + y)")
+        assert result == ("final", "x + y")
+
+    def test_find_final_var_keyword_treated_as_literal(self):
+        """FINAL_VAR(True) with Python keyword falls back to literal."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL_VAR(True)")
+        assert result == ("final", "True")
+
+    def test_find_final_var_valid_identifier_still_works(self):
+        """FINAL_VAR(valid_name) with a valid identifier stays as final_var."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL_VAR(my_answer)")
+        assert result == ("final_var", "my_answer")
+
     def test_find_final_answer_unquoted_content(self):
         """FINAL(bare text) without quotes is detected (reference RLM compat)."""
         from shesha.rlm.engine import find_final_answer

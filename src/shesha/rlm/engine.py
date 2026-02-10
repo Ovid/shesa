@@ -110,7 +110,9 @@ def find_final_answer(text: str) -> tuple[str, str] | None:
     match = re.search(final_var_pattern, stripped, re.MULTILINE | re.DOTALL)
     if match:
         var_name = match.group(1).strip().strip('"').strip("'")
-        return ("final_var", var_name)
+        if _is_python_identifier(var_name):
+            return ("final_var", var_name)
+        return ("final", var_name)
 
     # Check FINAL pattern — greedy match to handle nested parentheses,
     # no quote requirement (aligned with reference RLM rlm/utils/parsing.py:58)
