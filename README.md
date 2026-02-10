@@ -449,9 +449,33 @@ See [SECURITY.md](SECURITY.md) for details on:
 
 [Shesha](https://en.wikipedia.org/wiki/Shesha), also known as Ananta, is a Hindu deity who embodies the concept of infinity and the eternal cycle of existence. He is famously depicted with a thousand heads that support the planets of the universe, representing a foundational stability that allows for the maintenance of vast, complex structures. As the celestial couch of the preserver deity Vishnu, he remains constant even as the world undergoes cycles of creation and dissolution, mirroring the ability of recursive models to manage essentially unbounded-length reasoning chains.
 
-## RLM Reference
+# RLM Reference
 
 Internal engine borrows heavily from [this reference implementation](https://github.com/alexzhang13/rlm) by the authors of the original paper.
+
+## When to Choose Which
+
+Choose Reference RLM (rlms) if you:
+
+- Want a lightweight library to integrate into your own application
+- Need cloud sandbox support (Modal, Prime Intellect, Daytona)
+- Want to use different models for root vs. sub-LM calls
+- Prefer minimal dependencies
+- Are doing research and want the exact paper implementation
+- Want the React trajectory visualizer
+
+Choose Shesha if you:
+
+- Need security — running on untrusted documents or in shared environments
+- Want document parsing (PDF, DOCX, HTML, code) out of the box
+- Want project organization and document management
+- Want an interactive TUI or CLI experience
+- Need conversation history and follow-up questions
+- Want answer verification (citation + semantic)
+- Need production resilience (retry, container pooling, incremental traces)
+- Want a git repository analysis tool
+
+Shesha is designed to take the RLMs and apply them to common-case problems that developers and businesses face.
 
 ## License
 
