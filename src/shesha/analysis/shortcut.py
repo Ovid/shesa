@@ -13,7 +13,52 @@ analysis), respond with exactly: NEED_DEEPER
 
 Do not guess or speculate beyond what the analysis states."""
 
+_CLASSIFIER_PROMPT = """\
+You are a query classifier. Given a user question about a codebase, \
+determine whether a high-level codebase summary could answer it, or whether \
+it requires access to actual source files.
+
+The summary contains ONLY:
+- A 2-3 sentence overview of the project's purpose
+- Major components (name, path, description, public APIs, data models, entry points)
+- External dependencies (name, type, description)
+
+It does NOT contain individual file listings, file contents, README/docs text, \
+test details, CI config, or any non-component files.
+
+Respond with exactly one word:
+- ANALYSIS_OK — if the question can be answered from the above
+- NEED_DEEPER — if the question involves ANY of:
+  * Checking whether a specific file or artifact exists
+  * Verifying accuracy or correctness of any documentation or prior answer
+  * The user expressing doubt, disagreement, or correction
+  * Reading, inspecting, or quoting specific file contents
+  * Anything not covered by the summary's scope"""
+
 _SENTINEL = "NEED_DEEPER"
+_CLASSIFIER_OK = "ANALYSIS_OK"
+
+
+def classify_query(question: str, model: str, api_key: str | None) -> bool:
+    """Classify whether a query can be answered from the codebase analysis.
+
+    Returns ``True`` if the shortcut should be attempted, ``False`` if the
+    query should go straight to the full RLM engine.  Returns ``True`` on
+    any error or unparseable output (graceful fallback).
+    """
+    client = LLMClient(model=model, system_prompt=_CLASSIFIER_PROMPT, api_key=api_key)
+
+    try:
+        response = client.complete([{"role": "user", "content": question}])
+    except Exception:
+        return True  # Graceful fallback — allow shortcut attempt
+
+    label = response.content.strip()
+    if label == _SENTINEL:
+        return False
+    if label == _CLASSIFIER_OK:
+        return True
+    return True  # Unparseable output — graceful fallback
 
 
 def try_answer_from_analysis(
@@ -29,6 +74,9 @@ def try_answer_from_analysis(
     (falls through to full RLM).
     """
     if not analysis_context:
+        return None
+
+    if not classify_query(question, model, api_key):
         return None
 
     client = LLMClient(model=model, system_prompt=_SYSTEM_PROMPT, api_key=api_key)
