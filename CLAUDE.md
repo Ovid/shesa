@@ -68,6 +68,14 @@ make all                         # Format + lint + typecheck + test
       pass  # Container may already be stopped
   ```
 
+## Common Pitfalls
+
+- **Match all user-facing behavior when adding alternate code paths.** When a new route (e.g., analysis shortcut) produces the same kind of output as an existing route (e.g., normal query), it must call the same display methods. Check: thought time, token counts, history recording, info bar updates.
+
+- **Lookups that can fail need fallbacks.** When resolving a value from an external source (sandbox variable, API call, file read), handle the empty/error case explicitly. Never let a failed lookup silently produce an empty answer — fall back to a sensible default.
+
+- **In Textual tests, await worker handles instead of fixed sleeps.** Use `await pilot.app._worker_handle.wait()` then `await pilot.pause()` — not `await pilot.pause(delay=N)`. Fixed sleeps are flaky on slow CI.
+
 ## Design Decisions
 
 - Sub-LLM depth = 1 (plain LLM, not recursive) for predictable cost
