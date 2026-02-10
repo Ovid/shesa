@@ -152,6 +152,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "(typically 1-2 additional LLM calls)."
         ),
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        help="LLM model name (overrides SHESHA_MODEL env var)",
+    )
     return parser.parse_args(argv)
 
 
@@ -363,7 +368,7 @@ def main() -> None:
         print("The provider is auto-detected from the model name via LiteLLM.")
         sys.exit(1)
 
-    config = SheshaConfig.load(storage_path=STORAGE_PATH, verify=args.verify)
+    config = SheshaConfig.load(storage_path=STORAGE_PATH, verify=args.verify, model=args.model)
     try:
         shesha = Shesha(config=config)
     except RuntimeError as e:
@@ -441,7 +446,7 @@ def main() -> None:
             analysis_context = format_analysis_as_context(analysis)
 
     # Create and launch TUI
-    model = os.environ.get("SHESHA_MODEL", "claude-sonnet-4-20250514")
+    model = args.model or os.environ.get("SHESHA_MODEL", "claude-sonnet-4-20250514")
     api_key = os.environ.get("SHESHA_API_KEY")
     tui = SheshaTUI(
         project=project,

@@ -138,6 +138,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "(typically 1-2 additional LLM calls)."
         ),
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        help="LLM model name (overrides SHESHA_MODEL env var)",
+    )
     return parser.parse_args(argv)
 
 
@@ -210,7 +215,7 @@ def main() -> None:
         sys.exit(1)
 
     # Initialize Shesha with config from environment
-    config = SheshaConfig.load(storage_path=STORAGE_PATH, verify=args.verify)
+    config = SheshaConfig.load(storage_path=STORAGE_PATH, verify=args.verify, model=args.model)
     shesha = Shesha(config=config)
 
     # Check if project exists

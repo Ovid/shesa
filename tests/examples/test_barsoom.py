@@ -40,6 +40,16 @@ class TestArgumentParsing:
         args = parse_args(["--verify"])
         assert args.verify is True
 
+    def test_parse_args_model_default_none(self) -> None:
+        """--model defaults to None so env var is used."""
+        args = parse_args([])
+        assert args.model is None
+
+    def test_parse_args_model_flag(self) -> None:
+        """--model flag sets model name."""
+        args = parse_args(["--model", "gpt-4o"])
+        assert args.model == "gpt-4o"
+
     def test_parse_args_no_verbose_flag(self) -> None:
         """--verbose flag has been removed (TUI info bar replaces it)."""
         assert not hasattr(parse_args([]), "verbose")
