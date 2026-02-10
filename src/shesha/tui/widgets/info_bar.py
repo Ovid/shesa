@@ -1,8 +1,16 @@
 """Status info bar widget."""
 
+import re
 from dataclasses import dataclass, field
 
 from textual.widgets import Static
+
+_DATE_SUFFIX_RE = re.compile(r"-\d{4}-?\d{2}-?\d{2}$")
+
+
+def abbreviate_model(model: str) -> str:
+    """Strip trailing date suffix from a model name for display."""
+    return _DATE_SUFFIX_RE.sub("", model)
 
 
 @dataclass
@@ -14,6 +22,7 @@ class InfoBarState:
     """
 
     project_name: str
+    model: str
     _prompt_tokens: int = field(default=0, init=False)
     _completion_tokens: int = field(default=0, init=False)
     _phase_line: str = field(default="Ready", init=False)
@@ -55,8 +64,10 @@ class InfoBarState:
     def render_lines(self) -> tuple[str, str]:
         """Render the two info bar lines."""
         total = self._prompt_tokens + self._completion_tokens
+        short_model = abbreviate_model(self.model)
         line1 = (
             f"Project: {self.project_name} \u2502 "
+            f"Model: {short_model} \u2502 "
             f"Tokens: {total:,} (prompt: {self._prompt_tokens:,}, "
             f"comp: {self._completion_tokens:,})"
         )
@@ -79,9 +90,9 @@ class InfoBar(Static):
     }
     """
 
-    def __init__(self, project_name: str) -> None:
+    def __init__(self, project_name: str, model: str = "") -> None:
         super().__init__("")
-        self._state = InfoBarState(project_name=project_name)
+        self._state = InfoBarState(project_name=project_name, model=model)
         self._refresh_content()
 
     def _refresh_content(self) -> None:

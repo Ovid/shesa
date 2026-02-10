@@ -45,7 +45,7 @@ class SheshaConfig:
 
     # RLM behavior
     max_iterations: int = 20
-    max_output_chars: int = 50000
+    max_output_chars: int = 20_000
 
     # Verification
     verify_citations: bool = True

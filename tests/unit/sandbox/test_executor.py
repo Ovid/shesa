@@ -1,5 +1,7 @@
 """Tests for sandbox executor."""
 
+import json
+import struct
 import time
 from unittest.mock import MagicMock, patch
 
@@ -46,11 +48,11 @@ class TestProtocolLimits:
 
         assert MAX_BUFFER_SIZE == 10 * 1024 * 1024  # 10 MB
 
-    def test_max_line_length_exists(self):
-        """MAX_LINE_LENGTH constant is defined."""
-        from shesha.sandbox.executor import MAX_LINE_LENGTH
+    def test_max_message_size_exists(self):
+        """MAX_MESSAGE_SIZE constant is defined."""
+        from shesha.sandbox.executor import MAX_MESSAGE_SIZE
 
-        assert MAX_LINE_LENGTH == 1 * 1024 * 1024  # 1 MB
+        assert MAX_MESSAGE_SIZE == 10 * 1024 * 1024  # 10 MB
 
     def test_max_read_duration_exists(self):
         """MAX_READ_DURATION constant is defined."""
@@ -71,64 +73,20 @@ def make_docker_frame(data: bytes, stream_type: int = 1) -> bytes:
     return header + data
 
 
+def make_length_prefixed(data: dict) -> bytes:
+    """Create a 4-byte length-prefixed JSON message (container protocol framing)."""
+    payload = json.dumps(data).encode("utf-8")
+    return struct.pack(">I", len(payload)) + payload
+
+
 class TestDockerFrameParsing:
-    """Tests for Docker multiplexed stream parsing in _read_line."""
+    """Tests for Docker multiplexed stream parsing in _read_message."""
 
-    def test_read_line_handles_multi_frame_json_without_intermediate_newlines(self):
-        """_read_line correctly handles JSON split across multiple Docker frames.
-
-        This reproduces the bug where:
-        1. Frame 1 payload (no newline) is prepended to buffer
-        2. Next iteration sees payload start (e.g. '{') not Docker header
-        3. Code falls to "not a Docker header" branch
-        4. Binary Docker header bytes get decoded as UTF-8, causing decode error
-        """
-        # Simulate a JSON response split across two Docker frames
-        # First frame: partial JSON without newline
-        part1 = b'{"status": "ok", "data": "'
-        # Second frame: rest of JSON with newline
-        part2 = b'some value"}\n'
-
-        # Build the raw Docker stream data
-        stream_data = make_docker_frame(part1) + make_docker_frame(part2)
-
-        # Create mock socket that returns this data
-        mock_socket = MagicMock()
-        chunks = [stream_data]  # Return all at once
-        chunk_iter = iter(chunks)
-
-        def mock_recv(size):
-            try:
-                return next(chunk_iter)
-            except StopIteration:
-                return b""
-
-        mock_socket._sock.recv = mock_recv
-        mock_socket._sock.settimeout = MagicMock()
-
-        # Create executor and set up socket directly
-        executor = ContainerExecutor()
-        executor._socket = mock_socket
-        executor._raw_buffer = b""
-        executor._content_buffer = b""
-
-        # This should NOT raise a UTF-8 decode error
-        result = executor._read_line(timeout=5)
-
-        # Should get the complete JSON line
-        assert result == '{"status": "ok", "data": "some value"}'
-
-    def test_read_line_handles_large_payload_with_binary_length_bytes(self):
-        """_read_line handles payloads where length field contains 0x80+ bytes.
-
-        When payload length > 127, the length field contains bytes >= 0x80
-        which are invalid UTF-8 start bytes if incorrectly decoded.
-        """
-        # Create a payload that results in length bytes containing 0x80
-        # Length 32768 (0x8000) has 0x80 in high byte
-        large_payload = b"x" * 32749 + b'{"result": "done"}\n'  # Total 32768 bytes
-
-        stream_data = make_docker_frame(large_payload)
+    def test_read_message_parses_single_docker_frame(self):
+        """_read_message reads a complete length-prefixed message from one Docker frame."""
+        data = {"status": "ok", "data": "some value"}
+        msg_bytes = make_length_prefixed(data)
+        stream_data = make_docker_frame(msg_bytes)
 
         mock_socket = MagicMock()
         chunks = [stream_data]
@@ -148,26 +106,20 @@ class TestDockerFrameParsing:
         executor._raw_buffer = b""
         executor._content_buffer = b""
 
-        # Should not raise decode error
-        result = executor._read_line(timeout=5)
-        assert '"result": "done"' in result
+        result = executor._read_message(timeout=5)
+        assert result == data
 
-    def test_read_line_multi_frame_triggers_utf8_error_with_large_second_frame(self):
-        """_read_line should not raise UTF-8 decode error when second frame is large.
+    def test_read_message_handles_split_across_docker_frames(self):
+        """_read_message handles message split across multiple Docker frames.
 
-        This directly reproduces the original bug:
-        - First frame: partial JSON (no newline)
-        - Second frame: large payload (length > 32768 = 0x8000)
-        - The 0x80 byte in the length field triggers UTF-8 decode error
+        Length prefix in first Docker frame, JSON payload in second.
         """
-        # First frame: partial JSON without newline
-        part1 = b'{"status": "ok", "content": "'
+        data = {"status": "ok", "content": "A" * 1000}
+        payload = json.dumps(data).encode("utf-8")
+        length_prefix = struct.pack(">I", len(payload))
 
-        # Second frame: large payload with 0x80 in length field
-        # 32774 bytes triggers length = 0x00008006, containing 0x80
-        part2 = b"A" * 32767 + b'done"}\n'  # Total 32774 bytes
-
-        stream_data = make_docker_frame(part1) + make_docker_frame(part2)
+        # Split: length prefix in one Docker frame, payload in another
+        stream_data = make_docker_frame(length_prefix) + make_docker_frame(payload)
 
         mock_socket = MagicMock()
         chunks = [stream_data]
@@ -187,36 +139,81 @@ class TestDockerFrameParsing:
         executor._raw_buffer = b""
         executor._content_buffer = b""
 
-        # This should NOT raise: UnicodeDecodeError: 'utf-8' codec can't decode
-        # byte 0x80 in position X: invalid start byte
-        result = executor._read_line(timeout=5)
+        result = executor._read_message(timeout=5)
+        assert result == data
 
-        # Verify we got the complete, uncorrupted JSON
-        assert result.startswith('{"status": "ok"')
-        assert result.endswith('done"}')
-        # The content should be exactly the two payloads concatenated
-        expected = '{"status": "ok", "content": "' + "A" * 32767 + 'done"}'
-        assert result == expected
+    def test_read_message_handles_multiple_messages_in_one_frame(self):
+        """_read_message reads first message, leaves second in buffer."""
+        msg1 = {"status": "ok", "seq": 1}
+        msg2 = {"status": "ok", "seq": 2}
+        combined = make_length_prefixed(msg1) + make_length_prefixed(msg2)
+        stream_data = make_docker_frame(combined)
+
+        mock_socket = MagicMock()
+        chunks = [stream_data]
+        chunk_iter = iter(chunks)
+
+        def mock_recv(size):
+            try:
+                return next(chunk_iter)
+            except StopIteration:
+                return b""
+
+        mock_socket._sock.recv = mock_recv
+        mock_socket._sock.settimeout = MagicMock()
+
+        executor = ContainerExecutor()
+        executor._socket = mock_socket
+        executor._raw_buffer = b""
+        executor._content_buffer = b""
+
+        result1 = executor._read_message(timeout=5)
+        assert result1 == msg1
+
+        # Second message should be readable from buffer
+        result2 = executor._read_message(timeout=5)
+        assert result2 == msg2
+
+    def test_read_message_handles_large_payload(self):
+        """_read_message handles payloads where Docker frame length field contains 0x80+ bytes."""
+        # Large payload that causes Docker frame length > 0x8000
+        data = {"result": "x" * 40000}
+        msg_bytes = make_length_prefixed(data)
+        stream_data = make_docker_frame(msg_bytes)
+
+        mock_socket = MagicMock()
+        chunks = [stream_data]
+        chunk_iter = iter(chunks)
+
+        def mock_recv(size):
+            try:
+                return next(chunk_iter)
+            except StopIteration:
+                return b""
+
+        mock_socket._sock.recv = mock_recv
+        mock_socket._sock.settimeout = MagicMock()
+
+        executor = ContainerExecutor()
+        executor._socket = mock_socket
+        executor._raw_buffer = b""
+        executor._content_buffer = b""
+
+        result = executor._read_message(timeout=5)
+        assert result == data
 
 
 class TestConnectionClose:
-    """Tests for connection close handling in _read_line."""
+    """Tests for connection close handling in _read_message."""
 
-    def test_read_line_preserves_raw_buffer_on_connection_close(self):
-        """_read_line includes _raw_buffer contents when connection closes.
+    def test_read_message_raises_on_connection_close_before_length_prefix(self):
+        """_read_message raises ProtocolError when connection closes before length prefix."""
+        from shesha.sandbox.executor import ProtocolError
 
-        When recv() returns b"" while waiting for 8 bytes (Docker header),
-        any bytes already in _raw_buffer should be included in the result,
-        not silently dropped.
-
-        This tests the specific bug: if we have <8 bytes in raw_buffer when
-        connection closes, those bytes were being silently dropped.
-        """
         mock_socket = MagicMock()
 
-        # Simulate: first recv gets 5 bytes (< 8), second recv gets connection close
-        # This hits the bug path at lines 174-180
-        chunks = [b"hello", b""]  # 5 bytes, then close
+        # Send only 2 bytes (not enough for 4-byte length prefix), then close
+        chunks = [b"\x00\x00", b""]
         chunk_iter = iter(chunks)
 
         def mock_recv(size):
@@ -233,25 +230,19 @@ class TestConnectionClose:
         executor._raw_buffer = b""
         executor._content_buffer = b""
 
-        result = executor._read_line(timeout=5)
+        with pytest.raises(ProtocolError, match="Connection closed"):
+            executor._read_message(timeout=5)
 
-        # Should include the 5-byte data, not return empty
-        assert result == "hello"
+    def test_read_message_raises_on_connection_close_mid_payload(self):
+        """_read_message raises ProtocolError when connection closes mid-payload."""
+        from shesha.sandbox.executor import ProtocolError
 
-    def test_read_line_returns_content_buffer_on_close_with_partial_header(self):
-        """_read_line returns only content_buffer when connection closes mid-header.
-
-        If we have valid content in _content_buffer and partial header bytes
-        in _raw_buffer when connection closes, we should return ONLY the content,
-        not the binary header bytes (which would cause decode errors or garbage).
-        """
         mock_socket = MagicMock()
 
-        # Simulate: get a complete frame, then partial header, then close
-        frame1 = make_docker_frame(b'{"status": "ok"}')
-        partial_header = b"\x01\x00\x00"  # 3 bytes of a Docker header
-
-        chunks = [frame1 + partial_header, b""]
+        # Send a length prefix saying 100 bytes, but only deliver 10 bytes then close
+        partial = struct.pack(">I", 100) + b"x" * 10
+        frame = make_docker_frame(partial)
+        chunks = [frame, b""]
         chunk_iter = iter(chunks)
 
         def mock_recv(size):
@@ -268,63 +259,23 @@ class TestConnectionClose:
         executor._raw_buffer = b""
         executor._content_buffer = b""
 
-        result = executor._read_line(timeout=5)
-
-        # Should return ONLY the valid content from frame1, NOT the partial header
-        assert result == '{"status": "ok"}'
-
-    def test_read_line_handles_binary_header_bytes_on_connection_close(self):
-        """_read_line must not raise UnicodeDecodeError when partial header contains 0x80.
-
-        When connection closes with partial Docker header in _raw_buffer containing
-        bytes >= 0x80 (invalid UTF-8 start bytes), the code must not crash.
-        """
-        mock_socket = MagicMock()
-
-        # Simulate: get a complete frame, then partial header with 0x80 byte, then close
-        frame1 = make_docker_frame(b'{"result": "data"}')
-        # Partial header: stream type 1, padding, then 0x80 (invalid UTF-8)
-        partial_header_with_0x80 = b"\x01\x00\x00\x00\x80"
-
-        chunks = [frame1 + partial_header_with_0x80, b""]
-        chunk_iter = iter(chunks)
-
-        def mock_recv(size):
-            try:
-                return next(chunk_iter)
-            except StopIteration:
-                return b""
-
-        mock_socket._sock.recv = mock_recv
-        mock_socket._sock.settimeout = MagicMock()
-
-        executor = ContainerExecutor()
-        executor._socket = mock_socket
-        executor._raw_buffer = b""
-        executor._content_buffer = b""
-
-        # This should NOT raise UnicodeDecodeError
-        result = executor._read_line(timeout=5)
-
-        # Should return only the valid content, discarding the partial header
-        assert result == '{"result": "data"}'
+        with pytest.raises(ProtocolError, match="Connection closed"):
+            executor._read_message(timeout=5)
 
 
 class TestBufferLimits:
-    """Tests for buffer size limits in _read_line."""
+    """Tests for buffer size limits in _read_message."""
 
-    def test_read_line_raises_on_oversized_data_without_newline(self):
-        """_read_line raises ProtocolError when data exceeds limits without newline."""
+    def test_read_message_raises_on_oversized_content_buffer(self):
+        """_read_message raises ProtocolError when content buffer exceeds limit."""
         from shesha.sandbox.executor import MAX_BUFFER_SIZE, ProtocolError
 
         mock_socket = MagicMock()
-        # Send chunks that would exceed MAX_BUFFER_SIZE without a newline
-        # Note: This will now hit MAX_LINE_LENGTH (1MB) before MAX_BUFFER_SIZE (10MB)
-        # since we check line length for streaming data without newlines
+        # Send Docker frames with data that would exceed MAX_BUFFER_SIZE
         chunk_size = 1024 * 1024  # 1 MB chunks
         chunks_needed = (MAX_BUFFER_SIZE // chunk_size) + 2
 
-        chunk_data = [b"x" * chunk_size for _ in range(chunks_needed)]
+        chunk_data = [make_docker_frame(b"x" * chunk_size) for _ in range(chunks_needed)]
         chunk_iter = iter(chunk_data)
 
         def mock_recv(size):
@@ -342,11 +293,10 @@ class TestBufferLimits:
         executor._content_buffer = b""
 
         with pytest.raises(ProtocolError) as exc_info:
-            executor._read_line(timeout=5)
+            executor._read_message(timeout=5)
 
-        # Either buffer overflow or line length limit - both protect against DoS
         error_msg = str(exc_info.value).lower()
-        assert "buffer" in error_msg or "line" in error_msg
+        assert "buffer" in error_msg or "message" in error_msg
 
 
 class TestContainerExecutor:
@@ -482,22 +432,22 @@ class TestContainerSecurityIntegration:
         executor.stop()
 
 
-class TestLineLengthLimit:
-    """Tests for line length limit in _read_line."""
+class TestMessageSizeLimit:
+    """Tests for message size limit in _read_message."""
 
-    def test_read_line_raises_on_oversized_line(self):
-        """_read_line raises ProtocolError when line exceeds MAX_LINE_LENGTH."""
+    def test_read_message_raises_on_oversized_message(self):
+        """_read_message raises ProtocolError when message exceeds MAX_MESSAGE_SIZE."""
         from shesha.sandbox.executor import (
-            MAX_LINE_LENGTH,
+            MAX_MESSAGE_SIZE,
             ContainerExecutor,
             ProtocolError,
         )
 
         mock_socket = MagicMock()
 
-        # Create a line that exceeds MAX_LINE_LENGTH
-        oversized_line = b"x" * (MAX_LINE_LENGTH + 100) + b"\n"
-        frame = make_docker_frame(oversized_line)
+        # Send a length prefix declaring a message larger than MAX_MESSAGE_SIZE
+        oversized_length = struct.pack(">I", MAX_MESSAGE_SIZE + 100)
+        frame = make_docker_frame(oversized_length)
 
         chunks = [frame]
         chunk_iter = iter(chunks)
@@ -517,55 +467,16 @@ class TestLineLengthLimit:
         executor._content_buffer = b""
 
         with pytest.raises(ProtocolError) as exc_info:
-            executor._read_line(timeout=5)
+            executor._read_message(timeout=5)
 
-        assert "line" in str(exc_info.value).lower()
-
-    def test_read_line_raises_on_streaming_oversized_line_without_newline(self):
-        """_read_line raises when data streams past MAX_LINE_LENGTH without newline."""
-        from shesha.sandbox.executor import (
-            MAX_LINE_LENGTH,
-            ContainerExecutor,
-            ProtocolError,
-        )
-
-        mock_socket = MagicMock()
-
-        # Stream chunks without newline that total > MAX_LINE_LENGTH
-        chunk_size = 100_000  # 100KB chunks
-        chunks_needed = (MAX_LINE_LENGTH // chunk_size) + 2  # Exceed limit
-        chunk_data = b"x" * chunk_size
-        chunks_sent = 0
-
-        def mock_recv(size):
-            nonlocal chunks_sent
-            if chunks_sent < chunks_needed:
-                chunks_sent += 1
-                # Return Docker-framed data without newline
-                return make_docker_frame(chunk_data)
-            # Keep connection open (don't return b"")
-            time.sleep(0.1)
-            return make_docker_frame(chunk_data)
-
-        mock_socket._sock.recv = mock_recv
-        mock_socket._sock.settimeout = MagicMock()
-
-        executor = ContainerExecutor()
-        executor._socket = mock_socket
-        executor._raw_buffer = b""
-        executor._content_buffer = b""
-
-        with pytest.raises(ProtocolError) as exc_info:
-            executor._read_line(timeout=5)
-
-        assert "line" in str(exc_info.value).lower()
+        assert "message" in str(exc_info.value).lower() or "size" in str(exc_info.value).lower()
 
 
 class TestReadDeadline:
-    """Tests for overall deadline in _read_line."""
+    """Tests for overall deadline in _read_message."""
 
-    def test_read_line_raises_on_deadline_exceeded(self):
-        """_read_line raises ProtocolError when total time exceeds MAX_READ_DURATION."""
+    def test_read_message_raises_on_deadline_exceeded(self):
+        """_read_message raises ProtocolError when total time exceeds deadline."""
         from shesha.sandbox.executor import ContainerExecutor, ProtocolError
 
         mock_socket = MagicMock()
@@ -576,9 +487,9 @@ class TestReadDeadline:
         def mock_recv(size):
             nonlocal call_count
             call_count += 1
-            # Return small chunks without newline
+            # Return small Docker-framed chunks (not enough for a complete message)
             if call_count < 100:
-                return b"x"
+                return make_docker_frame(b"x")
             return b""
 
         mock_socket._sock.recv = mock_recv
@@ -589,10 +500,8 @@ class TestReadDeadline:
         executor._raw_buffer = b""
         executor._content_buffer = b""
 
-        # Patch time.monotonic (not time.time) to simulate elapsed time exceeding deadline
-        # Using monotonic avoids issues with wall-clock jumps (NTP, manual changes)
         start_time = time.monotonic()
-        call_sequence = [start_time, start_time + 301]  # 301 seconds elapsed
+        call_sequence = [start_time, start_time + 301]
         time_iter = iter(call_sequence)
 
         def mock_monotonic():
@@ -603,25 +512,22 @@ class TestReadDeadline:
 
         with patch("shesha.sandbox.executor.time.monotonic", mock_monotonic):
             with pytest.raises(ProtocolError) as exc_info:
-                executor._read_line(timeout=5)
+                executor._read_message(timeout=5)
 
         assert (
             "duration" in str(exc_info.value).lower() or "deadline" in str(exc_info.value).lower()
         )
 
-    def test_read_line_enforces_deadline_in_inner_frame_loop(self):
-        """_read_line enforces deadline inside Docker frame reading loop.
+    def test_read_message_enforces_deadline_in_inner_frame_loop(self):
+        """_read_message enforces deadline inside Docker frame reading loop.
 
-        This tests that the deadline is checked inside the inner loop that reads
-        Docker frame payloads, not just at the outer loop start. A malicious
-        container could drip data slowly to keep the inner loop spinning.
+        A malicious container could drip data slowly to keep the inner loop spinning.
         """
         from shesha.sandbox.executor import ContainerExecutor, ProtocolError
 
         mock_socket = MagicMock()
 
         # Simulate a large Docker frame that drips in slowly
-        # Header says 10000 bytes, but we drip small chunks
         header = bytes([1, 0, 0, 0, 0, 0, 0x27, 0x10])  # stream=1, length=10000
         recv_count = 0
 
@@ -629,10 +535,8 @@ class TestReadDeadline:
             nonlocal recv_count
             recv_count += 1
             if recv_count == 1:
-                return header  # Send header first
-            # Then drip payload in small chunks (simulating slow attack)
-            # This keeps us in the inner frame-reading loop
-            return b"x" * 10  # Small chunk, need many to reach 10000
+                return header
+            return b"x" * 10
 
         mock_socket._sock.recv = mock_recv
         mock_socket._sock.settimeout = MagicMock()
@@ -642,7 +546,6 @@ class TestReadDeadline:
         executor._raw_buffer = b""
         executor._content_buffer = b""
 
-        # Time: first check passes, subsequent checks inside inner loop should fail
         start_time = 1000.0
         monotonic_calls = 0
 
@@ -650,15 +553,12 @@ class TestReadDeadline:
             nonlocal monotonic_calls
             monotonic_calls += 1
             if monotonic_calls <= 2:
-                # First two calls: outer loop check and inner loop entry
                 return start_time
-            # After that: simulate time has exceeded deadline
-            # This should be caught inside the inner loop
             return start_time + 301
 
         with patch("shesha.sandbox.executor.time.monotonic", mock_monotonic):
             with pytest.raises(ProtocolError) as exc_info:
-                executor._read_line(timeout=5)
+                executor._read_message(timeout=5)
 
         assert "duration" in str(exc_info.value).lower()
 
@@ -673,9 +573,9 @@ class TestExecuteProtocolHandling:
         executor = ContainerExecutor()
         executor._socket = MagicMock()
 
-        # Mock _read_line to raise ProtocolError
-        with patch.object(executor, "_read_line", side_effect=ProtocolError("buffer overflow")):
-            with patch.object(executor, "_send_raw"):
+        # Mock _read_message to raise ProtocolError
+        with patch.object(executor, "_read_message", side_effect=ProtocolError("buffer overflow")):
+            with patch.object(executor, "_send_message"):
                 result = executor.execute("print('hello')")
 
         assert result.status == "error"
@@ -688,32 +588,11 @@ class TestExecuteProtocolHandling:
         executor = ContainerExecutor()
         executor._socket = MagicMock()
 
-        # Mock _read_line to raise ProtocolError and track stop() call
-        with patch.object(executor, "_read_line", side_effect=ProtocolError("malicious data")):
-            with patch.object(executor, "_send_raw"):
+        with patch.object(executor, "_read_message", side_effect=ProtocolError("malicious data")):
+            with patch.object(executor, "_send_message"):
                 with patch.object(executor, "stop") as mock_stop:
                     executor.execute("print('hello')")
 
-        # Container should be stopped after protocol violation
-        mock_stop.assert_called_once()
-
-    def test_execute_handles_invalid_json_as_protocol_error(self):
-        """execute() treats invalid JSON from container as protocol violation."""
-        from shesha.sandbox.executor import ContainerExecutor
-
-        executor = ContainerExecutor()
-        executor._socket = MagicMock()
-
-        # Container returns invalid JSON (e.g., sandbox wrote to sys.__stdout__)
-        with patch.object(executor, "_read_line", return_value="not valid json {{{"):
-            with patch.object(executor, "_send_raw"):
-                with patch.object(executor, "stop") as mock_stop:
-                    result = executor.execute("print('hello')")
-
-        # Should return error result, not raise JSONDecodeError
-        assert result.status == "error"
-        assert "json" in result.error.lower() or "protocol" in result.error.lower()
-        # Container should be stopped (invalid output = compromised state)
         mock_stop.assert_called_once()
 
     def test_execute_handles_malformed_llm_query_as_protocol_error(self):
@@ -722,57 +601,18 @@ class TestExecuteProtocolHandling:
 
         executor = ContainerExecutor()
         executor._socket = MagicMock()
-        # Set a handler so we actually try to access the fields
         executor.llm_query_handler = MagicMock()
 
         # Malformed llm_query - missing 'instruction' and 'content' fields
-        malformed_response = '{"action": "llm_query"}'
+        malformed_response = {"action": "llm_query"}
 
-        with patch.object(executor, "_read_line", return_value=malformed_response):
-            with patch.object(executor, "_send_raw"):
+        with patch.object(executor, "_read_message", return_value=malformed_response):
+            with patch.object(executor, "_send_message"):
                 with patch.object(executor, "stop") as mock_stop:
                     result = executor.execute("print('hello')")
 
-        # Should return error result, not raise KeyError
         assert result.status == "error"
         assert "protocol" in result.error.lower() or "missing" in result.error.lower()
-        # Container should be stopped
-        mock_stop.assert_called_once()
-
-    def test_execute_handles_non_utf8_as_protocol_error(self):
-        """execute() treats non-UTF8 bytes from container as protocol violation."""
-        from shesha.sandbox.executor import ContainerExecutor
-
-        executor = ContainerExecutor()
-        executor._socket = MagicMock()
-
-        # Container sends invalid UTF-8 bytes (e.g., via sys.stdout.buffer)
-        # \xff\xfe is invalid UTF-8
-        invalid_utf8 = b'\xff\xfe{"status": "ok"}\n'
-        frame = make_docker_frame(invalid_utf8)
-
-        chunks = [frame]
-        chunk_iter = iter(chunks)
-
-        def mock_recv(size):
-            try:
-                return next(chunk_iter)
-            except StopIteration:
-                return b""
-
-        executor._socket._sock.recv = mock_recv
-        executor._socket._sock.settimeout = MagicMock()
-        executor._raw_buffer = b""
-        executor._content_buffer = b""
-
-        with patch.object(executor, "_send_raw"):
-            with patch.object(executor, "stop") as mock_stop:
-                result = executor.execute("print('hello')")
-
-        # Should return error result, not raise UnicodeDecodeError
-        assert result.status == "error"
-        assert "protocol" in result.error.lower() or "decode" in result.error.lower()
-        # Container should be stopped
         mock_stop.assert_called_once()
 
     def test_execute_returns_error_when_socket_is_none(self):
@@ -795,7 +635,6 @@ class TestSubcallContentErrorHandling:
 
     def test_execute_sends_error_response_on_subcall_content_error(self):
         """execute() sends error field to sandbox when handler raises SubcallContentError."""
-        import json
 
         from shesha.sandbox.executor import SubcallContentError
 
@@ -810,38 +649,38 @@ class TestSubcallContentErrorHandling:
         executor.llm_query_handler = handler_raises
 
         # Simulate: container sends llm_query, then receives error response, then sends result
-        llm_query_msg = json.dumps(
-            {"action": "llm_query", "instruction": "summarize", "content": "big content"}
-        )
+        llm_query_msg = {
+            "action": "llm_query",
+            "instruction": "summarize",
+            "content": "big content",
+        }
         # After sending error response, container code raises ValueError and returns error result
-        exec_result_msg = json.dumps(
-            {
-                "status": "error",
-                "stdout": "",
-                "stderr": "",
-                "return_value": None,
-                "error": "ValueError: " + error_msg,
-            }
-        )
+        exec_result_msg = {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_value": None,
+            "error": "ValueError: " + error_msg,
+        }
 
         read_responses = iter([llm_query_msg, exec_result_msg])
 
-        with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
-            with patch.object(executor, "_send_raw", side_effect=lambda d: sent_data.append(d)):
+        with patch.object(executor, "_read_message", side_effect=read_responses):
+            sent_data: list[dict] = []
+            with patch.object(
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
+            ):
                 executor.execute("analysis = llm_query('summarize', big_content)")
 
-        # First _send_raw is the execute command, second should be the error response
-        # _send_raw is called for the initial execute AND for the llm_response
+        # First _send_message is the execute command, second is the error response
         assert len(sent_data) == 2
-        error_response = json.loads(sent_data[1].strip())
+        error_response = sent_data[1]
         assert error_response["action"] == "llm_response"
         assert "error" in error_response
         assert error_msg in error_response["error"]
 
     def test_execute_does_not_stop_container_on_subcall_content_error(self):
         """SubcallContentError does not kill the container — user error."""
-        import json
 
         from shesha.sandbox.executor import SubcallContentError
 
@@ -853,19 +692,17 @@ class TestSubcallContentErrorHandling:
 
         executor.llm_query_handler = handler_raises
 
-        llm_query_msg = json.dumps({"action": "llm_query", "instruction": "x", "content": "y"})
-        exec_result_msg = json.dumps(
-            {
-                "status": "error",
-                "stdout": "",
-                "stderr": "",
-                "return_value": None,
-                "error": "ValueError: too large",
-            }
-        )
+        llm_query_msg = {"action": "llm_query", "instruction": "x", "content": "y"}
+        exec_result_msg = {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_value": None,
+            "error": "ValueError: too large",
+        }
 
-        with patch.object(executor, "_read_line", side_effect=[llm_query_msg, exec_result_msg]):
-            with patch.object(executor, "_send_raw"):
+        with patch.object(executor, "_read_message", side_effect=[llm_query_msg, exec_result_msg]):
+            with patch.object(executor, "_send_message"):
                 with patch.object(executor, "stop") as mock_stop:
                     executor.execute("llm_query('x', 'y')")
 
@@ -878,35 +715,32 @@ class TestNoHandlerErrorProtocol:
 
     def test_no_handler_sends_error_field_not_result(self):
         """When llm_query_handler is None, executor sends error field to sandbox."""
-        import json
 
         executor = ContainerExecutor()
         executor._socket = MagicMock()
         executor.llm_query_handler = None
 
-        llm_query_msg = json.dumps(
-            {"action": "llm_query", "instruction": "summarize", "content": "data"}
-        )
-        exec_result_msg = json.dumps(
-            {
-                "status": "error",
-                "stdout": "",
-                "stderr": "",
-                "return_value": None,
-                "error": "ValueError: No LLM query handler configured",
-            }
-        )
+        llm_query_msg = {"action": "llm_query", "instruction": "summarize", "content": "data"}
+        exec_result_msg = {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_value": None,
+            "error": "ValueError: No LLM query handler configured",
+        }
 
         read_responses = iter([llm_query_msg, exec_result_msg])
 
-        with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
-            with patch.object(executor, "_send_raw", side_effect=lambda d: sent_data.append(d)):
+        with patch.object(executor, "_read_message", side_effect=read_responses):
+            sent_data: list[dict] = []
+            with patch.object(
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
+            ):
                 executor.execute("llm_query('summarize', 'data')")
 
-        # Second _send_raw should be the llm_response with error field
+        # Second _send_message should be the llm_response with error field
         assert len(sent_data) == 2
-        error_response = json.loads(sent_data[1].strip())
+        error_response = sent_data[1]
         assert error_response["action"] == "llm_response"
         assert "error" in error_response
         assert "result" not in error_response
@@ -937,8 +771,8 @@ class TestIsAlive:
         executor._socket = MagicMock()
 
         # Simulate protocol error during execute (which calls stop())
-        with patch.object(executor, "_read_line", side_effect=ProtocolError("overflow")):
-            with patch.object(executor, "_send_raw"):
+        with patch.object(executor, "_read_message", side_effect=ProtocolError("overflow")):
+            with patch.object(executor, "_send_message"):
                 executor.execute("print('hello')")
 
         # stop() sets _socket = None
@@ -946,24 +780,24 @@ class TestIsAlive:
 
 
 class TestSendTimeout:
-    """Tests for send timeout on _send_raw."""
+    """Tests for send timeout on _send_message."""
 
-    def test_send_raw_sets_socket_timeout(self):
-        """_send_raw sets a timeout on the socket before sending."""
+    def test_send_message_sets_socket_timeout(self):
+        """_send_message sets a timeout on the socket before sending."""
         executor = ContainerExecutor()
         mock_socket = MagicMock()
         mock_socket._sock.gettimeout.return_value = 30.0
         executor._socket = mock_socket
 
-        executor._send_raw("test data", timeout=10)
+        executor._send_message({"action": "ping"}, timeout=10)
 
         # First settimeout sets send timeout, second restores previous
         calls = mock_socket._sock.settimeout.call_args_list
         assert calls[0][0][0] == 10
         mock_socket._sock.sendall.assert_called_once()
 
-    def test_send_raw_uses_default_timeout(self):
-        """_send_raw uses default timeout when none specified."""
+    def test_send_message_uses_default_timeout(self):
+        """_send_message uses default timeout when none specified."""
         from shesha.sandbox.executor import DEFAULT_SEND_TIMEOUT
 
         executor = ContainerExecutor()
@@ -971,7 +805,7 @@ class TestSendTimeout:
         mock_socket._sock.gettimeout.return_value = 30.0
         executor._socket = mock_socket
 
-        executor._send_raw("test data")
+        executor._send_message({"action": "ping"})
 
         calls = mock_socket._sock.settimeout.call_args_list
         # First call sets send timeout (default), second restores previous
@@ -980,20 +814,20 @@ class TestSendTimeout:
 
 
 class TestPayloadSizeLimit:
-    """Tests for payload size limit on _send_raw."""
+    """Tests for payload size limit on _send_message."""
 
-    def test_send_raw_rejects_oversized_payload(self):
-        """_send_raw raises ProtocolError when payload exceeds MAX_PAYLOAD_SIZE."""
+    def test_send_message_rejects_oversized_payload(self):
+        """_send_message raises ProtocolError when payload exceeds MAX_PAYLOAD_SIZE."""
         from shesha.sandbox.executor import MAX_PAYLOAD_SIZE, ProtocolError
 
         executor = ContainerExecutor()
         mock_socket = MagicMock()
         executor._socket = mock_socket
 
-        oversized_data = "x" * (MAX_PAYLOAD_SIZE + 100)
+        oversized_data = {"data": "x" * (MAX_PAYLOAD_SIZE + 100)}
 
         with pytest.raises(ProtocolError, match="[Pp]ayload"):
-            executor._send_raw(oversized_data)
+            executor._send_message(oversized_data)
 
         # Should not have sent anything
         mock_socket._sock.sendall.assert_not_called()
@@ -1005,11 +839,30 @@ class TestPayloadSizeLimit:
         assert MAX_PAYLOAD_SIZE == 50 * 1024 * 1024  # 50 MB
 
 
-class TestSendRawSocketErrors:
-    """Tests for socket error handling in _send_raw."""
+class TestSendMessageLengthPrefix:
+    """Tests for length-prefix framing in _send_message."""
 
-    def test_send_raw_wraps_os_error_as_protocol_error(self):
-        """_send_raw wraps OSError from sendall as ProtocolError."""
+    def test_send_message_prepends_length_prefix(self):
+        """_send_message sends 4-byte BE length prefix + JSON payload."""
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.gettimeout.return_value = 30.0
+        executor._socket = mock_socket
+
+        data = {"action": "execute", "code": "print('hello')"}
+        executor._send_message(data)
+
+        sent_bytes = mock_socket._sock.sendall.call_args[0][0]
+        expected_payload = json.dumps(data).encode("utf-8")
+        expected_frame = struct.pack(">I", len(expected_payload)) + expected_payload
+        assert sent_bytes == expected_frame
+
+
+class TestSendMessageSocketErrors:
+    """Tests for socket error handling in _send_message."""
+
+    def test_send_message_wraps_os_error_as_protocol_error(self):
+        """_send_message wraps OSError from sendall as ProtocolError."""
         from shesha.sandbox.executor import ProtocolError
 
         executor = ContainerExecutor()
@@ -1018,10 +871,10 @@ class TestSendRawSocketErrors:
         executor._socket = mock_socket
 
         with pytest.raises(ProtocolError, match="Connection reset"):
-            executor._send_raw("test data")
+            executor._send_message({"action": "ping"})
 
-    def test_send_raw_wraps_timeout_error_as_protocol_error(self):
-        """_send_raw wraps TimeoutError from sendall as ProtocolError."""
+    def test_send_message_wraps_timeout_error_as_protocol_error(self):
+        """_send_message wraps TimeoutError from sendall as ProtocolError."""
         from shesha.sandbox.executor import ProtocolError
 
         executor = ContainerExecutor()
@@ -1030,16 +883,16 @@ class TestSendRawSocketErrors:
         executor._socket = mock_socket
 
         with pytest.raises(ProtocolError, match="Send timed out"):
-            executor._send_raw("test data")
+            executor._send_message({"action": "ping"})
 
-    def test_send_raw_restores_previous_timeout(self):
-        """_send_raw restores the previous socket timeout after sending."""
+    def test_send_message_restores_previous_timeout(self):
+        """_send_message restores the previous socket timeout after sending."""
         executor = ContainerExecutor()
         mock_socket = MagicMock()
         mock_socket._sock.gettimeout.return_value = 30.0
         executor._socket = mock_socket
 
-        executor._send_raw("test data", timeout=5)
+        executor._send_message({"action": "ping"}, timeout=5)
 
         # Should restore previous timeout after send
         calls = mock_socket._sock.settimeout.call_args_list
@@ -1047,8 +900,8 @@ class TestSendRawSocketErrors:
         assert calls[0][0][0] == 5  # Set send timeout
         assert calls[1][0][0] == 30.0  # Restore previous
 
-    def test_send_raw_restores_timeout_on_error(self):
-        """_send_raw restores the previous timeout even when sendall fails."""
+    def test_send_message_restores_timeout_on_error(self):
+        """_send_message restores the previous timeout even when sendall fails."""
         from shesha.sandbox.executor import ProtocolError
 
         executor = ContainerExecutor()
@@ -1058,7 +911,7 @@ class TestSendRawSocketErrors:
         executor._socket = mock_socket
 
         with pytest.raises(ProtocolError):
-            executor._send_raw("test data", timeout=5)
+            executor._send_message({"action": "ping"}, timeout=5)
 
         # Should still restore previous timeout
         calls = mock_socket._sock.settimeout.call_args_list
@@ -1069,22 +922,18 @@ class TestSendRawSocketErrors:
 class TestEffectiveDeadline:
     """Tests for deadline tied to execution timeout."""
 
-    def test_read_line_deadline_respects_execution_timeout(self):
-        """_read_line deadline is bounded by timeout parameter, not just MAX_READ_DURATION."""
+    def test_read_message_deadline_respects_execution_timeout(self):
+        """_read_message deadline is bounded by timeout parameter, not just MAX_READ_DURATION."""
         from shesha.sandbox.executor import ContainerExecutor, ProtocolError
 
         mock_socket = MagicMock()
-
-        # Use a very short timeout (5 seconds)
-        # If deadline is tied to timeout, it should fire based on timeout+10,
-        # not the hardcoded MAX_READ_DURATION (300s)
 
         call_count = [0]
 
         def mock_recv(size):
             call_count[0] += 1
             if call_count[0] < 100:
-                return b"x"  # Drip data without newline
+                return make_docker_frame(b"x")
             return b""
 
         mock_socket._sock.recv = mock_recv
@@ -1095,7 +944,6 @@ class TestEffectiveDeadline:
         executor._raw_buffer = b""
         executor._content_buffer = b""
 
-        # Patch time to simulate passing just 16 seconds (should exceed timeout=5+10=15)
         start_time = 1000.0
         mono_calls = [0]
 
@@ -1107,7 +955,7 @@ class TestEffectiveDeadline:
 
         with patch("shesha.sandbox.executor.time.monotonic", mock_monotonic):
             with pytest.raises(ProtocolError):
-                executor._read_line(timeout=5)
+                executor._read_message(timeout=5)
 
 
 class TestBatchedLlmQuery:
@@ -1115,8 +963,6 @@ class TestBatchedLlmQuery:
 
     def test_execute_handles_batch_request(self):
         """execute() dispatches llm_query_batch prompts through handler."""
-        import json
-
         executor = ContainerExecutor()
         executor._socket = MagicMock()
 
@@ -1128,40 +974,34 @@ class TestBatchedLlmQuery:
 
         executor.llm_query_handler = mock_handler
 
-        batch_msg = json.dumps(
-            {
-                "action": "llm_query_batch",
-                "prompts": ["classify: cat", "classify: dog"],
-            }
-        )
-        exec_result_msg = json.dumps(
-            {
-                "status": "ok",
-                "stdout": "done\n",
-                "stderr": "",
-                "return_value": None,
-                "error": None,
-            }
-        )
+        batch_msg = {
+            "action": "llm_query_batch",
+            "prompts": ["classify: cat", "classify: dog"],
+        }
+        exec_result_msg = {
+            "status": "ok",
+            "stdout": "done\n",
+            "stderr": "",
+            "return_value": None,
+            "error": None,
+        }
 
         read_responses = iter([batch_msg, exec_result_msg])
 
-        with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+        with patch.object(executor, "_read_message", side_effect=read_responses):
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched(['classify: cat', 'classify: dog'])")
 
-        # Should have sent: execute command + batch response
         assert len(sent_data) == 2
-        batch_response = json.loads(sent_data[1].strip())
+        batch_response = sent_data[1]
         assert batch_response["action"] == "llm_batch_response"
         assert len(batch_response["results"]) == 2
 
     def test_execute_batch_runs_concurrently(self):
         """execute() dispatches batch prompts concurrently, not sequentially."""
-        import json
         import threading
 
         executor = ContainerExecutor()
@@ -1172,45 +1012,37 @@ class TestBatchedLlmQuery:
 
         def slow_handler(instruction: str, content: str) -> str:
             thread_ids.append(threading.current_thread().ident)
-            barrier.wait()  # All threads must arrive before any can proceed
+            barrier.wait()
             return f"result for: {instruction}"
 
         executor.llm_query_handler = slow_handler
 
-        batch_msg = json.dumps(
-            {
-                "action": "llm_query_batch",
-                "prompts": [f"prompt_{i}" for i in range(4)],
-            }
-        )
-        exec_result_msg = json.dumps(
-            {
-                "status": "ok",
-                "stdout": "",
-                "stderr": "",
-                "return_value": None,
-                "error": None,
-            }
-        )
+        batch_msg = {
+            "action": "llm_query_batch",
+            "prompts": [f"prompt_{i}" for i in range(4)],
+        }
+        exec_result_msg = {
+            "status": "ok",
+            "stdout": "",
+            "stderr": "",
+            "return_value": None,
+            "error": None,
+        }
 
         read_responses = iter([batch_msg, exec_result_msg])
 
-        with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+        with patch.object(executor, "_read_message", side_effect=read_responses):
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched([...])")
 
-        # Barrier would timeout if calls were sequential — all 4 must run concurrently
         assert len(thread_ids) == 4
-        # At least 2 different threads were used
         assert len(set(thread_ids)) >= 2
 
     def test_execute_batch_preserves_order(self):
         """Batch results are returned in same order as input prompts."""
-        import json
-
         executor = ContainerExecutor()
         executor._socket = MagicMock()
 
@@ -1220,69 +1052,53 @@ class TestBatchedLlmQuery:
         executor.llm_query_handler = ordered_handler
 
         prompts = [f"q{i}" for i in range(5)]
-        batch_msg = json.dumps(
-            {
-                "action": "llm_query_batch",
-                "prompts": prompts,
-            }
-        )
-        exec_result_msg = json.dumps(
-            {
-                "status": "ok",
-                "stdout": "",
-                "stderr": "",
-                "return_value": None,
-                "error": None,
-            }
-        )
+        batch_msg = {"action": "llm_query_batch", "prompts": prompts}
+        exec_result_msg = {
+            "status": "ok",
+            "stdout": "",
+            "stderr": "",
+            "return_value": None,
+            "error": None,
+        }
 
         read_responses = iter([batch_msg, exec_result_msg])
 
-        with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+        with patch.object(executor, "_read_message", side_effect=read_responses):
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched([...])")
 
-        batch_response = json.loads(sent_data[1].strip())
+        batch_response = sent_data[1]
         results = batch_response["results"]
         assert results == [f"answer_q{i}" for i in range(5)]
 
     def test_execute_batch_sends_error_on_no_handler(self):
         """execute() sends error when llm_query_batch is received with no handler."""
-        import json
-
         executor = ContainerExecutor()
         executor._socket = MagicMock()
         executor.llm_query_handler = None
 
-        batch_msg = json.dumps(
-            {
-                "action": "llm_query_batch",
-                "prompts": ["prompt1"],
-            }
-        )
-        exec_result_msg = json.dumps(
-            {
-                "status": "error",
-                "stdout": "",
-                "stderr": "",
-                "return_value": None,
-                "error": "ValueError: No LLM query handler configured",
-            }
-        )
+        batch_msg = {"action": "llm_query_batch", "prompts": ["prompt1"]}
+        exec_result_msg = {
+            "status": "error",
+            "stdout": "",
+            "stderr": "",
+            "return_value": None,
+            "error": "ValueError: No LLM query handler configured",
+        }
 
         read_responses = iter([batch_msg, exec_result_msg])
 
-        with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+        with patch.object(executor, "_read_message", side_effect=read_responses):
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched(['prompt1'])")
 
-        batch_response = json.loads(sent_data[1].strip())
+        batch_response = sent_data[1]
         assert batch_response["action"] == "llm_batch_response"
         assert "error" in batch_response
 
@@ -1302,7 +1118,6 @@ class TestExecutionMode:
 
     def test_execute_batch_sequential_in_deep_mode(self):
         """_execute_batch uses sequential loop when execution_mode='deep'."""
-        import json
         import threading
 
         executor = ContainerExecutor(execution_mode="deep")
@@ -1316,32 +1131,24 @@ class TestExecutionMode:
 
         executor.llm_query_handler = handler
 
-        batch_msg = json.dumps(
-            {
-                "action": "llm_query_batch",
-                "prompts": [f"prompt_{i}" for i in range(4)],
-            }
-        )
-        exec_result_msg = json.dumps(
-            {
-                "status": "ok",
-                "stdout": "",
-                "stderr": "",
-                "return_value": None,
-                "error": None,
-            }
-        )
+        batch_msg = {"action": "llm_query_batch", "prompts": [f"prompt_{i}" for i in range(4)]}
+        exec_result_msg = {
+            "status": "ok",
+            "stdout": "",
+            "stderr": "",
+            "return_value": None,
+            "error": None,
+        }
 
         read_responses = iter([batch_msg, exec_result_msg])
 
-        with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+        with patch.object(executor, "_read_message", side_effect=read_responses):
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched([...])")
 
-        # All calls should happen on the SAME thread (sequential, no pool)
         assert len(thread_ids) == 4
         assert len(set(thread_ids)) == 1, (
             f"Deep mode should run sequentially on one thread, got {len(set(thread_ids))} threads"
@@ -1349,7 +1156,6 @@ class TestExecutionMode:
 
     def test_execute_batch_concurrent_in_fast_mode(self):
         """_execute_batch uses ThreadPoolExecutor when execution_mode='fast'."""
-        import json
         import threading
 
         executor = ContainerExecutor(execution_mode="fast")
@@ -1365,32 +1171,24 @@ class TestExecutionMode:
 
         executor.llm_query_handler = handler
 
-        batch_msg = json.dumps(
-            {
-                "action": "llm_query_batch",
-                "prompts": [f"prompt_{i}" for i in range(4)],
-            }
-        )
-        exec_result_msg = json.dumps(
-            {
-                "status": "ok",
-                "stdout": "",
-                "stderr": "",
-                "return_value": None,
-                "error": None,
-            }
-        )
+        batch_msg = {"action": "llm_query_batch", "prompts": [f"prompt_{i}" for i in range(4)]}
+        exec_result_msg = {
+            "status": "ok",
+            "stdout": "",
+            "stderr": "",
+            "return_value": None,
+            "error": None,
+        }
 
         read_responses = iter([batch_msg, exec_result_msg])
 
-        with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+        with patch.object(executor, "_read_message", side_effect=read_responses):
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched([...])")
 
-        # Barrier would timeout if calls were sequential
         assert len(thread_ids) == 4
         assert len(set(thread_ids)) >= 2
 
@@ -1423,6 +1221,33 @@ class TestExecutionMode:
         assert captured_max_workers[0] <= 32, (
             f"max_workers should be capped, got {captured_max_workers[0]}"
         )
+
+
+class TestExecutionResultVars:
+    """Tests for vars field on ExecutionResult."""
+
+    def test_execution_result_vars_field(self) -> None:
+        """ExecutionResult has an optional vars field."""
+        result = ExecutionResult(
+            status="ok",
+            stdout="",
+            stderr="",
+            return_value=None,
+            error=None,
+            vars={"x": "int", "answer": "str"},
+        )
+        assert result.vars == {"x": "int", "answer": "str"}
+
+    def test_execution_result_vars_defaults_none(self) -> None:
+        """ExecutionResult.vars defaults to None."""
+        result = ExecutionResult(
+            status="ok",
+            stdout="",
+            stderr="",
+            return_value=None,
+            error=None,
+        )
+        assert result.vars is None
 
 
 class TestResetNamespace:

@@ -14,11 +14,12 @@ def valid_prompts_dir(tmp_path: Path) -> Path:
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir()
 
-    (prompts_dir / "system.md").write_text(
-        "Doc count: {doc_count}, chars: {total_chars:,}\n"
-        "Sizes: {doc_sizes_list}\n"
-        "Limit: {max_subcall_chars:,}"
+    (prompts_dir / "system.md").write_text("System prompt with no placeholders")
+    (prompts_dir / "context_metadata.md").write_text(
+        "Context is a {context_type} with {context_total_length} chars: {context_lengths}"
     )
+    (prompts_dir / "iteration_zero.md").write_text("Safeguard: {question}")
+    (prompts_dir / "iteration_continue.md").write_text("Continue: {question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
@@ -44,29 +45,59 @@ def test_loader_validates_on_init(tmp_path: Path):
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir()
 
-    # Missing required placeholder
-    (prompts_dir / "system.md").write_text("Missing placeholders")
-    (prompts_dir / "subcall.md").write_text("{instruction}\n{content}")
+    (prompts_dir / "system.md").write_text("System prompt")
+    # Missing required placeholder (context_type)
+    (prompts_dir / "context_metadata.md").write_text("Missing placeholders")
+    (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
+    (prompts_dir / "subcall.md").write_text(
+        "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
+    )
     (prompts_dir / "code_required.md").write_text("Write code.")
 
     with pytest.raises(PromptValidationError) as exc_info:
         PromptLoader(prompts_dir=prompts_dir)
-    assert "system.md" in str(exc_info.value)
+    assert "context_metadata.md" in str(exc_info.value)
 
 
 def test_loader_render_system_prompt(valid_prompts_dir: Path):
-    """PromptLoader renders system prompt with variables."""
+    """PromptLoader renders system prompt (no variables)."""
     loader = PromptLoader(prompts_dir=valid_prompts_dir)
-    result = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=10000,
-        doc_sizes_list="  - doc1: 5000\n  - doc2: 5000",
-        max_subcall_chars=500000,
+    result = loader.render_system_prompt()
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_system_prompt_unescapes_double_braces():
+    """System prompt {{var}} examples render as {var} for valid Python."""
+    loader = PromptLoader()
+    result = loader.render_system_prompt()
+    # The prompt contains f-string examples like f"...{chunk}..."
+    # These are stored as {{chunk}} in the template but must be
+    # unescaped to {chunk} when shown to the LLM
+    assert "{{" not in result, (
+        "System prompt contains escaped double braces that should be unescaped"
     )
-    assert "3" in result
-    assert "10,000" in result
-    assert "doc1" in result
-    assert "500,000" in result
+
+
+def test_loader_render_context_metadata(valid_prompts_dir: Path):
+    """PromptLoader renders context metadata with new variables."""
+    loader = PromptLoader(prompts_dir=valid_prompts_dir)
+    result = loader.render_context_metadata(
+        context_type="list",
+        context_total_length=10000,
+        context_lengths="[5000, 5000]",
+    )
+    assert "list" in result
+    assert "10000" in result
+    assert "[5000, 5000]" in result
+
+
+def test_loader_render_iteration_zero(valid_prompts_dir: Path):
+    """PromptLoader renders iteration-0 safeguard with question."""
+    loader = PromptLoader(prompts_dir=valid_prompts_dir)
+    result = loader.render_iteration_zero(question="What is this?")
+    assert "What is this?" in result
 
 
 def test_loader_render_subcall_prompt(valid_prompts_dir: Path):
@@ -107,9 +138,7 @@ def test_loader_raises_when_file_missing(tmp_path: Path):
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir()
     # Only create some files, not all
-    (prompts_dir / "system.md").write_text(
-        "{doc_count}{total_chars:,}{doc_sizes_list}{max_subcall_chars:,}"
-    )
+    (prompts_dir / "system.md").write_text("System prompt")
 
     with pytest.raises(FileNotFoundError) as exc_info:
         PromptLoader(prompts_dir=prompts_dir)
@@ -121,11 +150,12 @@ def test_loader_succeeds_without_optional_verify_files(tmp_path: Path):
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir()
 
-    (prompts_dir / "system.md").write_text(
-        "Doc count: {doc_count}, chars: {total_chars:,}\n"
-        "Sizes: {doc_sizes_list}\n"
-        "Limit: {max_subcall_chars:,}"
+    (prompts_dir / "system.md").write_text("System prompt")
+    (prompts_dir / "context_metadata.md").write_text(
+        "{context_type} {context_total_length} {context_lengths}"
     )
+    (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
@@ -141,9 +171,12 @@ def test_loader_render_verify_adversarial_raises_when_not_loaded(tmp_path: Path)
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir()
 
-    (prompts_dir / "system.md").write_text(
-        "{doc_count}{total_chars:,}{doc_sizes_list}{max_subcall_chars:,}"
+    (prompts_dir / "system.md").write_text("System prompt")
+    (prompts_dir / "context_metadata.md").write_text(
+        "{context_type} {context_total_length} {context_lengths}"
     )
+    (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
@@ -159,9 +192,12 @@ def test_loader_render_verify_code_raises_when_not_loaded(tmp_path: Path):
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir()
 
-    (prompts_dir / "system.md").write_text(
-        "{doc_count}{total_chars:,}{doc_sizes_list}{max_subcall_chars:,}"
+    (prompts_dir / "system.md").write_text("System prompt")
+    (prompts_dir / "context_metadata.md").write_text(
+        "{context_type} {context_total_length} {context_lengths}"
     )
+    (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
@@ -215,3 +251,10 @@ def test_loader_render_verify_code_prompt(valid_prompts_dir: Path):
     assert "def foo(): pass" in result
     # Escaped braces should become literal braces after rendering
     assert "{{ }}" in result
+
+
+def test_loader_render_iteration_continue(valid_prompts_dir: Path):
+    """PromptLoader renders iteration_continue prompt with question."""
+    loader = PromptLoader(prompts_dir=valid_prompts_dir)
+    result = loader.render_iteration_continue(question="What is the answer?")
+    assert "What is the answer?" in result

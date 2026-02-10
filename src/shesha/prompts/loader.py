@@ -87,19 +87,25 @@ class PromptLoader:
             validate_prompt(filename, content)
             self._prompts[filename] = content
 
-    def render_system_prompt(
+    def render_system_prompt(self) -> str:
+        """Render the system prompt (no variables -- 500K hardcoded).
+
+        Calls .format() to unescape {{/}} in code examples (e.g. {{chunk}} -> {chunk})
+        so the LLM sees valid Python f-string syntax.
+        """
+        return self._prompts["system.md"].format()
+
+    def render_context_metadata(
         self,
-        doc_count: int,
-        total_chars: int,
-        doc_sizes_list: str,
-        max_subcall_chars: int,
+        context_type: str,
+        context_total_length: int,
+        context_lengths: str,
     ) -> str:
-        """Render the system prompt with variables."""
-        return self._prompts["system.md"].format(
-            doc_count=doc_count,
-            total_chars=total_chars,
-            doc_sizes_list=doc_sizes_list,
-            max_subcall_chars=max_subcall_chars,
+        """Render context metadata as assistant message."""
+        return self._prompts["context_metadata.md"].format(
+            context_type=context_type,
+            context_total_length=context_total_length,
+            context_lengths=context_lengths,
         )
 
     def render_subcall_prompt(self, instruction: str, content: str) -> str:
@@ -108,6 +114,22 @@ class PromptLoader:
             instruction=instruction,
             content=content,
         )
+
+    def render_iteration_zero(self, question: str) -> str:
+        """Render the iteration-0 safeguard prompt.
+
+        Prevents the model from jumping to FINAL() without exploring
+        the REPL environment. Matches reference rlm/rlm/utils/prompts.py:136.
+        """
+        return self._prompts["iteration_zero.md"].format(question=question)
+
+    def render_iteration_continue(self, question: str) -> str:
+        """Render the per-iteration continuation prompt.
+
+        Re-instructs the model to use sub-LLMs each iteration.
+        Matches reference rlm/rlm/utils/prompts.py:141-143.
+        """
+        return self._prompts["iteration_continue.md"].format(question=question)
 
     def render_code_required(self) -> str:
         """Render the code_required prompt (no variables)."""

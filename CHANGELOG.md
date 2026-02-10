@@ -7,12 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Switched container-host protocol from newline-delimited JSON to 4-byte length-prefix framing; removes 1MB message size limit that caused executor crashes on large `llm_query()` payloads
+- Iteration feedback now sends per-code-block messages with code echo (matching reference RLM)
+- Per-iteration continuation prompt re-instructs model to use sub-LLMs via `iteration_continue.md`
+- Replaced inline reminder string with external prompt template
+
 ### Added
 
 - Analysis shortcut: questions answerable from the pre-computed codebase analysis are now answered directly via a single LLM call, skipping the full RLM pipeline (Docker sandbox, code execution, sub-LLM calls). Falls through to the full query automatically when deeper investigation is needed.
 - Fast/deep execution modes for `llm_query_batched`: fast (default) runs concurrent via thread pool, deep runs sequential for cross-chunk knowledge building
 - `execution_mode` parameter on `ContainerExecutor`, `RLMEngine`, and `Project`
 - `/fast`, `/deep`, and `/clear` TUI commands in repo explorer
+- `--model` CLI flag for example scripts (`repo.py`, `barsoom.py`); overrides `SHESHA_MODEL` env var
+- Model name display in TUI info bar (date suffix stripped for readability)
 - `OutputArea.clear()` method for resetting conversation display
 - Mode indicator (`Mode: Fast` / `Mode: Deep`) in TUI info bar
 

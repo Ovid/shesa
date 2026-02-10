@@ -10,9 +10,12 @@ def test_cli_validates_valid_prompts(tmp_path: Path):
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir()
 
-    (prompts_dir / "system.md").write_text(
-        "{doc_count} {total_chars:,} {doc_sizes_list} {max_subcall_chars:,}"
+    (prompts_dir / "system.md").write_text("System prompt with no placeholders")
+    (prompts_dir / "context_metadata.md").write_text(
+        "{context_type} {context_total_length} {context_lengths}"
     )
+    (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text(
         "{instruction}\n<untrusted_document_content>\n{content}\n</untrusted_document_content>"
     )
@@ -34,7 +37,11 @@ def test_cli_fails_invalid_prompts(tmp_path: Path):
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir()
 
-    (prompts_dir / "system.md").write_text("Missing all placeholders")
+    (prompts_dir / "system.md").write_text("System prompt")
+    # Missing required placeholders for context_metadata.md
+    (prompts_dir / "context_metadata.md").write_text("Missing placeholders")
+    (prompts_dir / "iteration_zero.md").write_text("{question}")
+    (prompts_dir / "iteration_continue.md").write_text("{question}")
     (prompts_dir / "subcall.md").write_text("{instruction}\n{content}")
     (prompts_dir / "code_required.md").write_text("Write code.")
     (prompts_dir / "verify_adversarial.md").write_text("Verify {findings} against {documents}.")
@@ -46,4 +53,4 @@ def test_cli_fails_invalid_prompts(tmp_path: Path):
         text=True,
     )
     assert result.returncode == 1
-    assert "system.md" in result.stdout or "system.md" in result.stderr
+    assert "context_metadata.md" in result.stdout or "context_metadata.md" in result.stderr

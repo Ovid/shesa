@@ -41,10 +41,18 @@ def test_extract_placeholders_ignores_escaped_braces():
 def test_prompt_schemas_defined():
     """PROMPT_SCHEMAS defines required placeholders for each prompt."""
     assert "system.md" in PROMPT_SCHEMAS
+    assert "context_metadata.md" in PROMPT_SCHEMAS
+    assert "iteration_zero.md" in PROMPT_SCHEMAS
     assert "subcall.md" in PROMPT_SCHEMAS
     assert "code_required.md" in PROMPT_SCHEMAS
 
-    assert "doc_count" in PROMPT_SCHEMAS["system.md"].required
+    assert PROMPT_SCHEMAS["system.md"].required == set()
+    assert PROMPT_SCHEMAS["context_metadata.md"].required == {
+        "context_type",
+        "context_total_length",
+        "context_lengths",
+    }
+    assert "question" in PROMPT_SCHEMAS["iteration_zero.md"].required
     assert "instruction" in PROMPT_SCHEMAS["subcall.md"].required
     assert PROMPT_SCHEMAS["code_required.md"].required == set()
 
@@ -115,9 +123,31 @@ def test_verify_code_schema_defined():
     assert schema.required_file is False
 
 
+def test_iteration_continue_schema_defined():
+    """PROMPT_SCHEMAS includes iteration_continue.md with required placeholders."""
+    assert "iteration_continue.md" in PROMPT_SCHEMAS
+    schema = PROMPT_SCHEMAS["iteration_continue.md"]
+    assert schema.required == {"question"}
+    assert schema.optional == set()
+    assert schema.required_file is True
+
+
+def test_validate_iteration_continue_passes_valid():
+    """validate_prompt passes for valid iteration_continue.md content."""
+    content = "Continue answering: {question}"
+    validate_prompt("iteration_continue.md", content)
+
+
 def test_core_schemas_are_required_files():
-    """Core prompt schemas (system, subcall, code_required) are required files."""
-    for name in ("system.md", "subcall.md", "code_required.md"):
+    """Core prompt schemas are required files."""
+    for name in (
+        "system.md",
+        "context_metadata.md",
+        "iteration_zero.md",
+        "iteration_continue.md",
+        "subcall.md",
+        "code_required.md",
+    ):
         assert PROMPT_SCHEMAS[name].required_file is True
 
 

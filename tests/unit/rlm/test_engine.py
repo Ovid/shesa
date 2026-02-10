@@ -24,14 +24,13 @@ And more text."""
     assert 'print("hello")' in blocks[0]
 
 
-def test_extract_code_blocks_finds_python():
-    """extract_code_blocks also finds ```python blocks."""
+def test_extract_code_blocks_ignores_python():
+    """extract_code_blocks only matches ```repl blocks, not ```python."""
     text = """```python
 x = 1
 ```"""
     blocks = extract_code_blocks(text)
-    assert len(blocks) == 1
-    assert "x = 1" in blocks[0]
+    assert len(blocks) == 0
 
 
 def test_query_result_dataclass():
@@ -145,6 +144,47 @@ class TestRLMEngine:
 
         assert result.answer == "The answer is 42"
         assert len(result.trace.steps) > 0
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_context_type_is_list_for_single_document(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Context metadata says 'list' even with one document (sandbox uses list)."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL("done")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer="done",
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")
+        engine.query(documents=["Single document content"], question="Q?")
+
+        # Find the assistant message with context metadata
+        messages = mock_llm.complete.call_args.kwargs["messages"]
+        metadata_msgs = [
+            m
+            for m in messages
+            if m.get("role") == "assistant" and "context" in m.get("content", "").lower()
+        ]
+        assert len(metadata_msgs) == 1
+        assert "list" in metadata_msgs[0]["content"]
+        assert "string" not in metadata_msgs[0]["content"]
 
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")
@@ -885,6 +925,44 @@ class TestRLMEngine:
         # Only 1 LLM call (main query), no verification calls
         assert mock_llm.complete.call_count == 1
 
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_handles_final_var(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine handles FINAL_VAR by using final_value from executor."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='```repl\nFINAL_VAR("my_answer")\n```',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="",
+            stderr="",
+            error=None,
+            final_answer=None,
+            final_var="my_answer",
+            final_value="The computed answer",
+            vars=None,
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model")
+        result = engine.query(
+            documents=["Doc content"],
+            question="What is the answer?",
+        )
+
+        assert result.answer == "The computed answer"
+
 
 class TestIterationQueryReminder:
     """Tests for query reminder appended to iteration messages."""
@@ -927,6 +1005,7 @@ class TestIterationQueryReminder:
                 error=None,
                 final_answer=None,
                 final_var=None,
+                vars=None,
             ),
             # Iteration 1: FINAL
             MagicMock(
@@ -936,6 +1015,7 @@ class TestIterationQueryReminder:
                 error=None,
                 final_answer="done",
                 final_var=None,
+                vars=None,
             ),
         ]
         mock_executor_cls.return_value = mock_executor
@@ -947,17 +1027,20 @@ class TestIterationQueryReminder:
         )
 
         # Check the messages sent on the second LLM call (iteration 1)
-        # The second call's messages should include the query reminder
         second_call_args = mock_llm.complete.call_args_list[1]
         messages = second_call_args[1].get(
             "messages", second_call_args[0][0] if second_call_args[0] else None
         )
-        # The last user message (from iteration 0's output) should have the reminder
         user_messages = [m for m in messages if m["role"] == "user"]
-        # The iteration output message (not the initial question) should contain reminder
-        iteration_output_msg = user_messages[-1]["content"]
-        assert "What color is the sky?" in iteration_output_msg
-        assert "repl_output" in iteration_output_msg  # Still has the REPL output
+
+        # Last user message is the continuation prompt with the original query
+        continuation_msg = user_messages[-1]["content"]
+        assert "What color is the sky?" in continuation_msg
+
+        # Second-to-last user message is the code echo with REPL output
+        code_echo_msg = user_messages[-2]["content"]
+        assert "REPL output:" in code_echo_msg
+        assert "Code executed:" in code_echo_msg
 
 
 class TestCallbackIterationCapture:
@@ -1008,9 +1091,23 @@ class TestCallbackIterationCapture:
                 if handler and callable(handler):
                     handler("summarize", "data")
                 return MagicMock(
-                    status="ok", stdout="hello", stderr="", error=None, final_answer=None
+                    status="ok",
+                    stdout="hello",
+                    stderr="",
+                    error=None,
+                    final_answer=None,
+                    final_var=None,
+                    vars=None,
                 )
-            return MagicMock(status="ok", stdout="", stderr="", error=None, final_answer="done")
+            return MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer="done",
+                final_var=None,
+                vars=None,
+            )
 
         mock_executor.execute.side_effect = mock_execute
 
@@ -1503,6 +1600,8 @@ class TestEngineTraceWriting:
             stderr="",
             error=None,
             final_answer=None,  # No final answer, loop continues
+            final_var=None,
+            vars=None,
         )
         mock_executor_cls.return_value = mock_executor
 
@@ -1945,3 +2044,242 @@ class TestHandleLlmQueryThreadSafety:
         # Token counts should reflect all calls
         assert token_usage.prompt_tokens == n_calls * 10
         assert token_usage.completion_tokens == n_calls * 5
+
+
+class TestFindFinalAnswerInText:
+    """Tests for find_final_answer detecting bare FINAL/FINAL_VAR in response text."""
+
+    def test_find_final_answer_bare_final(self):
+        """Detects bare FINAL("answer") outside code blocks."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = 'FINAL("human being")'
+        result = find_final_answer(text)
+        assert result == ("final", '"human being"')
+
+    def test_find_final_answer_bare_final_var(self):
+        """Detects bare FINAL_VAR(var_name) outside code blocks."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = "FINAL_VAR(my_answer)"
+        result = find_final_answer(text)
+        assert result == ("final_var", "my_answer")
+
+    def test_find_final_answer_returns_none_for_no_match(self):
+        """Returns None when no FINAL pattern is present."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = "Let me continue exploring the data."
+        result = find_final_answer(text)
+        assert result is None
+
+    def test_find_final_answer_ignores_inside_repl_block(self):
+        """Does NOT match FINAL inside a ```repl block (handled by executor)."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = '```repl\nFINAL("answer")\n```'
+        result = find_final_answer(text)
+        assert result is None
+
+    def test_find_final_answer_with_leading_whitespace(self):
+        """FINAL at start of line with whitespace is detected."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = '  FINAL("the answer")'
+        result = find_final_answer(text)
+        assert result == ("final", '"the answer"')
+
+    def test_find_final_answer_strips_quotes_from_var(self):
+        """FINAL_VAR with quoted variable name strips quotes."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = 'FINAL_VAR("my_var")'
+        result = find_final_answer(text)
+        assert result == ("final_var", "my_var")
+
+    def test_find_final_answer_unquoted_content(self):
+        """FINAL(bare text) without quotes is detected (reference RLM compat)."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL(42)")
+        assert result == ("final", "42")
+
+    def test_find_final_answer_single_quoted_content(self):
+        """FINAL('single quoted') is detected (reference RLM compat)."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL('hello world')")
+        assert result == ("final", "'hello world'")
+
+    def test_find_final_answer_nested_parentheses(self):
+        """FINAL with nested parens uses greedy match (reference RLM compat)."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("FINAL(func(arg1, arg2))")
+        assert result == ("final", "func(arg1, arg2)")
+
+    def test_find_final_answer_not_mid_line(self):
+        """FINAL mid-line (not at start) should NOT match."""
+        from shesha.rlm.engine import find_final_answer
+
+        result = find_final_answer("The result is FINAL(42)")
+        assert result is None
+
+    def test_find_final_answer_multiline_content(self):
+        """FINAL with multiline content is captured."""
+        from shesha.rlm.engine import find_final_answer
+
+        text = "FINAL(This is a\nmultiline answer)"
+        result = find_final_answer(text)
+        assert result is not None
+        assert result[0] == "final"
+        assert "multiline" in result[1]
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_detects_bare_final_var_in_response(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine detects bare FINAL_VAR(x) and retrieves variable from sandbox."""
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            # Iteration 0: set up variable
+            MagicMock(
+                content='```repl\nmy_answer = "human being"\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Iteration 1: bare FINAL_VAR (no repl block)
+            MagicMock(
+                content="FINAL_VAR(my_answer)",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # Iteration 0: code execution (no FINAL)
+            MagicMock(
+                status="ok",
+                stdout="",
+                stderr="",
+                error=None,
+                final_answer=None,
+                final_var=None,
+                vars={"my_answer": "str"},
+            ),
+            # Iteration 1: executor retrieves variable value
+            MagicMock(
+                status="ok",
+                stdout="human being",
+                stderr="",
+                error=None,
+                final_answer=None,
+                final_var=None,
+                vars=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["Doc content"],
+            question="What is the least common label?",
+        )
+
+        assert result.answer == "human being"
+        # Should only take 2 LLM calls, not burn through all 5 iterations
+        assert mock_llm.complete.call_count == 2
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_detects_bare_final_in_response(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine detects bare FINAL("string") and uses it as answer."""
+        mock_llm = MagicMock()
+        mock_llm.complete.return_value = MagicMock(
+            content='FINAL("the answer is 42")',
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+        )
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["Doc content"],
+            question="What?",
+        )
+
+        assert result.answer == '"the answer is 42"'
+        # Only 1 LLM call needed
+        assert mock_llm.complete.call_count == 1
+
+
+class TestMaxIterationsFallback:
+    """Tests for max-iterations LLM fallback."""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_max_iterations_asks_llm_for_final_answer(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """When max iterations reached, engine asks LLM for one last answer."""
+        mock_llm = MagicMock()
+        responses = [
+            MagicMock(
+                content='```repl\nprint("exploring")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            MagicMock(
+                content='```repl\nprint("still exploring")\n```',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            MagicMock(
+                content="The answer is 42 based on my analysis.",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm.complete.side_effect = responses
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.return_value = MagicMock(
+            status="ok",
+            stdout="output",
+            stderr="",
+            error=None,
+            final_answer=None,
+            final_var=None,
+            vars=None,
+        )
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=2)
+        result = engine.query(documents=["Doc"], question="What?")
+
+        assert result.answer == "The answer is 42 based on my analysis."
+        assert mock_llm.complete.call_count == 3

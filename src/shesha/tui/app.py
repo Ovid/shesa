@@ -139,7 +139,7 @@ class SheshaTUI(App[None]):
     def compose(self) -> ComposeResult:
         """Create the app layout."""
         yield OutputArea()
-        yield InfoBar(project_name=self._project_name)
+        yield InfoBar(project_name=self._project_name, model=self._model or "")
         yield CompletionPopup()
         with Horizontal(id="input-row"):
             yield Static("\u276f", id="prompt")

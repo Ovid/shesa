@@ -15,7 +15,11 @@ class PromptSchema:
 
 PROMPT_SCHEMAS: dict[str, PromptSchema] = {
     "system.md": PromptSchema(
-        required={"doc_count", "total_chars", "doc_sizes_list", "max_subcall_chars"},
+        required=set(),
+        optional=set(),
+    ),
+    "context_metadata.md": PromptSchema(
+        required={"context_type", "context_total_length", "context_lengths"},
         optional=set(),
     ),
     "subcall.md": PromptSchema(
@@ -24,6 +28,14 @@ PROMPT_SCHEMAS: dict[str, PromptSchema] = {
     ),
     "code_required.md": PromptSchema(
         required=set(),
+        optional=set(),
+    ),
+    "iteration_zero.md": PromptSchema(
+        required={"question"},
+        optional=set(),
+    ),
+    "iteration_continue.md": PromptSchema(
+        required={"question"},
         optional=set(),
     ),
     "verify_adversarial.md": PromptSchema(

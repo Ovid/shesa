@@ -13,7 +13,11 @@ from pathlib import Path
 from shesha.llm.client import LLMClient
 from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
-from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output, wrap_subcall_content
+from shesha.rlm.prompts import (
+    format_code_echo,
+    truncate_code_output,
+    wrap_subcall_content,
+)
 from shesha.rlm.semantic_verification import (
     SemanticVerificationReport,
     detect_content_type,
@@ -48,10 +52,43 @@ class QueryResult:
 
 
 def extract_code_blocks(text: str) -> list[str]:
-    """Extract code from ```repl or ```python blocks."""
-    pattern = r"```(?:repl|python)\n(.*?)```"
+    """Extract code from ```repl blocks."""
+    pattern = r"```repl\s*\n(.*?)\n```"
     matches = re.findall(pattern, text, re.DOTALL)
     return matches
+
+
+def find_final_answer(text: str) -> tuple[str, str] | None:
+    """Find bare FINAL(...) or FINAL_VAR(...) in response text outside code blocks.
+
+    Matches the reference RLM's find_final_answer (rlm/rlm/utils/parsing.py:29-63).
+    The model sometimes outputs FINAL_VAR(x) as bare text instead of inside a
+    ```repl block. This function catches those cases.
+
+    Returns:
+        ("final", answer_string) for FINAL(...)
+        ("final_var", variable_name) for FINAL_VAR(...)
+        None if no pattern found
+    """
+    # Strip code blocks so we don't match FINAL inside ```repl blocks
+    # (those are handled by the executor)
+    stripped = re.sub(r"```repl\s*\n.*?\n```", "", text, flags=re.DOTALL)
+
+    # Check FINAL_VAR first (more specific pattern)
+    final_var_pattern = r"^\s*FINAL_VAR\((.*?)\)"
+    match = re.search(final_var_pattern, stripped, re.MULTILINE | re.DOTALL)
+    if match:
+        var_name = match.group(1).strip().strip('"').strip("'")
+        return ("final_var", var_name)
+
+    # Check FINAL pattern — greedy match to handle nested parentheses,
+    # no quote requirement (aligned with reference RLM rlm/utils/parsing.py:58)
+    final_pattern = r"^\s*FINAL\((.*)\)\s*$"
+    match = re.search(final_pattern, stripped, re.MULTILINE | re.DOTALL)
+    if match:
+        return ("final", match.group(1).strip())
+
+    return None
 
 
 class RLMEngine:
@@ -62,7 +99,10 @@ class RLMEngine:
         model: str,
         api_key: str | None = None,
         max_iterations: int = 20,
-        max_output_chars: int = 50000,
+        # 20K per-block limit matches reference RLM (rlm/rlm/utils/parsing.py:67).
+        # This is a forcing function: when context exceeds the truncation limit,
+        # the model must use llm_query() to analyze content it cannot see.
+        max_output_chars: int = 20_000,
         execution_timeout: int = 30,
         max_subcall_content_chars: int = 500_000,
         prompts_dir: Path | None = None,
@@ -340,22 +380,23 @@ class RLMEngine:
         if doc_names is None:
             doc_names = [f"doc_{i}" for i in range(len(documents))]
 
-        # Build system prompt with per-document sizes
+        # Build system prompt (no variables — 500K hardcoded in template)
         doc_sizes = [len(d) for d in documents]
         total_chars = sum(doc_sizes)
 
-        # Build document sizes list
-        size_lines = []
-        for i, (name, size) in enumerate(zip(doc_names, doc_sizes)):
-            warning = " EXCEEDS LIMIT - must chunk" if size > MAX_SUBCALL_CHARS else ""
-            size_lines.append(f"    - context[{i}] ({name}): {size:,} chars{warning}")
-        doc_sizes_list = "\n".join(size_lines)
+        system_prompt = self.prompt_loader.render_system_prompt()
 
-        system_prompt = self.prompt_loader.render_system_prompt(
-            doc_count=len(documents),
-            total_chars=total_chars,
-            doc_sizes_list=doc_sizes_list,
-            max_subcall_chars=MAX_SUBCALL_CHARS,
+        # Context metadata as assistant message: primes the model to
+        # continue working rather than start fresh. Matches reference
+        # rlm/rlm/utils/prompts.py:119-122.
+        # Always "list" — the sandbox sets context as list[str] regardless of count.
+        # Matches reference RLM (rlm/core/types.py:244-245).
+        context_type = "list"
+        context_lengths = str(doc_sizes)
+        context_metadata = self.prompt_loader.render_context_metadata(
+            context_type=context_type,
+            context_total_length=total_chars,
+            context_lengths=context_lengths,
         )
 
         # Set up incremental trace writer
@@ -398,8 +439,13 @@ class RLMEngine:
         # Initialize LLM client
         llm = LLMClient(model=self.model, system_prompt=system_prompt, api_key=self.api_key)
 
-        # Initialize conversation
-        messages: list[dict[str, str]] = [{"role": "user", "content": question}]
+        # Iteration-0 safeguard: prevent model from jumping to FINAL()
+        # without exploring. Matches reference rlm/rlm/utils/prompts.py:136.
+        first_user_msg = self.prompt_loader.render_iteration_zero(question=question)
+        messages: list[dict[str, str]] = [
+            {"role": "assistant", "content": context_metadata},
+            {"role": "user", "content": first_user_msg},
+        ]
 
         # Factory to create a callback with a frozen iteration value.
         # Without this, a closure over a mutable variable risks capturing
@@ -457,6 +503,46 @@ class RLMEngine:
                         copy.copy(token_usage),
                     )
 
+                # Check for bare FINAL/FINAL_VAR in response text (outside code blocks).
+                # The model sometimes outputs FINAL_VAR(x) as bare text without a
+                # ```repl block. Matches reference rlm/rlm/core/rlm.py:240.
+                bare_final = find_final_answer(response.content)
+                if bare_final is not None:
+                    final_type, final_value = bare_final
+                    if final_type == "final_var":
+                        # Retrieve variable value from sandbox
+                        retrieve_result = executor.execute(
+                            f"print({final_value})", timeout=self.execution_timeout
+                        )
+                        bare_answer = (
+                            retrieve_result.stdout.strip() if retrieve_result.stdout else ""
+                        )
+                    else:
+                        bare_answer = final_value
+
+                    step = trace.add_step(
+                        type=StepType.FINAL_ANSWER,
+                        content=bare_answer,
+                        iteration=iteration,
+                    )
+                    _write_step(step)
+                    if on_progress:
+                        on_progress(
+                            StepType.FINAL_ANSWER,
+                            iteration,
+                            bare_answer,
+                            copy.copy(token_usage),
+                        )
+
+                    query_result = QueryResult(
+                        answer=bare_answer,
+                        trace=trace,
+                        token_usage=token_usage,
+                        execution_time=time.time() - start_time,
+                    )
+                    _finalize_trace(bare_answer, "success")
+                    return query_result
+
                 # Extract code blocks
                 code_blocks = extract_code_blocks(response.content)
                 if not code_blocks:
@@ -472,6 +558,7 @@ class RLMEngine:
 
                 # Execute code blocks
                 all_output = []
+                exec_results = []
                 final_answer = None
 
                 for code in code_blocks:
@@ -489,6 +576,9 @@ class RLMEngine:
 
                     output = "\n".join(output_parts) if output_parts else "(no output)"
 
+                    # Truncate each code block's output individually (forcing function)
+                    output = truncate_code_output(output, self.max_output_chars)
+
                     step = trace.add_step(
                         type=StepType.CODE_OUTPUT,
                         content=output,
@@ -500,6 +590,7 @@ class RLMEngine:
                         on_progress(StepType.CODE_OUTPUT, iteration, output, copy.copy(token_usage))
 
                     all_output.append(output)
+                    exec_results.append(result)
 
                     # Check for final answer (use `is not None` to catch falsy
                     # values like FINAL(0), FINAL(""), FINAL(False))
@@ -511,6 +602,22 @@ class RLMEngine:
                             if isinstance(result.final_answer, str)
                             else str(result.final_answer)
                         )
+                        step = trace.add_step(
+                            type=StepType.FINAL_ANSWER,
+                            content=final_answer,
+                            iteration=iteration,
+                        )
+                        _write_step(step)
+                        if on_progress:
+                            on_progress(
+                                StepType.FINAL_ANSWER,
+                                iteration,
+                                final_answer,
+                                copy.copy(token_usage),
+                            )
+                        break
+                    elif result.final_var is not None:
+                        final_answer = result.final_value or ""
                         step = trace.add_step(
                             type=StepType.FINAL_ANSWER,
                             content=final_answer,
@@ -621,23 +728,46 @@ class RLMEngine:
                     _finalize_trace(answer, "executor_died")
                     return query_result
 
-                # Add output to conversation
-                combined_output = "\n\n".join(all_output)
-                wrapped_output = wrap_repl_output(combined_output, self.max_output_chars)
-
-                # Append query reminder so the model stays focused across iterations
-                reminder = (
-                    "Continue using the REPL environment to answer"
-                    f' the original query: "{question}"\n'
-                    "Your next action:"
-                )
-                iteration_msg = f"{wrapped_output}\n\n{reminder}"
-
+                # Add assistant response, then per-block code echo messages
                 messages.append({"role": "assistant", "content": response.content})
-                messages.append({"role": "user", "content": iteration_msg})
+                for code_block, output, exec_result in zip(code_blocks, all_output, exec_results):
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": format_code_echo(code_block, output, exec_result.vars),
+                        }
+                    )
 
-            # Max iterations reached
-            answer = "[Max iterations reached without final answer]"
+                # Per-iteration continuation prompt re-instructs sub-LLM usage
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": self.prompt_loader.render_iteration_continue(
+                            question=question,
+                        ),
+                    }
+                )
+
+            # Max iterations reached — ask LLM for one last answer
+            fallback_messages = messages + [
+                {
+                    "role": "assistant",
+                    "content": "Please provide a final answer to the user's question "
+                    "based on the information provided.",
+                }
+            ]
+            response = llm.complete(messages=fallback_messages)
+            token_usage.prompt_tokens += response.prompt_tokens
+            token_usage.completion_tokens += response.completion_tokens
+            answer = response.content
+
+            step = trace.add_step(
+                type=StepType.FINAL_ANSWER,
+                content=f"[max-iter fallback] {answer}",
+                iteration=self.max_iterations - 1,
+            )
+            _write_step(step)
+
             query_result = QueryResult(
                 answer=answer,
                 trace=trace,

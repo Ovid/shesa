@@ -1,71 +1,22 @@
 """Tests for RLM prompts."""
 
 from shesha.prompts import PromptLoader
-from shesha.rlm.prompts import MAX_SUBCALL_CHARS, wrap_repl_output
+from shesha.rlm.prompts import truncate_code_output
 
 
-def _build_doc_sizes_list(doc_infos: list[tuple[str, str]]) -> str:
-    """Build doc_sizes_list string from list of (name, size_str) tuples."""
-    lines = [f"    - context[{i}] ({name}): {size}" for i, (name, size) in enumerate(doc_infos)]
-    return "\n".join(lines)
-
-
-def test_system_prompt_contains_security_warning():
-    """System prompt contains prompt injection warning."""
+def test_system_prompt_no_longer_contains_metadata():
+    """System prompt does not contain dynamic metadata placeholders."""
     loader = PromptLoader()
-
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "3,000 chars"),
-            ("b.txt", "3,500 chars"),
-            ("c.txt", "3,500 chars"),
-        ]
-    )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=10000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
-    assert "untrusted" in prompt.lower()
-    assert "adversarial" in prompt.lower() or "injection" in prompt.lower()
-
-
-def test_system_prompt_contains_context_info():
-    """System prompt contains context information."""
-    loader = PromptLoader()
-
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "3,000 chars"),
-            ("b.txt", "3,500 chars"),
-            ("c.txt", "3,500 chars"),
-        ]
-    )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=10000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
-    assert "3" in prompt  # doc count
-    assert "a.txt" in prompt
+    prompt = loader.render_system_prompt()
+    assert "{doc_count}" not in prompt
+    assert "{total_chars" not in prompt
+    assert "{doc_sizes_list}" not in prompt
 
 
 def test_system_prompt_explains_final():
     """System prompt explains FINAL function."""
     loader = PromptLoader()
-
-    doc_sizes_list = "    - context[0] (doc.txt): 100 chars"
-
-    prompt = loader.render_system_prompt(
-        doc_count=1,
-        total_chars=100,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
+    prompt = loader.render_system_prompt()
     assert "FINAL" in prompt
 
 
@@ -86,48 +37,16 @@ def test_subcall_prompt_wraps_content():
 def test_system_prompt_contains_sub_llm_limit():
     """System prompt tells LLM about sub-LLM character limit."""
     loader = PromptLoader()
-
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "30,000 chars"),
-            ("b.txt", "35,000 chars"),
-            ("c.txt", "35,000 chars"),
-        ]
-    )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=100000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
-    # Must mention the limit (500,000 formatted with commas)
-    assert "500,000" in prompt or "500000" in prompt
+    prompt = loader.render_system_prompt()
+    assert "500K" in prompt or "500,000" in prompt or "500000" in prompt
 
 
 def test_system_prompt_contains_chunking_guidance():
     """System prompt explains chunking strategy for large documents."""
     loader = PromptLoader()
-
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "30,000 chars"),
-            ("b.txt", "35,000 chars"),
-            ("c.txt", "35,000 chars"),
-        ]
-    )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=100000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
+    prompt = loader.render_system_prompt()
     prompt_lower = prompt.lower()
-    # Must explain chunking strategy
     assert "chunk" in prompt_lower
-    # Must mention buffer pattern for complex queries
-    assert "buffer" in prompt_lower
 
 
 def test_subcall_prompt_no_size_limit():
@@ -145,103 +64,29 @@ def test_subcall_prompt_no_size_limit():
     assert "<untrusted_document_content>" in prompt
 
 
-def test_system_prompt_requires_document_grounding():
-    """System prompt instructs LLM to answer only from documents, not own knowledge."""
+def test_context_metadata_prompt_exists():
+    """PromptLoader can render context metadata."""
     loader = PromptLoader()
-
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "3,000 chars"),
-            ("b.txt", "3,500 chars"),
-            ("c.txt", "3,500 chars"),
-        ]
+    result = loader.render_context_metadata(
+        context_type="list",
+        context_total_length=15000,
+        context_lengths="[5000, 4000, 6000]",
     )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=10000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
-    prompt_lower = prompt.lower()
-
-    # Must instruct to use only documents
-    assert "only" in prompt_lower and "document" in prompt_lower
-
-    # Must instruct to not use own knowledge
-    assert "own knowledge" in prompt_lower or "prior knowledge" in prompt_lower
-
-    # Must instruct what to do if info not found
-    assert "not found" in prompt_lower or "not contain" in prompt_lower
+    assert isinstance(result, str)
+    assert len(result) > 0
 
 
-def test_system_prompt_includes_per_document_sizes():
-    """System prompt shows size of each document when doc_sizes provided."""
+def test_context_metadata_contains_doc_info():
+    """Rendered context metadata includes type, total chars, and chunk lengths."""
     loader = PromptLoader()
-
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "5,000 chars"),
-            ("b.txt", "4,000 chars"),
-            ("c.txt", "6,000 chars"),
-        ]
+    result = loader.render_context_metadata(
+        context_type="list",
+        context_total_length=15000,
+        context_lengths="[5000, 4000, 6000]",
     )
-
-    prompt = loader.render_system_prompt(
-        doc_count=3,
-        total_chars=15000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
-    # Should show each document with its size
-    assert "context[0]" in prompt
-    assert "a.txt" in prompt
-    assert "5,000" in prompt
-    assert "context[1]" in prompt
-    assert "b.txt" in prompt
-    assert "4,000" in prompt
-
-
-def test_system_prompt_warns_about_oversized_documents():
-    """System prompt warns when a document exceeds the sub-LLM limit."""
-    loader = PromptLoader()
-
-    oversized = MAX_SUBCALL_CHARS + 10000  # Slightly over limit
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("small.txt", "100,000 chars"),
-            ("large.txt", f"{oversized:,} chars EXCEEDS LIMIT - must chunk"),
-        ]
-    )
-
-    prompt = loader.render_system_prompt(
-        doc_count=2,
-        total_chars=oversized + 100000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
-    # Should warn about the oversized document
-    assert "EXCEEDS LIMIT" in prompt or "must chunk" in prompt.lower()
-    # The small one should not have a warning
-    assert "small.txt" in prompt
-
-
-def test_system_prompt_explains_error_handling():
-    """System prompt explains how to handle size limit errors."""
-    loader = PromptLoader()
-
-    doc_sizes_list = "    - context[0] (doc.txt): 1,000 chars"
-
-    prompt = loader.render_system_prompt(
-        doc_count=1,
-        total_chars=1000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
-    prompt_lower = prompt.lower()
-    # Must explain what to do when hitting limit
-    assert "error" in prompt_lower
-    assert "retry" in prompt_lower or "chunk" in prompt_lower
+    assert "list" in result
+    assert "15000" in result
+    assert "[5000, 4000, 6000]" in result
 
 
 def test_code_required_prompt():
@@ -254,26 +99,37 @@ def test_code_required_prompt():
     assert "repl" in prompt.lower() or "code" in prompt.lower()
 
 
-def test_wrap_repl_output_basic():
-    """wrap_repl_output wraps output in untrusted tags."""
-    output = "print result"
+def test_truncate_code_output_under_limit():
+    """Output under the limit is returned unchanged."""
+    output = "x" * 19000  # Under 20K
 
-    wrapped = wrap_repl_output(output)
+    result = truncate_code_output(output, max_chars=20_000)
 
-    assert '<repl_output type="untrusted_document_content">' in wrapped
-    assert "</repl_output>" in wrapped
-    assert "print result" in wrapped
+    assert result == output
 
 
-def test_wrap_repl_output_truncates_large_output():
-    """wrap_repl_output truncates output exceeding max_chars."""
-    large_output = "x" * 60000  # 60K chars
+def test_truncate_code_output_over_limit():
+    """Output over the limit is truncated with a nudge message."""
+    output = "x" * 25000  # Over 20K
 
-    wrapped = wrap_repl_output(large_output, max_chars=50000)
+    result = truncate_code_output(output, max_chars=20_000)
 
-    # Should be truncated
-    assert "truncated" in wrapped.lower()
-    assert "10,000" in wrapped or "10000" in wrapped  # chars omitted
+    # Should be truncated to max_chars
+    assert len(result) < len(output)
+    # Should include nudge message referencing llm_query()
+    assert "truncated" in result.lower()
+    assert "20,000" in result
+    assert "25,000" in result
+    assert "llm_query()" in result
+
+
+def test_truncate_code_output_exact_limit():
+    """Output exactly at the limit is returned unchanged."""
+    output = "x" * 20_000
+
+    result = truncate_code_output(output, max_chars=20_000)
+
+    assert result == output
 
 
 def test_wrap_subcall_content_basic():
@@ -299,104 +155,146 @@ def test_wrap_subcall_content_preserves_full_content():
     assert "truncated" not in wrapped.lower()
 
 
-def _render_default_prompt() -> str:
-    """Helper to render a system prompt with default test values."""
+def test_iteration_zero_prompt_exists():
+    """PromptLoader can render an iteration-0 prompt template."""
     loader = PromptLoader()
-    doc_sizes_list = _build_doc_sizes_list(
-        [
-            ("a.txt", "3,000 chars"),
-            ("b.txt", "3,500 chars"),
-            ("c.txt", "3,500 chars"),
-        ]
-    )
-    return loader.render_system_prompt(
-        doc_count=3,
-        total_chars=10000,
-        doc_sizes_list=doc_sizes_list,
-        max_subcall_chars=MAX_SUBCALL_CHARS,
-    )
+    result = loader.render_iteration_zero(question="What color is the sky?")
+    assert isinstance(result, str)
+    assert len(result) > 0
 
 
-def test_system_prompt_contains_scout_and_analyze_phases():
-    """System prompt describes scout and analyze phases."""
-    prompt = _render_default_prompt()
-    prompt_lower = prompt.lower()
-
-    # Must mention scout and analyze phases
-    assert "scout" in prompt_lower
-    assert "analyze" in prompt_lower
+def test_iteration_zero_prompt_contains_safeguard():
+    """Rendered iteration-0 template includes safeguard language."""
+    loader = PromptLoader()
+    result = loader.render_iteration_zero(question="What color is the sky?")
+    assert "don't just provide a final answer yet" in result.lower()
+    assert "look through" in result.lower()
 
 
-def test_system_prompt_recommends_chunk_classify_synthesize():
-    """System prompt teaches the chunk → llm_query per chunk → buffer → synthesize strategy."""
-    prompt = _render_default_prompt()
-    prompt_lower = prompt.lower()
-
-    # Must describe the chunking strategy
-    assert "chunk" in prompt_lower
-    # Must describe querying per chunk
-    assert "per chunk" in prompt_lower or "each chunk" in prompt_lower
-    # Must describe buffer/synthesize pattern
-    assert "buffer" in prompt_lower
-
-
-def test_system_prompt_error_handling_uses_try_except():
-    """Error handling section uses try/except, not string-check pattern."""
-    prompt = _render_default_prompt()
-
-    # Must use try/except pattern
-    assert "try:" in prompt
-    assert "except ValueError" in prompt or "except ValueError:" in prompt
-    # Must NOT use the old string-check pattern
-    assert '"exceeds" in result' not in prompt
+def test_iteration_zero_prompt_includes_question():
+    """Rendered iteration-0 template includes the question."""
+    loader = PromptLoader()
+    result = loader.render_iteration_zero(question="What color is the sky?")
+    assert "What color is the sky?" in result
 
 
 def test_system_prompt_encourages_subcall_use():
     """System prompt encourages using llm_query for semantic analysis."""
-    prompt = _render_default_prompt()
+    loader = PromptLoader()
+    prompt = loader.render_system_prompt()
     prompt_lower = prompt.lower()
-
-    # Must encourage sub-call use, not minimize it
     assert "strongly encouraged" in prompt_lower
-    # Must mention semantic analysis as a use case
-    assert "semantic" in prompt_lower
-    # Must mention batching for efficiency
-    assert "batch" in prompt_lower
+    assert "batch" in prompt_lower or "batched" in prompt_lower
 
 
 def test_system_prompt_truncation_warning():
     """System prompt warns that REPL output is truncated to motivate sub-call usage."""
-    prompt = _render_default_prompt()
+    loader = PromptLoader()
+    prompt = loader.render_system_prompt()
     prompt_lower = prompt.lower()
-
     assert "truncated" in prompt_lower
-    assert "llm_query" in prompt_lower
 
 
 def test_system_prompt_confidence_framing():
     """System prompt encourages heavy sub-call usage with confidence framing."""
-    prompt = _render_default_prompt()
+    loader = PromptLoader()
+    prompt = loader.render_system_prompt()
     prompt_lower = prompt.lower()
-
-    # Must frame sub-LLMs as powerful and encourage large payloads
     assert "powerful" in prompt_lower
     assert "don't be afraid" in prompt_lower
 
 
-def test_system_prompt_has_multiple_examples():
-    """System prompt has multiple example patterns showing llm_query usage."""
-    prompt = _render_default_prompt()
-
-    # Must have at least 3 examples (simple, iterative, batched)
-    assert "Example 1" in prompt
-    assert "Example 2" in prompt
-    assert "Example 3" in prompt
-
-
 def test_system_prompt_examples_use_llm_query():
-    """All examples demonstrate llm_query or llm_query_batched usage."""
-    prompt = _render_default_prompt()
-
-    # Every example should use llm_query or llm_query_batched
+    """Examples demonstrate llm_query or llm_query_batched usage."""
+    loader = PromptLoader()
+    prompt = loader.render_system_prompt()
     assert "llm_query(" in prompt
     assert "llm_query_batched(" in prompt
+
+
+def test_iteration_continue_prompt_exists():
+    """PromptLoader can render an iteration-continue prompt template."""
+    loader = PromptLoader()
+    result = loader.render_iteration_continue(question="What color is the sky?")
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_iteration_continue_prompt_mentions_sub_llms():
+    """Rendered iteration-continue template mentions sub-LLMs."""
+    loader = PromptLoader()
+    result = loader.render_iteration_continue(question="What color is the sky?")
+    assert "sub-LLM" in result or "sub-llm" in result.lower() or "querying" in result.lower()
+
+
+def test_format_code_echo_message():
+    """Code echo message contains both the code and output."""
+    from shesha.rlm.prompts import format_code_echo
+
+    code = 'print("hello")'
+    output = "hello"
+    result = format_code_echo(code, output)
+
+    assert "Code executed:" in result
+    assert 'print("hello")' in result
+    assert "```python" in result
+    assert "REPL output:" in result
+    assert "hello" in result
+
+
+def test_format_code_echo_with_vars():
+    """Code echo includes REPL variables list when vars provided."""
+    from shesha.rlm.prompts import format_code_echo
+
+    code = "x = 42"
+    output = ""
+    vars_dict = {"x": "int", "answer": "str"}
+    result = format_code_echo(code, output, vars=vars_dict)
+
+    assert "REPL variables:" in result
+    assert "x" in result
+    assert "answer" in result
+
+
+def test_format_code_echo_without_vars():
+    """Code echo omits REPL variables when vars is None."""
+    from shesha.rlm.prompts import format_code_echo
+
+    code = 'print("hello")'
+    output = "hello"
+    result = format_code_echo(code, output)
+
+    assert "REPL variables:" not in result
+    assert "REPL output:" in result
+    assert "hello" in result
+
+
+def test_format_code_echo_no_repl_output_tags():
+    """Code echo uses plain 'REPL output:' not XML tags."""
+    from shesha.rlm.prompts import format_code_echo
+
+    result = format_code_echo("code", "output")
+    assert "<repl_output" not in result
+    assert "REPL output:" in result
+
+
+def test_system_prompt_describes_show_vars():
+    """System prompt describes SHOW_VARS() function."""
+    loader = PromptLoader()
+    prompt = loader.render_system_prompt()
+    assert "SHOW_VARS" in prompt
+
+
+def test_system_prompt_describes_final_var():
+    """System prompt describes FINAL_VAR() function."""
+    loader = PromptLoader()
+    prompt = loader.render_system_prompt()
+    assert "FINAL_VAR" in prompt
+
+
+def test_iteration_zero_prompt_includes_step_by_step():
+    """Iteration-0 prompt includes step-by-step instruction with question."""
+    loader = PromptLoader()
+    result = loader.render_iteration_zero(question="What color is the sky?")
+    assert "step-by-step" in result.lower()
+    assert "What color is the sky?" in result

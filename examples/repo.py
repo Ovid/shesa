@@ -9,7 +9,7 @@ Features:
     - Interactive picker for previously indexed repositories
     - Automatic update detection and application
     - Textual-based TUI with rich output, progress tracking, and token stats
-    - Slash commands: /help, /write, /summary, /analyze, /quit
+    - Slash commands: /help, /write, /summary, /analyze, /fast, /deep, /clear, /quit
     - Session transcript export with /write command
 
 Usage:
@@ -25,9 +25,13 @@ Usage:
     # Auto-apply updates
     python examples/repo.py https://github.com/org/repo --update
 
+    # Use a specific model
+    python examples/repo.py --model gpt-4o
+
 Environment Variables:
     SHESHA_API_KEY: Required. API key for your LLM provider.
     SHESHA_MODEL: Optional. Model name (default: claude-sonnet-4-20250514).
+                  Overridden by --model flag.
 
 Example:
     $ export SHESHA_API_KEY="your-api-key"
@@ -151,6 +155,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "significantly increase analysis time and token count "
             "(typically 1-2 additional LLM calls)."
         ),
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        help="LLM model name (overrides SHESHA_MODEL env var)",
     )
     return parser.parse_args(argv)
 
@@ -363,7 +372,7 @@ def main() -> None:
         print("The provider is auto-detected from the model name via LiteLLM.")
         sys.exit(1)
 
-    config = SheshaConfig.load(storage_path=STORAGE_PATH, verify=args.verify)
+    config = SheshaConfig.load(storage_path=STORAGE_PATH, verify=args.verify, model=args.model)
     try:
         shesha = Shesha(config=config)
     except RuntimeError as e:
@@ -441,7 +450,7 @@ def main() -> None:
             analysis_context = format_analysis_as_context(analysis)
 
     # Create and launch TUI
-    model = os.environ.get("SHESHA_MODEL", "claude-sonnet-4-20250514")
+    model = args.model or os.environ.get("SHESHA_MODEL", "claude-sonnet-4-20250514")
     api_key = os.environ.get("SHESHA_API_KEY")
     tui = SheshaTUI(
         project=project,
@@ -499,6 +508,7 @@ def main() -> None:
     tui.register_command("/deep", handle_deep, "Switch to deep mode (sequential)")
     tui.register_command("/clear", handle_clear, "Clear conversation history")
     tui.run()
+    print("Cleaning up containers...")
 
 
 if __name__ == "__main__":

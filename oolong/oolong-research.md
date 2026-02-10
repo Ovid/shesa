@@ -750,3 +750,656 @@ classification code and injects a corrective message. Risks overfitting to OOLON
 
 **Recommendation: Start with Option A** — it's the cheapest experiment and gives the
 most signal about whether the problem is model-specific or architectural.
+
+---
+
+## Fix #4: Force sub-calls via structural alignment with reference RLM
+
+**Status: Design complete — awaiting implementation**
+
+**Design doc:** `docs/plans/2026-02-09-force-subcalls-design.md`
+
+### Rationale
+
+After 3 prompt rewrites and 4 runs, the conclusion is clear: prompt encouragement
+alone doesn't work. gpt-5.2 has a strong code-first bias that persists regardless of
+wording. The reference RLM doesn't just *encourage* sub-calls — it creates
+**architectural forcing functions** that make `llm_query()` the path of least
+resistance.
+
+Comparing Shesha against the reference (`rlm/`) reveals structural gaps that remove
+these forcing functions. This fix closes the three most impactful ones.
+
+### Changes (3 structural fixes)
+
+**1. REPL output truncation: 50K → 20K per code block** (HIGH IMPACT)
+
+The reference truncates each code block output to 20K chars
+(`rlm/rlm/utils/parsing.py:67`). Shesha allows 50K combined. At 8K OOLONG scale
+(19K chars context), `print(context[0])` shows everything — the model has no reason
+to delegate. With 20K per code block:
+- 8K scale (19K chars): borderline, reinforcing truncation warning
+- 16K+ scale (39K+ chars): definitively truncated, forcing `llm_query()` usage
+
+When truncation occurs, append:
+> `[Output truncated to 20,000 of {N} characters. Use llm_query() to analyze
+> content you cannot see.]`
+
+**2. Iteration-0 safeguard** (HIGH IMPACT)
+
+The reference prevents the model from jumping to `FINAL()` on iteration 0
+(`rlm/rlm/utils/prompts.py:136`). Shesha's first message is the bare question —
+the model routinely produces a final answer in 1 iteration (~8s, zero sub-calls).
+
+Prepend to first user message:
+> "You have not interacted with the REPL environment or seen your prompt / context
+> yet. Your next action should be to look through and figure out how to answer the
+> prompt, so don't just provide a final answer yet."
+
+**3. Context metadata as assistant message** (MEDIUM IMPACT)
+
+The reference sends context metadata as a fake assistant message
+(`rlm/rlm/utils/prompts.py:119-122`), priming the model to "continue working"
+rather than start fresh. Shesha bakes this into the system prompt.
+
+Remove metadata from system prompt. Inject as first assistant message:
+> "Your context is a list of {doc_count} documents with {total_chars} total
+> characters, and is broken up into chunks of char lengths: {chunk_lengths}."
+
+### Hypothesis
+
+The reference RLM's architecture creates three forcing functions that Shesha lacks:
+1. Truncation makes `llm_query()` *necessary* (can't see full output)
+2. Iteration-0 guard prevents shortcuts (must explore first)
+3. Assistant priming sets expectation of continued work (not one-shot answer)
+
+With all three in place, the model should:
+- Actually iterate (>1 iteration per query)
+- Use `llm_query()` / `llm_query_batched()` for semantic classification
+- Produce correct label frequencies instead of header-string counts
+
+### What we're NOT doing this round
+
+- Code echo in feedback (LOW-MEDIUM)
+- Max-iterations graceful fallback (LOW)
+- Model swap experiment (deferred — fix architecture first)
+
+### How to validate
+
+```bash
+docker build -t shesha-sandbox src/shesha/sandbox/
+python oolong/run_oolong_and_pairs.py --model openai/gpt-5-mini
+```
+
+**Success criteria:** Model uses `llm_query()`/`llm_query_batched()` for semantic
+classification (visible in traces). Score improvement expected but behavioral shift
+is the primary signal.
+
+---
+
+## Run #5 Results (2026-02-09 20:51, post-fix #4)
+
+**Score: ~28% (estimated from 14 completed queries: 4/14)** — no meaningful improvement
+over runs #2-#3. The three structural forcing functions did not change behavior at 8K
+scale.
+
+### Partial results (benchmark still running when analyzed)
+
+| ID | Gold | Predicted | Score |
+|----|------|-----------|-------|
+| 13000009 | human being | Label: numeric value | 0.0 |
+| 13000010 | more common than | same frequency as | 0.0 |
+| 13000011 | more common than | same frequency as | 0.0 |
+| 13000012 | less common than | same frequency as | 0.0 |
+| 13000013 | less common than | same frequency as | 0.0 |
+| 13000014 | less common than | less common than abbreviation | **1.0** |
+| 13000015 | less common than | same frequency as location | 0.0 |
+| 13000016 | less common than | same frequency as entity | 0.0 |
+| 13000017 | less common than | less common than abbreviation | **1.0** |
+| 13000018 | less common than | same frequency as location | 0.0 |
+| 13000019 | less common than | same frequency as entity | 0.0 |
+| 13000020 | less common than | less common than abbreviation | **1.0** |
+| 13000021 | less common than | same frequency as entity | 0.0 |
+| 13000022 | less common than | less common than abbreviation | **1.0** |
+
+### Trace analysis — mixed sub-call usage
+
+Examined 15 traces from this run. Key finding: **inconsistent behavior**.
+
+**Earliest trace (ID 13000009: "Which label is least common?"):**
+- 3 iterations, **zero sub-calls**
+- Used `doc.count(label)` and `re.search()` — pure regex on header text
+- Found all labels appear 2 times (from header), picked "numeric value"
+- Duration: 26s, 10,986 tokens
+
+**Most recent trace (ID ~13000022: "How many data points classified as numeric value?"):**
+- 2 iterations, **uses `llm_query_batched()` correctly**
+- Chunked 188 questions into batches of 20, sent each batch to sub-LLM for semantic
+  classification with proper per-line label instructions
+- This IS the correct RLM pattern — exactly what we want to see
+- Duration: 95+ seconds (trace incomplete)
+
+### Why fix #4 didn't help at 8K scale
+
+The three structural changes were:
+1. **20K per-block truncation** — but 8K context is only 19K chars, so
+   `print(context[0])` fits within the limit. **Not a forcing function at this scale.**
+2. **Iteration-0 safeguard** — prevents immediate FINAL(), but the model still does
+   regex on iteration 1-2 before calling FINAL() on iteration 2-3
+3. **Assistant-first context metadata** — primes continuation but doesn't force sub-calls
+
+The truncation forcing function only becomes effective at **16K+ scale** (39K chars)
+where `print(context[0])` would be truncated. At 8K, the model can see everything and
+has no architectural reason to delegate.
+
+### Updated run summary
+
+| Run | Fix | Score | llm_query usage | Key finding |
+|-----|-----|-------|-----------------|-------------|
+| #1 | Baseline | 0% | Zero | Pure regex |
+| #2 | Encouragement | 27% | 1 call (wrong content) | Regex + 1 llm_query on excerpts |
+| #3 | Simplified examples | 24% | Minimal | No change |
+| #4 | Corrupted log | ~12.5% F1 (pairs only) | Unknown | More iterations (16 vs 1) |
+| #5 | 20K truncation + iteration-0 + assistant metadata | ~28% | **Mixed** — some queries use llm_query_batched correctly, others pure regex | Forcing functions work for SOME queries but not consistently |
+
+---
+
+## Reference RLM Deep Comparison (2026-02-09)
+
+After Run #5, performed detailed comparison of Shesha's engine against the reference
+implementation in `rlm/`. Found **two remaining structural gaps** beyond the three
+already fixed:
+
+### Gap 1: Code echo in iteration feedback
+
+**Reference** (`rlm/rlm/utils/parsing.py:93-96`): Each code block's output is sent as
+a **separate user message** that echoes the code back alongside the result:
+
+```
+Code executed:
+\`\`\`python
+{code}
+\`\`\`
+
+REPL output:
+{result}
+```
+
+**Shesha** (`engine.py:636-637`): All code block outputs are combined into one
+`<repl_output>` wrapper with NO code echo. The model can't see what it ran.
+
+**Impact:** The model loses context about what approaches it already tried. Without
+seeing its own code, it may re-try the same regex approach or not build on previous
+work effectively.
+
+### Gap 2: Per-iteration user prompt re-instruction
+
+**Reference** (`rlm/rlm/utils/prompts.py:141-143`): After every iteration (not just
+iteration 0), the user message explicitly re-instructs the model:
+
+```
+"The history before is your previous interactions with the REPL environment.
+Think step-by-step on what to do using the REPL environment (which contains
+the context) to answer the original prompt: "{root_prompt}". Continue using
+the REPL environment, which has the `context` variable, and querying sub-LLMs
+by writing to ```repl``` tags, and determine your answer. Your next action:"
+```
+
+**Shesha** (`engine.py:629-634`): Much weaker reminder:
+
+```
+"Continue using the REPL environment to answer the original query: "{question}"
+Your next action:"
+```
+
+The reference explicitly says "querying sub-LLMs" every iteration. Shesha doesn't
+mention sub-LLMs in the iteration reminder at all.
+
+**Impact:** Each iteration is a fresh opportunity for the model to choose regex vs
+llm_query(). The reference explicitly nudges toward sub-LLMs every time.
+
+### Gap 3: "Extremely important information" framing
+
+**Reference** (`rlm/rlm/utils/prompts.py:10`):
+> "A `context` variable that contains extremely important information about your query.
+> You should check the content of the `context` variable to understand what you are
+> working with. Make sure you look through it sufficiently."
+
+**Shesha**: `"A context variable — a list of document contents as strings."` — neutral,
+no urgency.
+
+**Impact:** Minor — but the stronger framing may encourage more thorough exploration
+before jumping to regex solutions.
+
+### What Shesha has that the reference lacks (KEEP)
+
+- `<repl_output type="untrusted_document_content">` security tagging
+- Prompt injection warnings
+- `wrap_subcall_content()` security boundary
+- Document-grounded answer requirement
+- Error handling guidance (try/except ValueError pattern)
+- Source priority (code > docs)
+
+---
+
+## Reference RLM Benchmark Comparison (2026-02-09)
+
+### Motivation
+
+After 5 runs and 4 prompt fixes, Shesha's OOLONG score remained at ~24-28%.
+Before investing more effort in fixing Shesha's engine, we needed to answer a
+fundamental question: **is the problem in the benchmark harness or in Shesha's
+RLM implementation?**
+
+### Approach
+
+Created `oolong/run_reference_implementation.py` — a mirror of
+`run_oolong_and_pairs.py` that calls the paper's reference RLM (`rlm/`)
+instead of Shesha. Key properties:
+
+- **Same scoring functions** — imported directly from `run_oolong_and_pairs.py`
+  (identical `score_oolong()`, `f1_score()`, `parse_pairs_from_text()`)
+- **Same dataset** — same parquet cache, same context windows, same questions
+- **Same CSV format** — `ref:` prefix on model name, otherwise identical schema
+- **Local REPL** — reference RLM's in-process Python sandbox (no Docker)
+- **Same models** — tested with both gpt-5-mini and gpt-5.2
+
+Design doc: `docs/plans/2026-02-09-reference-rlm-benchmark-design.md`
+
+### Run #6: Reference RLM with gpt-5-mini (2026-02-09 22:08)
+
+**Score: ~59% (8.8/15)** — 15 of 25 oolong questions completed before interrupt.
+
+| ID | Gold | Reference Prediction | Score | Shesha #5 |
+|----|------|---------------------|-------|-----------|
+| 13000009 | human being | human being | **1.0** | 0.0 |
+| 13000010 | more common than | more common than | **1.0** | 0.0 |
+| 13000011 | more common than | same frequency as | 0.0 | 0.0 |
+| 13000012 | less common than | less common than | **1.0** | 0.0 |
+| 13000013 | less common than | same frequency as | 0.0 | 0.0 |
+| 13000014 | less common than | less common than | **1.0** | 1.0 |
+| 13000015 | less common than | same frequency as | 0.0 | 0.0 |
+| 13000016 | less common than | same frequency as | 0.0 | 0.0 |
+| 13000017 | less common than | less common than | **1.0** | 1.0 |
+| 13000018 | less common than | same frequency as | 0.0 | 0.0 |
+| 13000019 | less common than | same frequency as | 0.0 | 0.0 |
+| 13000020 | less common than | less common than | **1.0** | 1.0 |
+| 13000021 | less common than | less common than | **1.0** | 0.0 |
+| 13000022 | less common than | less common than | **1.0** | 1.0 |
+| 13000023 | 28 | 27 | **0.8** | 0.0 |
+
+### Run #7: Reference RLM with gpt-5.2 (2026-02-09 22:24)
+
+**Score: 60% (9/15)** — 15 of 25 oolong questions completed before interrupt.
+
+| ID | Gold | Reference Prediction | Score | Shesha #5 |
+|----|------|---------------------|-------|-----------|
+| 13000009 | human being | human being | **1.0** | 0.0 |
+| 13000010 | more common than | less common than | 0.0 | 0.0 |
+| 13000011 | more common than | less common than | 0.0 | 0.0 |
+| 13000012 | less common than | less common than | **1.0** | 0.0 |
+| 13000013 | less common than | less common than | **1.0** | 0.0 |
+| 13000014 | less common than | less common than | **1.0** | 1.0 |
+| 13000015 | less common than | more common than | 0.0 | 0.0 |
+| 13000016 | less common than | more common than | 0.0 | 0.0 |
+| 13000017 | less common than | same frequency as | 0.0 | 1.0 |
+| 13000018 | less common than | less common than | **1.0** | 0.0 |
+| 13000019 | less common than | less common than | **1.0** | 0.0 |
+| 13000020 | less common than | less common than | **1.0** | 1.0 |
+| 13000021 | less common than | more common than | 0.0 | 0.0 |
+| 13000022 | less common than | less common than | **1.0** | 1.0 |
+| 13000023 | 28 | 28 | **1.0** | 0.0 |
+
+### Analysis
+
+#### The benchmark harness is correct
+
+Same scoring functions, same dataset, same models — the reference RLM scores
+**~60% vs Shesha's ~28%**. The problem is definitively in Shesha's RLM engine,
+not the test code.
+
+#### Error quality is fundamentally different
+
+**Shesha's errors:** Almost all "same frequency as" — the model is counting
+literal label-name string matches in header text (all appear ~2 times). This is
+a methodology failure: regex instead of semantic classification.
+
+**Reference's errors:** "more common than" (reversed direction), "less common
+than" (when gold is "more common than"). The reference is doing real semantic
+classification and comparison — its counts are close but sometimes wrong. These
+are genuine classification/counting errors, not methodology failures.
+
+#### Count questions prove it
+
+ID 13000023 (gold: 28 "numeric value" questions):
+- **Reference gpt-5.2:** 28 (exact match, score 1.0)
+- **Reference gpt-5-mini:** 27 (off by 1, score 0.8)
+- **Shesha:** 0 or 176 (not even close)
+
+The reference is classifying all 188 entries semantically and counting correctly.
+Shesha is counting something else entirely.
+
+#### Timing confirms sub-LLM usage
+
+| Runner | Time per question | Interpretation |
+|--------|------------------|----------------|
+| Shesha | 8-25 seconds | Zero or minimal `llm_query()` calls |
+| Reference | 40-180 seconds | Heavy sub-LLM classification work |
+
+The reference spends 2-10x longer per question because it's making multiple
+`llm_query()` calls to classify entries in chunks. Shesha shortcuts with regex.
+
+#### Both models perform similarly on the reference
+
+gpt-5-mini (~59%) and gpt-5.2 (60%) produce comparable results on the reference
+RLM. The model isn't the bottleneck — the architecture is.
+
+### Updated Run Summary
+
+| Run | Runner | Model | Fix | Score | Core Behavior |
+|-----|--------|-------|-----|-------|---------------|
+| #1 | Shesha | gpt-5.2 | Baseline | 0% | Pure regex, zero llm_query() |
+| #2 | Shesha | gpt-5.2 | Encouragement | 27% | 1 llm_query() on wrong content |
+| #3 | Shesha | gpt-5.2 | Simplified examples | 24% | No change |
+| #4 | Shesha | gpt-5.2 | Reference alignment | ~12.5% F1 (pairs only) | More iterations, incomplete |
+| #5 | Shesha | gpt-5.2 | Structural forcing | ~28% | Mixed — some correct, inconsistent |
+| **#6** | **Reference** | **gpt-5-mini** | **N/A** | **~59%** | **Real semantic classification** |
+| **#7** | **Reference** | **gpt-5.2** | **N/A** | **60%** | **Real semantic classification** |
+
+### Conclusion
+
+**The gap is architectural, not prompt-based.** The reference RLM's architecture
+forces sub-LLM usage through:
+
+1. **20K per-block output truncation** — model can't see full context, must
+   delegate to `llm_query()`
+2. **Iteration-0 safeguard** — prevents immediate FINAL(), forces exploration
+3. **Per-iteration sub-LLM reminder** — explicitly says "querying sub-LLMs"
+   every iteration
+4. **Per-code-block feedback** — echoes code back alongside output, helping the
+   model build on previous work
+5. **Simple API** — `llm_query(prompt)` single-arg reduces friction
+
+Shesha has partially implemented some of these (fixes #3-#4), but the combined
+effect of all five creates a fundamentally different execution pattern. The
+reference forces the model into a classify-via-sub-calls workflow; Shesha still
+allows shortcuts.
+
+### Next Steps
+
+The reference benchmark runner (`oolong/run_reference_implementation.py`) is now
+a permanent diagnostic tool. Going forward:
+
+1. **Close remaining structural gaps** — implement the 2 gaps identified in the
+   "Reference RLM Deep Comparison" section above (code echo in feedback,
+   per-iteration sub-LLM reminder)
+2. **Re-run Shesha benchmark after each fix** — compare against reference
+   baseline (~60%)
+3. **Target: Shesha within 10% of reference** — if Shesha reaches ~50%+ on
+   OOLONG, the architecture is working correctly and remaining gaps are
+   optimization
+
+---
+
+## Fix #5: Full engine rewrite for reference RLM parity (2026-02-09)
+
+**Status: Applied — 9 structural changes implemented and validated**
+
+**Design doc:** `docs/plans/2026-02-09-engine-rewrite-design.md`
+**Implementation plan:** `docs/plans/2026-02-09-engine-rewrite-implementation.md`
+
+### Rationale
+
+After 5 runs and 4 incremental fixes, the conclusion was that Shesha needed
+**full structural alignment** with the reference RLM, not more prompt tweaking.
+The reference's 5 architectural forcing functions all work together — partial
+implementation wasn't enough.
+
+### Changes (9 tasks)
+
+1. **SHOW_VARS in sandbox** — Added `SHOW_VARS()` function and `_list_vars()`
+   to `runner.py`. REPL variables now reported after each code block execution.
+
+2. **vars field on ExecutionResult** — `executor.py` now passes `vars` dict
+   (variable name → type) from sandbox to engine.
+
+3. **System prompt verbatim from reference** — `prompts/system.md` replaced
+   entirely with the reference RLM_SYSTEM_PROMPT from
+   `rlm/rlm/utils/prompts.py:7-90`. Includes SHOW_VARS, FINAL_VAR,
+   llm_query_batched documentation, and 4 examples.
+
+4. **All prompt templates aligned** — `iteration_zero.md` (safeguard + think
+   step-by-step), `iteration_continue.md` (history context + sub-LLM reminder),
+   `context_metadata.md` (context_type, context_lengths).
+
+5. **Code echo with REPL variables** — `format_code_echo()` now includes
+   variable listing. Removed `wrap_repl_output()` (XML tags replaced with plain
+   "REPL output:" format matching reference).
+
+6. **Code block regex: repl only** — Changed from `python|repl` to `repl` only.
+
+7. **FINAL_VAR handling** — Engine now detects `result.final_var` from executor
+   and uses `result.final_value` as the answer.
+
+8. **Max-iterations LLM fallback** — Instead of hardcoded failure string, engine
+   asks LLM for one last answer (matching reference `_default_answer()`).
+
+9. **Per-block code echo as separate messages** — Each code block's output sent
+   as separate user message with code echo, matching reference
+   `format_iteration()`.
+
+### Docker rebuild required
+
+`runner.py` is COPY'd into the Docker image. Must rebuild with `--no-cache`:
+```bash
+docker build --no-cache -t shesha-sandbox src/shesha/sandbox/
+```
+
+---
+
+## Bug Fix: Bare FINAL_VAR detection (2026-02-10)
+
+**Status: Applied — root cause of benchmark slowness**
+
+### Symptom
+
+First OOLONG query took **25+ minutes** (burned all 40 iterations). Reference
+implementation completed the same query in ~30 seconds.
+
+### Root cause (systematic debugging)
+
+Trace analysis revealed the model outputs bare `FINAL_VAR(my_answer)` as plain
+text (without a ````repl` block) at iterations 8, 17, and 32. The engine's regex
+(`r"```repl\s*\n(.*?)\n```"`) only extracts code from ````repl` blocks, so these
+FINAL calls were invisible. The engine sent "code required" nudges and the loop
+continued through all 40 iterations.
+
+The reference RLM has `find_final_answer()` (`rlm/rlm/utils/parsing.py:29-63`)
+that regex-scans the raw response text for bare `FINAL(...)` / `FINAL_VAR(...)`
+patterns **independently of code block extraction**. This is called at line 240
+of `rlm/rlm/core/rlm.py`, after code execution but before deciding whether to
+continue the loop.
+
+### Fix
+
+Added `find_final_answer()` to `engine.py`:
+- Strips ````repl` blocks from text first (those are handled by executor)
+- Regex scans for `^\s*FINAL_VAR\((.*?)\)` and `^\s*FINAL\("(.*?)"\)`
+- For `FINAL_VAR`, executes `print(var_name)` in sandbox to retrieve value
+- Integrated into engine loop before code block extraction
+
+Also reduced `SHESHA_MAX_ITER` default in benchmark runner from 40 to 30
+(matching reference RLM's default).
+
+### Impact
+
+- Query time: **25 min → 34 seconds** (first query)
+- The model now terminates at iteration 8 instead of burning through 40
+- Score on first query: **1.00** (correct answer)
+
+### Tests
+
+8 new tests (6 unit for `find_final_answer`, 2 integration for engine
+detection). All 1022 tests pass with `make all`.
+
+---
+
+## Run #8 Results (2026-02-10 00:04, post-fix #5 + bare FINAL fix)
+
+**First query: score=1.00, 34s, 10K tokens** — massive improvement.
+
+```
+[00:04:53] 1/360  8K  rlm:ool  score=1.00  (34s)  acc=100%(1)  tok=10K  ETA 3h26m
+```
+
+Run was accidentally cancelled after the first result. Second attempt showed
+the model choosing a different strategy (188 sequential `llm_query()` subcalls
+to classify each question individually), taking 482s:
+
+```
+[00:19:15] 1/360  8K  rlm:ool  score=1.00  (482s)  acc=100%(1)  tok=53K  ETA 48h04m
+```
+
+Both runs scored 1.00 — the engine is producing correct answers. The variance
+is in **model strategy**: sometimes it classifies via code (34s), sometimes via
+188 sequential `llm_query()` calls (482s). Both are valid approaches that
+produce correct results, but the sequential subcall approach is too slow for
+a full benchmark in `deep` mode.
+
+### Key findings
+
+1. **The bare FINAL fix was critical** — without it, the engine burned 40
+   iterations (25 min) because `FINAL_VAR(x)` as bare text was invisible
+2. **The engine rewrite works** — correct answers, proper iteration behavior,
+   REPL variables tracked, code echo working
+3. **Strategy variance is high** — the model's choice between code-only
+   classification and llm_query-per-item classification dramatically affects
+   runtime but both produce correct answers
+4. **`--fast` mode recommended for benchmarking** — parallelizes
+   `llm_query_batched()` calls, turning 8 min of sequential subcalls into ~10s
+
+### Updated run summary
+
+| Run | Runner | Model | Fix | Score | Time/query | Core Behavior |
+|-----|--------|-------|-----|-------|------------|---------------|
+| #1 | Shesha | gpt-5.2 | Baseline | 0% | 8s | Pure regex, zero llm_query() |
+| #2 | Shesha | gpt-5.2 | Encouragement | 27% | 12-30s | 1 llm_query() on wrong content |
+| #3 | Shesha | gpt-5.2 | Simplified examples | 24% | 10-25s | No change |
+| #4 | Shesha | gpt-5.2 | Reference alignment | ~12.5% F1 | unknown | More iterations, incomplete |
+| #5 | Shesha | gpt-5.2 | Structural forcing | ~28% | 8-25s | Mixed — some correct, inconsistent |
+| #6 | Reference | gpt-5-mini | N/A | ~59% | 40-180s | Real semantic classification |
+| #7 | Reference | gpt-5.2 | N/A | 60% | 40-180s | Real semantic classification |
+| **#8** | **Shesha** | **gpt-5-mini** | **Engine rewrite + bare FINAL fix** | **100% (1 query)** | **34-482s** | **Correct classification, strategy varies** |
+
+### Next steps
+
+1. **Run full benchmark with `--fast`** — parallelized subcalls for reasonable
+   ETA. This is the fair comparison against reference runs #6/#7.
+2. **Compare full results** — target is within 10% of reference (~60%).
+3. **If score is close to reference** — the engine rewrite is complete.
+4. **If score is still low** — investigate per-query strategy consistency.
+
+---
+
+## Bug: "Executor died" on large codebases (2026-02-10)
+
+**Status: Root-caused — protocol limit, not contention**
+
+### Symptom
+
+Running `examples/repo.py` against the Shesha codebase (228 files), the TUI
+showed `[Executor died — cannot continue]` after ~49 seconds of "thinking."
+Reproduced twice: once while `run_oolong_and_pairs.py` was also running, and
+once with nothing else running. Ruled out contention.
+
+### Root cause (trace analysis)
+
+Trace: `~/.shesha/repo-explorer/projects/Ovid-shesha/traces/2026-02-10T06-27-44-305_cf9afef5.jsonl`
+
+At iteration 3, the model generated:
+```python
+all_text = "\n\n".join(context)   # 228 docs → ~1MB string
+prompt = """...""" + all_text
+arch_flaws = llm_query(prompt)    # sends 1MB payload to host
+```
+
+The sandbox sends this as a JSON line back to the host:
+`{"action": "llm_query", "instruction": "...", "content": "..."}\n`
+
+That line was **1,081,344 bytes**. Shesha's `executor.py:354` enforces
+`MAX_LINE_LENGTH = 1,048,576` (1MB) on incoming lines from the container.
+This triggers `ProtocolError`, which calls `self.stop()` (kills container,
+sets `_socket = None`). The engine sees `is_alive == False` with no pool
+and returns the hardcoded failure string.
+
+All stopped containers show exit code 137 (SIGKILL from `stop()`), not OOM.
+Docker `inspect` confirms `OOMKilled: false`.
+
+### Protocol divergence from reference RLM
+
+This is where Shesha and the reference RLM differ architecturally:
+
+**Reference RLM** uses **4-byte length-prefix framing** (`comms_utils.py:146-165`):
+```python
+# Send: 4 bytes big-endian length + JSON payload (no size limit)
+sock.sendall(struct.pack(">I", len(payload)) + payload)
+# Recv: read 4 bytes for length, then read exactly that many bytes
+raw_len = sock.recv(4)
+```
+No line length limit. No buffer limit. Arbitrary payloads work.
+
+**Shesha** uses **newline-delimited JSON** over Docker attach sockets:
+```
+MAX_LINE_LENGTH = 1 * 1024 * 1024   # 1 MB — hard limit on any single line
+MAX_BUFFER_SIZE = 10 * 1024 * 1024  # 10 MB — total buffered content
+MAX_PAYLOAD_SIZE = 50 * 1024 * 1024 # 50 MB — outgoing to container
+```
+The 1MB line limit was designed as a DoS protection (prevent malicious
+containers from streaming unbounded data). But it also blocks legitimate
+`llm_query()` requests when the model passes large content.
+
+### Comparison of all size limits
+
+| Limit | Reference RLM | Shesha | Match? |
+|-------|---------------|--------|--------|
+| Per-block output truncation | 20K chars | 20K chars | Matched |
+| `llm_query` payload limit | None | 500K chars (engine-side) | Shesha more restrictive |
+| Protocol line/message limit | None (length-prefix) | 1MB (newline-delimited) | **Divergence — causes crash** |
+| Protocol buffer limit | None | 10MB | Shesha more restrictive |
+| Outgoing payload limit | None | 50MB | Shesha more restrictive |
+
+The 20K per-block output truncation (the "forcing function" that encourages
+the model to use `llm_query()` for analysis) is correctly matched. Both
+`prompts.py:truncate_code_output()` and the reference's
+`parsing.py:format_iteration()` use `max_character_length = 20000`.
+
+The divergence is at the protocol level: when the model follows the
+truncation signal and *does* use `llm_query()` with large content, the
+reference handles it fine (length-prefix protocol, no limit), but Shesha
+crashes (newline-delimited protocol, 1MB line limit). The 500K subcall
+content check in `engine.py:159-181` should reject oversized payloads
+gracefully, but the protocol error fires first because the container sends
+the raw JSON line before the engine-side check runs.
+
+### Impact on OOLONG
+
+This bug does **not** affect OOLONG benchmarking. OOLONG contexts are
+single documents (8K-1M chars) loaded as `context[0]`. The model accesses
+them via `context[0][:N]` or similar slicing. No `llm_query()` call in
+OOLONG would approach 1MB because the model works with one document at a
+time, not 228 concatenated files.
+
+It affects **repo explorer** and any project with many documents totaling
+>1MB, where the model might try to pass the full corpus into a single
+`llm_query()` call.
+
+### Fix options
+
+1. **Increase `MAX_LINE_LENGTH`** to 5-10MB. Simple, but weakens DoS
+   protection. The `MAX_BUFFER_SIZE` (10MB) already provides an outer bound.
+2. **Truncate `llm_query` content in the sandbox** before sending. Clip to
+   e.g. 500K chars container-side, so oversized payloads never reach the
+   protocol. This matches the engine-side `max_subcall_content_chars` check
+   and fails gracefully (truncated content) instead of fatally (dead executor).
+3. **Switch to length-prefix protocol** like the reference. Most robust, but
+   significant refactor of the Docker socket communication layer.
