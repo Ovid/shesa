@@ -25,7 +25,7 @@ class TestClassifyQuery:
                 api_key="test-key",
             )
 
-        assert result is False
+        assert result[0] is False
 
     def test_returns_false_for_accuracy_verification(self):
         """Accuracy questions like 'is the README accurate?' should bypass."""
@@ -40,7 +40,7 @@ class TestClassifyQuery:
                 api_key="test-key",
             )
 
-        assert result is False
+        assert result[0] is False
 
     def test_returns_false_for_user_doubt(self):
         """User doubt like 'I think it's wrong' should bypass shortcut."""
@@ -55,7 +55,7 @@ class TestClassifyQuery:
                 api_key="test-key",
             )
 
-        assert result is False
+        assert result[0] is False
 
     def test_returns_false_for_file_content_request(self):
         """Requests for file contents should bypass shortcut."""
@@ -70,7 +70,7 @@ class TestClassifyQuery:
                 api_key="test-key",
             )
 
-        assert result is False
+        assert result[0] is False
 
     def test_returns_true_for_architecture_question(self):
         """General architecture questions should allow shortcut."""
@@ -85,7 +85,7 @@ class TestClassifyQuery:
                 api_key="test-key",
             )
 
-        assert result is True
+        assert result[0] is True
 
     def test_returns_true_for_dependency_question(self):
         """Dependency questions should allow shortcut."""
@@ -100,7 +100,7 @@ class TestClassifyQuery:
                 api_key="test-key",
             )
 
-        assert result is True
+        assert result[0] is True
 
     def test_returns_true_on_llm_exception(self):
         """LLM exception -> True (graceful fallback, allow shortcut attempt)."""
@@ -112,7 +112,7 @@ class TestClassifyQuery:
                 api_key="test-key",
             )
 
-        assert result is True
+        assert result[0] is True
 
     def test_returns_true_on_unparseable_output(self):
         """Unparseable LLM output -> True (graceful fallback)."""
@@ -127,7 +127,7 @@ class TestClassifyQuery:
                 api_key="test-key",
             )
 
-        assert result is True
+        assert result[0] is True
 
     def test_passes_question_to_llm(self):
         """The question is sent to the LLM as user content."""
@@ -223,7 +223,7 @@ class TestTryAnswerFromAnalysisWithClassifier:
 
     def test_skips_shortcut_when_classifier_returns_false(self):
         """When classify_query returns False, shortcut returns None without calling shortcut LLM."""
-        with patch("shesha.analysis.shortcut.classify_query", return_value=False):
+        with patch("shesha.analysis.shortcut.classify_query", return_value=(False, 0, 0)):
             with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
                 result = try_answer_from_analysis(
                     question="Does SECURITY.md exist?",
@@ -243,7 +243,7 @@ class TestTryAnswerFromAnalysisWithClassifier:
         mock_response.prompt_tokens = 50
         mock_response.completion_tokens = 10
 
-        with patch("shesha.analysis.shortcut.classify_query", return_value=True):
+        with patch("shesha.analysis.shortcut.classify_query", return_value=(True, 0, 0)):
             with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
                 mock_cls.return_value.complete.return_value = mock_response
                 result = try_answer_from_analysis(
@@ -254,6 +254,41 @@ class TestTryAnswerFromAnalysisWithClassifier:
                 )
 
         assert result == ("This project does X.", 50, 10)
+
+    def test_shortcut_includes_classifier_tokens_in_totals(self):
+        """Returned token counts include both classifier and answer LLM calls."""
+        classifier_response = MagicMock()
+        classifier_response.content = "ANALYSIS_OK"
+        classifier_response.prompt_tokens = 30
+        classifier_response.completion_tokens = 5
+
+        answer_response = MagicMock()
+        answer_response.content = "This project does X."
+        answer_response.prompt_tokens = 50
+        answer_response.completion_tokens = 10
+
+        with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
+            # First LLMClient instance = classifier, second = answer
+            classifier_client = MagicMock()
+            classifier_client.complete.return_value = classifier_response
+            answer_client = MagicMock()
+            answer_client.complete.return_value = answer_response
+            mock_cls.side_effect = [classifier_client, answer_client]
+
+            result = try_answer_from_analysis(
+                question="What does this project do?",
+                analysis_context="Some analysis",
+                model="test-model",
+                api_key="test-key",
+            )
+
+        assert result is not None
+        answer, prompt_tokens, completion_tokens = result
+        assert answer == "This project does X."
+        # 30 (classifier) + 50 (answer) = 80
+        assert prompt_tokens == 80
+        # 5 (classifier) + 10 (answer) = 15
+        assert completion_tokens == 15
 
     def test_no_classifier_when_analysis_context_is_none(self):
         """When analysis_context is None, skip classifier and return None immediately."""

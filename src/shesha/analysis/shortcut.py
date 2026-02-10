@@ -62,26 +62,28 @@ _SENTINEL = "NEED_DEEPER"
 _CLASSIFIER_OK = "ANALYSIS_OK"
 
 
-def classify_query(question: str, model: str, api_key: str | None) -> bool:
+def classify_query(question: str, model: str, api_key: str | None) -> tuple[bool, int, int]:
     """Classify whether a query can be answered from the codebase analysis.
 
-    Returns ``True`` if the shortcut should be attempted, ``False`` if the
-    query should go straight to the full RLM engine.  Returns ``True`` on
-    any error or unparseable output (graceful fallback).
+    Returns ``(should_try, prompt_tokens, completion_tokens)``.  The first
+    element is ``True`` if the shortcut should be attempted, ``False`` if
+    the query should go straight to the full RLM engine.  Returns ``True``
+    on any error or unparseable output (graceful fallback).
     """
     client = LLMClient(model=model, system_prompt=_CLASSIFIER_PROMPT, api_key=api_key)
 
     try:
         response = client.complete([{"role": "user", "content": question}])
     except Exception:
-        return True  # Graceful fallback — allow shortcut attempt
+        return (True, 0, 0)  # Graceful fallback — allow shortcut attempt
 
+    tokens = (response.prompt_tokens, response.completion_tokens)
     label = response.content.strip()
     if label == _SENTINEL:
-        return False
+        return (False, *tokens)
     if label == _CLASSIFIER_OK:
-        return True
-    return True  # Unparseable output — graceful fallback
+        return (True, *tokens)
+    return (True, *tokens)  # Unparseable output — graceful fallback
 
 
 def try_answer_from_analysis(
@@ -99,7 +101,8 @@ def try_answer_from_analysis(
     if not analysis_context:
         return None
 
-    if not classify_query(question, model, api_key):
+    should_try, cls_prompt, cls_completion = classify_query(question, model, api_key)
+    if not should_try:
         return None
 
     client = LLMClient(model=model, system_prompt=_SYSTEM_PROMPT, api_key=api_key)
@@ -118,4 +121,8 @@ def try_answer_from_analysis(
     if answer == _SENTINEL:
         return None
 
-    return (answer, response.prompt_tokens, response.completion_tokens)
+    return (
+        answer,
+        cls_prompt + response.prompt_tokens,
+        cls_completion + response.completion_tokens,
+    )

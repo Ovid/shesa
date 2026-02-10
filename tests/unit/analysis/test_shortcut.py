@@ -10,13 +10,22 @@ class TestTryAnswerFromAnalysis:
 
     def test_returns_answer_when_llm_can_answer(self):
         """When LLM returns a real answer, function returns answer with token counts."""
-        mock_response = MagicMock()
-        mock_response.content = "This codebase implements a web framework."
-        mock_response.prompt_tokens = 100
-        mock_response.completion_tokens = 20
+        classifier_response = MagicMock()
+        classifier_response.content = "ANALYSIS_OK"
+        classifier_response.prompt_tokens = 15
+        classifier_response.completion_tokens = 3
+
+        answer_response = MagicMock()
+        answer_response.content = "This codebase implements a web framework."
+        answer_response.prompt_tokens = 100
+        answer_response.completion_tokens = 20
 
         with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
-            mock_cls.return_value.complete.return_value = mock_response
+            classifier_client = MagicMock()
+            classifier_client.complete.return_value = classifier_response
+            answer_client = MagicMock()
+            answer_client.complete.return_value = answer_response
+            mock_cls.side_effect = [classifier_client, answer_client]
             result = try_answer_from_analysis(
                 question="What does this codebase do?",
                 analysis_context="Overview: A web framework...",
@@ -24,7 +33,8 @@ class TestTryAnswerFromAnalysis:
                 api_key="test-key",
             )
 
-        assert result == ("This codebase implements a web framework.", 100, 20)
+        # Totals include classifier (15+3) + answer (100+20)
+        assert result == ("This codebase implements a web framework.", 115, 23)
 
     def test_returns_none_when_need_deeper(self):
         """When LLM returns NEED_DEEPER, function returns None."""
