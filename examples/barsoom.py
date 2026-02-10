@@ -261,7 +261,7 @@ def main() -> None:
         return
 
     # Interactive mode - launch TUI
-    tui = SheshaTUI(project=project, project_name=PROJECT_NAME)
+    tui = SheshaTUI(project=project, project_name=PROJECT_NAME, model=config.model)
     tui.run()
 
 
