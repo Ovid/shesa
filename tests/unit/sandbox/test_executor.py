@@ -1103,98 +1103,12 @@ class TestBatchedLlmQuery:
         assert "error" in batch_response
 
 
-class TestExecutionMode:
-    """Tests for execution_mode on ContainerExecutor."""
-
-    def test_executor_defaults_to_fast_mode(self):
-        """ContainerExecutor defaults to execution_mode='fast'."""
-        executor = ContainerExecutor()
-        assert executor.execution_mode == "fast"
-
-    def test_executor_accepts_deep_mode(self):
-        """ContainerExecutor accepts execution_mode='deep' in constructor."""
-        executor = ContainerExecutor(execution_mode="deep")
-        assert executor.execution_mode == "deep"
-
-    def test_execute_batch_sequential_in_deep_mode(self):
-        """_execute_batch uses sequential loop when execution_mode='deep'."""
-        import threading
-
-        executor = ContainerExecutor(execution_mode="deep")
-        executor._socket = MagicMock()
-
-        thread_ids: list[int] = []
-
-        def handler(instruction: str, content: str) -> str:
-            thread_ids.append(threading.current_thread().ident)
-            return f"result for: {instruction}"
-
-        executor.llm_query_handler = handler
-
-        batch_msg = {"action": "llm_query_batch", "prompts": [f"prompt_{i}" for i in range(4)]}
-        exec_result_msg = {
-            "status": "ok",
-            "stdout": "",
-            "stderr": "",
-            "return_value": None,
-            "error": None,
-        }
-
-        read_responses = iter([batch_msg, exec_result_msg])
-
-        with patch.object(executor, "_read_message", side_effect=read_responses):
-            sent_data: list[dict] = []
-            with patch.object(
-                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
-            ):
-                executor.execute("llm_query_batched([...])")
-
-        assert len(thread_ids) == 4
-        assert len(set(thread_ids)) == 1, (
-            f"Deep mode should run sequentially on one thread, got {len(set(thread_ids))} threads"
-        )
-
-    def test_execute_batch_concurrent_in_fast_mode(self):
-        """_execute_batch uses ThreadPoolExecutor when execution_mode='fast'."""
-        import threading
-
-        executor = ContainerExecutor(execution_mode="fast")
-        executor._socket = MagicMock()
-
-        thread_ids: list[int] = []
-        barrier = threading.Barrier(4, timeout=5)
-
-        def handler(instruction: str, content: str) -> str:
-            thread_ids.append(threading.current_thread().ident)
-            barrier.wait()
-            return f"result for: {instruction}"
-
-        executor.llm_query_handler = handler
-
-        batch_msg = {"action": "llm_query_batch", "prompts": [f"prompt_{i}" for i in range(4)]}
-        exec_result_msg = {
-            "status": "ok",
-            "stdout": "",
-            "stderr": "",
-            "return_value": None,
-            "error": None,
-        }
-
-        read_responses = iter([batch_msg, exec_result_msg])
-
-        with patch.object(executor, "_read_message", side_effect=read_responses):
-            sent_data: list[dict] = []
-            with patch.object(
-                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
-            ):
-                executor.execute("llm_query_batched([...])")
-
-        assert len(thread_ids) == 4
-        assert len(set(thread_ids)) >= 2
+class TestBatchExecution:
+    """Tests for _execute_batch on ContainerExecutor."""
 
     def test_execute_batch_empty_prompts_returns_empty_list(self):
         """_execute_batch returns [] immediately for an empty prompts list."""
-        executor = ContainerExecutor(execution_mode="fast")
+        executor = ContainerExecutor()
         executor.llm_query_handler = lambda inst, cont: "should not be called"
 
         result = executor._execute_batch([])
@@ -1204,7 +1118,7 @@ class TestExecutionMode:
         """_execute_batch caps max_workers to avoid unbounded thread creation."""
         from concurrent.futures import ThreadPoolExecutor
 
-        executor = ContainerExecutor(execution_mode="fast")
+        executor = ContainerExecutor()
         executor.llm_query_handler = lambda inst, cont: "ok"
 
         captured_max_workers: list[int] = []

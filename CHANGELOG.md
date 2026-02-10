@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Fast/deep execution mode toggle (`/fast`, `/deep` commands, `execution_mode` parameter, `--fast` CLI flag). Batch sub-LLM calls now always run concurrently. The sequential "deep" mode offered no quality benefit over concurrent execution.
+
 ## [0.8.0] - 2026-02-10
 
 ### Changed

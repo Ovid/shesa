@@ -26,7 +26,6 @@ class InfoBarState:
     _prompt_tokens: int = field(default=0, init=False)
     _completion_tokens: int = field(default=0, init=False)
     _phase_line: str = field(default="Ready", init=False)
-    _mode: str = field(default="fast", init=False)
 
     def set_tokens(self, prompt: int, completion: int) -> None:
         """Update cumulative token counts."""
@@ -49,10 +48,6 @@ class InfoBarState:
         """Set phase to Done."""
         self._phase_line = f"[{elapsed:.1f}s] Done ({iterations} iterations)"
 
-    def set_mode(self, mode: str) -> None:
-        """Set execution mode ('fast' or 'deep')."""
-        self._mode = mode
-
     def set_cancelled(self) -> None:
         """Set phase to Cancelled."""
         self._phase_line = "Cancelled"
@@ -71,8 +66,7 @@ class InfoBarState:
             f"Tokens: {total:,} (prompt: {self._prompt_tokens:,}, "
             f"comp: {self._completion_tokens:,})"
         )
-        mode_label = self._mode.capitalize()
-        line2 = f"Mode: {mode_label} \u2502 Phase: {self._phase_line}"
+        line2 = f"Phase: {self._phase_line}"
         return line1, line2
 
 
@@ -99,11 +93,6 @@ class InfoBar(Static):
         """Re-render from state."""
         line1, line2 = self._state.render_lines()
         self.update(f"{line1}\n{line2}")
-
-    def update_mode(self, mode: str) -> None:
-        """Update execution mode display."""
-        self._state.set_mode(mode)
-        self._refresh_content()
 
     def update_tokens(self, prompt: int, completion: int) -> None:
         """Update token display."""

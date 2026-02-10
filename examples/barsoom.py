@@ -90,7 +90,6 @@ from shesha.rlm.trace import StepType
 # Guard TUI import: textual is an optional dependency (shesha[tui]).
 try:
     from shesha.tui import SheshaTUI
-    from shesha.tui.widgets.info_bar import InfoBar
     from shesha.tui.widgets.output_area import OutputArea
 except ModuleNotFoundError:
     if __name__ == "__main__":
@@ -274,23 +273,10 @@ def main() -> None:
     # Interactive mode - launch TUI
     tui = SheshaTUI(project=project, project_name=PROJECT_NAME, model=config.model)
 
-    # Register commands shared with repo.py
-    def handle_fast(args: str) -> None:
-        project.execution_mode = "fast"
-        tui.query_one(InfoBar).update_mode("fast")
-        tui.query_one(OutputArea).add_system_message("Switched to fast mode (concurrent).")
-
-    def handle_deep(args: str) -> None:
-        project.execution_mode = "deep"
-        tui.query_one(InfoBar).update_mode("deep")
-        tui.query_one(OutputArea).add_system_message("Switched to deep mode (sequential).")
-
     def handle_clear(args: str) -> None:
         tui._session.clear_history()
         tui.query_one(OutputArea).clear()
 
-    tui.register_command("/fast", handle_fast, "Switch to fast mode (concurrent)")
-    tui.register_command("/deep", handle_deep, "Switch to deep mode (sequential)")
     tui.register_command("/clear", handle_clear, "Clear conversation history")
     tui.run()
     print("Cleaning up containers...")

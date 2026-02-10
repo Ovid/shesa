@@ -64,43 +64,6 @@ class TestInfoBarState:
         _, line2 = state.render_lines()
         assert "Ready" in line2
 
-    def test_mode_defaults_to_fast(self) -> None:
-        """Mode defaults to 'Fast' in rendered output."""
-        state = InfoBarState(project_name="test", model="")
-        _, line2 = state.render_lines()
-        assert "Mode: Fast" in line2
-
-    def test_set_mode_deep(self) -> None:
-        """set_mode('deep') updates rendered mode to 'Deep'."""
-        state = InfoBarState(project_name="test", model="")
-        state.set_mode("deep")
-        _, line2 = state.render_lines()
-        assert "Mode: Deep" in line2
-
-    def test_set_mode_fast(self) -> None:
-        """set_mode('fast') updates rendered mode to 'Fast'."""
-        state = InfoBarState(project_name="test", model="")
-        state.set_mode("deep")
-        state.set_mode("fast")
-        _, line2 = state.render_lines()
-        assert "Mode: Fast" in line2
-
-    def test_mode_persists_across_phases(self) -> None:
-        """Mode survives phase changes (thinking, done, reset)."""
-        state = InfoBarState(project_name="test", model="")
-        state.set_mode("deep")
-        state.set_thinking(elapsed=1.0)
-        _, line2 = state.render_lines()
-        assert "Mode: Deep" in line2
-
-        state.set_done(elapsed=5.0, iterations=2)
-        _, line2 = state.render_lines()
-        assert "Mode: Deep" in line2
-
-        state.reset()
-        _, line2 = state.render_lines()
-        assert "Mode: Deep" in line2
-
     def test_model_displayed_on_line1(self) -> None:
         """Model name appears on line 1 between project and tokens."""
         state = InfoBarState(project_name="test", model="claude-sonnet-4-20250514")

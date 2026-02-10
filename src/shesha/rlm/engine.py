@@ -110,7 +110,6 @@ class RLMEngine:
         max_traces_per_project: int = 50,
         verify_citations: bool = True,
         verify: bool = False,
-        execution_mode: str = "fast",
     ) -> None:
         """Initialize the RLM engine."""
         self.model = model
@@ -124,7 +123,6 @@ class RLMEngine:
         self.max_traces_per_project = max_traces_per_project
         self.verify_citations = verify_citations
         self.verify = verify
-        self.execution_mode = execution_mode
         self._subcall_lock = threading.Lock()
 
     def _handle_llm_query(
@@ -469,11 +467,9 @@ class RLMEngine:
         if self._pool is not None:
             executor = self._pool.acquire()
             executor.llm_query_handler = _make_llm_callback(0)
-            executor.execution_mode = self.execution_mode
             owns_executor = False
         else:
             executor = ContainerExecutor(llm_query_handler=_make_llm_callback(0))
-            executor.execution_mode = self.execution_mode
             executor.start()
             owns_executor = True
 

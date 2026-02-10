@@ -63,7 +63,6 @@ class ContainerExecutor:
         cpu_count: int = 1,
         llm_query_handler: LLMQueryHandler | None = None,
         security: ContainerSecurityConfig = DEFAULT_SECURITY,
-        execution_mode: str = "fast",
     ) -> None:
         """Initialize executor with container settings."""
         self.image = image
@@ -71,7 +70,6 @@ class ContainerExecutor:
         self.cpu_count = cpu_count
         self.llm_query_handler = llm_query_handler
         self.security = security
-        self.execution_mode = execution_mode
         self._client: docker.DockerClient | None = None
         self._container: Container | None = None
         self._socket: Any = None
@@ -270,7 +268,7 @@ class ContainerExecutor:
     _MAX_BATCH_WORKERS = 32
 
     def _execute_batch(self, prompts: list[str]) -> list[str]:
-        """Execute batch of LLM prompts, concurrently (fast) or sequentially (deep)."""
+        """Execute batch of LLM prompts concurrently via thread pool."""
         if not prompts:
             return []
 
@@ -282,9 +280,6 @@ class ContainerExecutor:
                 return handler(prompt, "")
             except SubcallContentError as e:
                 return f"[error: {e}]"
-
-        if self.execution_mode == "deep":
-            return [_call_one(p) for p in prompts]
 
         workers = min(len(prompts), self._MAX_BATCH_WORKERS)
         with ThreadPoolExecutor(max_workers=workers) as pool:
