@@ -47,4 +47,4 @@ def try_answer_from_analysis(
     if answer == _SENTINEL:
         return None
 
-    return (response.content, response.prompt_tokens, response.completion_tokens)
+    return (answer, response.prompt_tokens, response.completion_tokens)

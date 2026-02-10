@@ -107,6 +107,26 @@ class TestTryAnswerFromAnalysis:
         assert "</untrusted_document_content>" in user_content
         assert "Overview: A web framework..." in user_content
 
+    def test_returns_stripped_answer(self):
+        """Answer is stripped of leading/trailing whitespace."""
+        mock_response = MagicMock()
+        mock_response.content = "  The answer is Flask.\n"
+        mock_response.prompt_tokens = 100
+        mock_response.completion_tokens = 20
+
+        with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
+            mock_cls.return_value.complete.return_value = mock_response
+            result = try_answer_from_analysis(
+                question="What framework?",
+                analysis_context="Overview: Uses Flask...",
+                model="test-model",
+                api_key="test-key",
+            )
+
+        assert result is not None
+        answer, _, _ = result
+        assert answer == "The answer is Flask."
+
     def test_returns_none_on_llm_error(self):
         """LLM exception -> None (graceful fallback)."""
         with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
