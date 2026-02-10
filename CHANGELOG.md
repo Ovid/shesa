@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fast/deep execution modes for `llm_query_batched`: fast (default) runs concurrent via thread pool, deep runs sequential for cross-chunk knowledge building
 - `execution_mode` parameter on `ContainerExecutor`, `RLMEngine`, and `Project`
 - `/fast`, `/deep`, and `/clear` TUI commands in repo explorer
+- `--model` CLI flag for example scripts (`repo.py`, `barsoom.py`); overrides `SHESHA_MODEL` env var
+- Model name display in TUI info bar (date suffix stripped for readability)
 - `OutputArea.clear()` method for resetting conversation display
 - Mode indicator (`Mode: Fast` / `Mode: Deep`) in TUI info bar
 
