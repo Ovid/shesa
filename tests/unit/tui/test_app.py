@@ -673,7 +673,7 @@ class TestWriteOverwriteProtection:
                 patch.object(pilot.app._session, "write_transcript") as mock_write,
             ):
                 mock_dt.now.return_value = frozen
-                mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+                mock_dt.side_effect = datetime
                 pilot.app._cmd_write("")
             mock_write.assert_not_called()
             output = pilot.app.query_one(OutputArea)
