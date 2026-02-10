@@ -1,6 +1,7 @@
 """Docker container executor for sandboxed code execution."""
 
 import json
+import struct
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -28,7 +29,8 @@ class SubcallContentError(Exception):
 
 # Protocol limits to prevent DoS attacks from malicious containers
 MAX_BUFFER_SIZE = 10 * 1024 * 1024  # 10 MB max buffer
-MAX_LINE_LENGTH = 1 * 1024 * 1024  # 1 MB max single line
+MAX_LINE_LENGTH = 1 * 1024 * 1024  # 1 MB max single line (legacy, used by _read_line)
+MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10 MB max incoming message
 MAX_READ_DURATION = 300  # 5 min total deadline
 MAX_PAYLOAD_SIZE = 50 * 1024 * 1024  # 50 MB max outgoing payload
 DEFAULT_SEND_TIMEOUT = 30  # 30 seconds for send operations
@@ -148,7 +150,7 @@ class ContainerExecutor:
                 error="Executor stopped: no socket connection",
             )
 
-        self._send_raw(json.dumps({"action": "execute", "code": code}) + "\n")
+        self._send_message({"action": "execute", "code": code})
 
         try:
             # Handle responses, which may include llm_query requests
@@ -160,14 +162,11 @@ class ContainerExecutor:
                 if result.get("action") == "llm_query":
                     if self.llm_query_handler is None:
                         # No handler — signal error so sandbox raises ValueError
-                        self._send_raw(
-                            json.dumps(
-                                {
-                                    "action": "llm_response",
-                                    "error": "No LLM query handler configured",
-                                }
-                            )
-                            + "\n"
+                        self._send_message(
+                            {
+                                "action": "llm_response",
+                                "error": "No LLM query handler configured",
+                            }
                         )
                     else:
                         # Call handler and send response back
@@ -178,50 +177,38 @@ class ContainerExecutor:
                             )
                         except SubcallContentError as e:
                             # Content rejected — send error so sandbox raises
-                            self._send_raw(
-                                json.dumps(
-                                    {
-                                        "action": "llm_response",
-                                        "error": str(e),
-                                    }
-                                )
-                                + "\n"
+                            self._send_message(
+                                {
+                                    "action": "llm_response",
+                                    "error": str(e),
+                                }
                             )
                         else:
-                            self._send_raw(
-                                json.dumps(
-                                    {
-                                        "action": "llm_response",
-                                        "result": llm_response,
-                                    }
-                                )
-                                + "\n"
+                            self._send_message(
+                                {
+                                    "action": "llm_response",
+                                    "result": llm_response,
+                                }
                             )
                     continue
 
                 # Check if this is a batched llm_query request
                 if result.get("action") == "llm_query_batch":
                     if self.llm_query_handler is None:
-                        self._send_raw(
-                            json.dumps(
-                                {
-                                    "action": "llm_batch_response",
-                                    "error": "No LLM query handler configured",
-                                }
-                            )
-                            + "\n"
+                        self._send_message(
+                            {
+                                "action": "llm_batch_response",
+                                "error": "No LLM query handler configured",
+                            }
                         )
                     else:
                         prompts = result["prompts"]
                         results_list = self._execute_batch(prompts)
-                        self._send_raw(
-                            json.dumps(
-                                {
-                                    "action": "llm_batch_response",
-                                    "results": results_list,
-                                }
-                            )
-                            + "\n"
+                        self._send_message(
+                            {
+                                "action": "llm_batch_response",
+                                "results": results_list,
+                            }
                         )
                     continue
 
@@ -305,17 +292,18 @@ class ContainerExecutor:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             return list(pool.map(_call_one, prompts))
 
-    def _send_raw(self, data: str, timeout: int = DEFAULT_SEND_TIMEOUT) -> None:
-        """Send raw data to container stdin."""
-        encoded = data.encode()
-        if len(encoded) > MAX_PAYLOAD_SIZE:
-            raise ProtocolError(f"Payload size {len(encoded)} exceeds maximum {MAX_PAYLOAD_SIZE}")
+    def _send_message(self, data: dict[str, Any], timeout: int = DEFAULT_SEND_TIMEOUT) -> None:
+        """Send a length-prefixed JSON message to container stdin."""
+        payload = json.dumps(data).encode("utf-8")
+        if len(payload) > MAX_PAYLOAD_SIZE:
+            raise ProtocolError(f"Payload size {len(payload)} exceeds maximum {MAX_PAYLOAD_SIZE}")
+        frame = struct.pack(">I", len(payload)) + payload
         if self._socket is not None:
             sock = self._socket._sock
             previous_timeout = sock.gettimeout()
             sock.settimeout(timeout)
             try:
-                sock.sendall(encoded)
+                sock.sendall(frame)
             except OSError as e:
                 raise ProtocolError(f"Send failed: {e}") from e
             finally:
@@ -460,7 +448,7 @@ class ContainerExecutor:
 
     def _send_command(self, command: dict[str, Any], timeout: int = 30) -> dict[str, Any]:
         """Send a JSON command to the container and get response."""
-        self._send_raw(json.dumps(command) + "\n")
+        self._send_message(command)
         response = self._read_line(timeout=timeout)
         result: dict[str, Any] = json.loads(response)
         return result

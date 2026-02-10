@@ -1,5 +1,7 @@
 """Tests for sandbox executor."""
 
+import json
+import struct
 import time
 from unittest.mock import MagicMock, patch
 
@@ -46,11 +48,11 @@ class TestProtocolLimits:
 
         assert MAX_BUFFER_SIZE == 10 * 1024 * 1024  # 10 MB
 
-    def test_max_line_length_exists(self):
-        """MAX_LINE_LENGTH constant is defined."""
-        from shesha.sandbox.executor import MAX_LINE_LENGTH
+    def test_max_message_size_exists(self):
+        """MAX_MESSAGE_SIZE constant is defined."""
+        from shesha.sandbox.executor import MAX_MESSAGE_SIZE
 
-        assert MAX_LINE_LENGTH == 1 * 1024 * 1024  # 1 MB
+        assert MAX_MESSAGE_SIZE == 10 * 1024 * 1024  # 10 MB
 
     def test_max_read_duration_exists(self):
         """MAX_READ_DURATION constant is defined."""
@@ -675,7 +677,7 @@ class TestExecuteProtocolHandling:
 
         # Mock _read_line to raise ProtocolError
         with patch.object(executor, "_read_line", side_effect=ProtocolError("buffer overflow")):
-            with patch.object(executor, "_send_raw"):
+            with patch.object(executor, "_send_message"):
                 result = executor.execute("print('hello')")
 
         assert result.status == "error"
@@ -690,7 +692,7 @@ class TestExecuteProtocolHandling:
 
         # Mock _read_line to raise ProtocolError and track stop() call
         with patch.object(executor, "_read_line", side_effect=ProtocolError("malicious data")):
-            with patch.object(executor, "_send_raw"):
+            with patch.object(executor, "_send_message"):
                 with patch.object(executor, "stop") as mock_stop:
                     executor.execute("print('hello')")
 
@@ -706,7 +708,7 @@ class TestExecuteProtocolHandling:
 
         # Container returns invalid JSON (e.g., sandbox wrote to sys.__stdout__)
         with patch.object(executor, "_read_line", return_value="not valid json {{{"):
-            with patch.object(executor, "_send_raw"):
+            with patch.object(executor, "_send_message"):
                 with patch.object(executor, "stop") as mock_stop:
                     result = executor.execute("print('hello')")
 
@@ -729,7 +731,7 @@ class TestExecuteProtocolHandling:
         malformed_response = '{"action": "llm_query"}'
 
         with patch.object(executor, "_read_line", return_value=malformed_response):
-            with patch.object(executor, "_send_raw"):
+            with patch.object(executor, "_send_message"):
                 with patch.object(executor, "stop") as mock_stop:
                     result = executor.execute("print('hello')")
 
@@ -765,7 +767,7 @@ class TestExecuteProtocolHandling:
         executor._raw_buffer = b""
         executor._content_buffer = b""
 
-        with patch.object(executor, "_send_raw"):
+        with patch.object(executor, "_send_message"):
             with patch.object(executor, "stop") as mock_stop:
                 result = executor.execute("print('hello')")
 
@@ -827,14 +829,13 @@ class TestSubcallContentErrorHandling:
         read_responses = iter([llm_query_msg, exec_result_msg])
 
         with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
-            with patch.object(executor, "_send_raw", side_effect=lambda d: sent_data.append(d)):
+            sent_data: list[dict] = []
+            with patch.object(executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)):
                 executor.execute("analysis = llm_query('summarize', big_content)")
 
-        # First _send_raw is the execute command, second should be the error response
-        # _send_raw is called for the initial execute AND for the llm_response
+        # First _send_message is the execute command, second is the error response
         assert len(sent_data) == 2
-        error_response = json.loads(sent_data[1].strip())
+        error_response = sent_data[1]
         assert error_response["action"] == "llm_response"
         assert "error" in error_response
         assert error_msg in error_response["error"]
@@ -865,7 +866,7 @@ class TestSubcallContentErrorHandling:
         )
 
         with patch.object(executor, "_read_line", side_effect=[llm_query_msg, exec_result_msg]):
-            with patch.object(executor, "_send_raw"):
+            with patch.object(executor, "_send_message"):
                 with patch.object(executor, "stop") as mock_stop:
                     executor.execute("llm_query('x', 'y')")
 
@@ -900,13 +901,13 @@ class TestNoHandlerErrorProtocol:
         read_responses = iter([llm_query_msg, exec_result_msg])
 
         with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
-            with patch.object(executor, "_send_raw", side_effect=lambda d: sent_data.append(d)):
+            sent_data: list[dict] = []
+            with patch.object(executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)):
                 executor.execute("llm_query('summarize', 'data')")
 
-        # Second _send_raw should be the llm_response with error field
+        # Second _send_message should be the llm_response with error field
         assert len(sent_data) == 2
-        error_response = json.loads(sent_data[1].strip())
+        error_response = sent_data[1]
         assert error_response["action"] == "llm_response"
         assert "error" in error_response
         assert "result" not in error_response
@@ -938,7 +939,7 @@ class TestIsAlive:
 
         # Simulate protocol error during execute (which calls stop())
         with patch.object(executor, "_read_line", side_effect=ProtocolError("overflow")):
-            with patch.object(executor, "_send_raw"):
+            with patch.object(executor, "_send_message"):
                 executor.execute("print('hello')")
 
         # stop() sets _socket = None
@@ -946,24 +947,24 @@ class TestIsAlive:
 
 
 class TestSendTimeout:
-    """Tests for send timeout on _send_raw."""
+    """Tests for send timeout on _send_message."""
 
-    def test_send_raw_sets_socket_timeout(self):
-        """_send_raw sets a timeout on the socket before sending."""
+    def test_send_message_sets_socket_timeout(self):
+        """_send_message sets a timeout on the socket before sending."""
         executor = ContainerExecutor()
         mock_socket = MagicMock()
         mock_socket._sock.gettimeout.return_value = 30.0
         executor._socket = mock_socket
 
-        executor._send_raw("test data", timeout=10)
+        executor._send_message({"action": "ping"}, timeout=10)
 
         # First settimeout sets send timeout, second restores previous
         calls = mock_socket._sock.settimeout.call_args_list
         assert calls[0][0][0] == 10
         mock_socket._sock.sendall.assert_called_once()
 
-    def test_send_raw_uses_default_timeout(self):
-        """_send_raw uses default timeout when none specified."""
+    def test_send_message_uses_default_timeout(self):
+        """_send_message uses default timeout when none specified."""
         from shesha.sandbox.executor import DEFAULT_SEND_TIMEOUT
 
         executor = ContainerExecutor()
@@ -971,7 +972,7 @@ class TestSendTimeout:
         mock_socket._sock.gettimeout.return_value = 30.0
         executor._socket = mock_socket
 
-        executor._send_raw("test data")
+        executor._send_message({"action": "ping"})
 
         calls = mock_socket._sock.settimeout.call_args_list
         # First call sets send timeout (default), second restores previous
@@ -980,20 +981,20 @@ class TestSendTimeout:
 
 
 class TestPayloadSizeLimit:
-    """Tests for payload size limit on _send_raw."""
+    """Tests for payload size limit on _send_message."""
 
-    def test_send_raw_rejects_oversized_payload(self):
-        """_send_raw raises ProtocolError when payload exceeds MAX_PAYLOAD_SIZE."""
+    def test_send_message_rejects_oversized_payload(self):
+        """_send_message raises ProtocolError when payload exceeds MAX_PAYLOAD_SIZE."""
         from shesha.sandbox.executor import MAX_PAYLOAD_SIZE, ProtocolError
 
         executor = ContainerExecutor()
         mock_socket = MagicMock()
         executor._socket = mock_socket
 
-        oversized_data = "x" * (MAX_PAYLOAD_SIZE + 100)
+        oversized_data = {"data": "x" * (MAX_PAYLOAD_SIZE + 100)}
 
         with pytest.raises(ProtocolError, match="[Pp]ayload"):
-            executor._send_raw(oversized_data)
+            executor._send_message(oversized_data)
 
         # Should not have sent anything
         mock_socket._sock.sendall.assert_not_called()
@@ -1005,11 +1006,30 @@ class TestPayloadSizeLimit:
         assert MAX_PAYLOAD_SIZE == 50 * 1024 * 1024  # 50 MB
 
 
-class TestSendRawSocketErrors:
-    """Tests for socket error handling in _send_raw."""
+class TestSendMessageLengthPrefix:
+    """Tests for length-prefix framing in _send_message."""
 
-    def test_send_raw_wraps_os_error_as_protocol_error(self):
-        """_send_raw wraps OSError from sendall as ProtocolError."""
+    def test_send_message_prepends_length_prefix(self):
+        """_send_message sends 4-byte BE length prefix + JSON payload."""
+        executor = ContainerExecutor()
+        mock_socket = MagicMock()
+        mock_socket._sock.gettimeout.return_value = 30.0
+        executor._socket = mock_socket
+
+        data = {"action": "execute", "code": "print('hello')"}
+        executor._send_message(data)
+
+        sent_bytes = mock_socket._sock.sendall.call_args[0][0]
+        expected_payload = json.dumps(data).encode("utf-8")
+        expected_frame = struct.pack(">I", len(expected_payload)) + expected_payload
+        assert sent_bytes == expected_frame
+
+
+class TestSendMessageSocketErrors:
+    """Tests for socket error handling in _send_message."""
+
+    def test_send_message_wraps_os_error_as_protocol_error(self):
+        """_send_message wraps OSError from sendall as ProtocolError."""
         from shesha.sandbox.executor import ProtocolError
 
         executor = ContainerExecutor()
@@ -1018,10 +1038,10 @@ class TestSendRawSocketErrors:
         executor._socket = mock_socket
 
         with pytest.raises(ProtocolError, match="Connection reset"):
-            executor._send_raw("test data")
+            executor._send_message({"action": "ping"})
 
-    def test_send_raw_wraps_timeout_error_as_protocol_error(self):
-        """_send_raw wraps TimeoutError from sendall as ProtocolError."""
+    def test_send_message_wraps_timeout_error_as_protocol_error(self):
+        """_send_message wraps TimeoutError from sendall as ProtocolError."""
         from shesha.sandbox.executor import ProtocolError
 
         executor = ContainerExecutor()
@@ -1030,16 +1050,16 @@ class TestSendRawSocketErrors:
         executor._socket = mock_socket
 
         with pytest.raises(ProtocolError, match="Send timed out"):
-            executor._send_raw("test data")
+            executor._send_message({"action": "ping"})
 
-    def test_send_raw_restores_previous_timeout(self):
-        """_send_raw restores the previous socket timeout after sending."""
+    def test_send_message_restores_previous_timeout(self):
+        """_send_message restores the previous socket timeout after sending."""
         executor = ContainerExecutor()
         mock_socket = MagicMock()
         mock_socket._sock.gettimeout.return_value = 30.0
         executor._socket = mock_socket
 
-        executor._send_raw("test data", timeout=5)
+        executor._send_message({"action": "ping"}, timeout=5)
 
         # Should restore previous timeout after send
         calls = mock_socket._sock.settimeout.call_args_list
@@ -1047,8 +1067,8 @@ class TestSendRawSocketErrors:
         assert calls[0][0][0] == 5  # Set send timeout
         assert calls[1][0][0] == 30.0  # Restore previous
 
-    def test_send_raw_restores_timeout_on_error(self):
-        """_send_raw restores the previous timeout even when sendall fails."""
+    def test_send_message_restores_timeout_on_error(self):
+        """_send_message restores the previous timeout even when sendall fails."""
         from shesha.sandbox.executor import ProtocolError
 
         executor = ContainerExecutor()
@@ -1058,7 +1078,7 @@ class TestSendRawSocketErrors:
         executor._socket = mock_socket
 
         with pytest.raises(ProtocolError):
-            executor._send_raw("test data", timeout=5)
+            executor._send_message({"action": "ping"}, timeout=5)
 
         # Should still restore previous timeout
         calls = mock_socket._sock.settimeout.call_args_list
@@ -1147,15 +1167,15 @@ class TestBatchedLlmQuery:
         read_responses = iter([batch_msg, exec_result_msg])
 
         with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched(['classify: cat', 'classify: dog'])")
 
         # Should have sent: execute command + batch response
         assert len(sent_data) == 2
-        batch_response = json.loads(sent_data[1].strip())
+        batch_response = sent_data[1]
         assert batch_response["action"] == "llm_batch_response"
         assert len(batch_response["results"]) == 2
 
@@ -1196,9 +1216,9 @@ class TestBatchedLlmQuery:
         read_responses = iter([batch_msg, exec_result_msg])
 
         with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched([...])")
 
@@ -1239,13 +1259,13 @@ class TestBatchedLlmQuery:
         read_responses = iter([batch_msg, exec_result_msg])
 
         with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched([...])")
 
-        batch_response = json.loads(sent_data[1].strip())
+        batch_response = sent_data[1]
         results = batch_response["results"]
         assert results == [f"answer_q{i}" for i in range(5)]
 
@@ -1276,13 +1296,13 @@ class TestBatchedLlmQuery:
         read_responses = iter([batch_msg, exec_result_msg])
 
         with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched(['prompt1'])")
 
-        batch_response = json.loads(sent_data[1].strip())
+        batch_response = sent_data[1]
         assert batch_response["action"] == "llm_batch_response"
         assert "error" in batch_response
 
@@ -1335,9 +1355,9 @@ class TestExecutionMode:
         read_responses = iter([batch_msg, exec_result_msg])
 
         with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched([...])")
 
@@ -1384,9 +1404,9 @@ class TestExecutionMode:
         read_responses = iter([batch_msg, exec_result_msg])
 
         with patch.object(executor, "_read_line", side_effect=read_responses):
-            sent_data: list[str] = []
+            sent_data: list[dict] = []
             with patch.object(
-                executor, "_send_raw", side_effect=lambda d, **kw: sent_data.append(d)
+                executor, "_send_message", side_effect=lambda d, **kw: sent_data.append(d)
             ):
                 executor.execute("llm_query_batched([...])")
 
