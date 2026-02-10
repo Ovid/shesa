@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Switched container-host protocol from newline-delimited JSON to 4-byte length-prefix framing; removes 1MB message size limit that caused executor crashes on large `llm_query()` payloads
 - Iteration feedback now sends per-code-block messages with code echo (matching reference RLM)
 - Per-iteration continuation prompt re-instructs model to use sub-LLMs via `iteration_continue.md`
 - Replaced inline reminder string with external prompt template
