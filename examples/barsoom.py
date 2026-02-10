@@ -19,7 +19,7 @@ Features:
     - Automatic setup on first run (uploads all 7 novels)
     - Conversation history for follow-up questions
     - Session transcript export with /write command
-    - Slash commands: /help, /write, /fast, /deep, /clear, /quit
+    - Slash commands: /help, /write, /clear, /quit
     - Real-time progress and token stats in the info bar
     - Non-interactive mode for scripted queries
 

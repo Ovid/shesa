@@ -9,7 +9,7 @@ Features:
     - Interactive picker for previously indexed repositories
     - Automatic update detection and application
     - Textual-based TUI with rich output, progress tracking, and token stats
-    - Slash commands: /help, /write, /summary, /analyze, /fast, /deep, /clear, /quit
+    - Slash commands: /help, /write, /summary, /analyze, /clear, /quit
     - Session transcript export with /write command
 
 Usage:
