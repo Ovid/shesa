@@ -2239,6 +2239,55 @@ class TestFindFinalAnswerInText:
 
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_returns_empty_string_var_not_literal_name(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """FINAL(var) where var is defined as empty string returns empty string.
+
+        The variable exists (status="ok") but its printed representation is
+        empty. The engine should return the empty string, not fall back to
+        the literal identifier name.
+        """
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            MagicMock(
+                content="FINAL(empty_var)",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # Variable exists but print("") outputs just a newline
+            MagicMock(
+                status="ok",
+                stdout="\n",
+                stderr="",
+                error=None,
+                final_answer=None,
+                final_var=None,
+                vars=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["Doc content"],
+            question="What is the answer?",
+        )
+
+        # Should return empty string (the variable's value), not "empty_var"
+        assert result.answer == ""
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
     def test_engine_detects_bare_final_var_in_response(
         self,
         mock_llm_cls: MagicMock,

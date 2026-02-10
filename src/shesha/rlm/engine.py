@@ -557,7 +557,7 @@ class RLMEngine:
                         )
                         bare_answer = (
                             retrieve_result.stdout.strip()
-                            if retrieve_result.stdout
+                            if retrieve_result.status == "ok"
                             else final_value  # fallback to literal if var undefined
                         )
                     else:
