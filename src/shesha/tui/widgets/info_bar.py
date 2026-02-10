@@ -26,6 +26,7 @@ class InfoBarState:
     _prompt_tokens: int = field(default=0, init=False)
     _completion_tokens: int = field(default=0, init=False)
     _phase_line: str = field(default="Ready", init=False)
+    _elapsed: float | None = field(default=None, init=False)
 
     def set_tokens(self, prompt: int, completion: int) -> None:
         """Update cumulative token counts."""
@@ -35,25 +36,28 @@ class InfoBarState:
     def set_thinking(self, elapsed: float) -> None:
         """Set phase to Thinking with animated dots."""
         dots = int(elapsed * 3) % 3 + 1
-        self._phase_line = f"[{elapsed:.1f}s] Thinking{'.' * dots}{' ' * (3 - dots)}"
+        self._elapsed = elapsed
+        self._phase_line = f"Thinking{'.' * dots}{' ' * (3 - dots)}"
 
     def set_progress(self, elapsed: float, iteration: int, step: str) -> None:
         """Set phase to a specific iteration/step."""
         dots = int(elapsed * 3) % 3 + 1
-        self._phase_line = (
-            f"[{elapsed:.1f}s] [Iteration {iteration}] {step}{'.' * dots}{' ' * (3 - dots)}"
-        )
+        self._elapsed = elapsed
+        self._phase_line = f"[Iteration {iteration}] {step}{'.' * dots}{' ' * (3 - dots)}"
 
     def set_done(self, elapsed: float, iterations: int) -> None:
         """Set phase to Done."""
-        self._phase_line = f"[{elapsed:.1f}s] Done ({iterations} iterations)"
+        self._elapsed = elapsed
+        self._phase_line = f"Done ({iterations} iterations)"
 
     def set_cancelled(self) -> None:
         """Set phase to Cancelled."""
+        self._elapsed = None
         self._phase_line = "Cancelled"
 
     def reset(self) -> None:
         """Reset phase to Ready."""
+        self._elapsed = None
         self._phase_line = "Ready"
 
     def render_lines(self) -> tuple[str, str]:
@@ -67,6 +71,8 @@ class InfoBarState:
             f"comp: {self._completion_tokens:,})"
         )
         line2 = f"Phase: {self._phase_line}"
+        if self._elapsed is not None:
+            line2 += f" | Time: {self._elapsed:.1f}s"
         return line1, line2
 
 
