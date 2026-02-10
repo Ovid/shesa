@@ -2188,6 +2188,57 @@ class TestFindFinalAnswerInText:
 
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_falls_back_to_literal_when_var_undefined(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine falls back to literal identifier when sandbox lookup fails.
+
+        If the LLM writes FINAL(some_var) but the variable was never defined
+        in the sandbox, the retrieval via print() yields an error with empty
+        stdout. Rather than returning an empty answer, fall back to the
+        identifier itself as a literal.
+        """
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            # Iteration 0: bare FINAL(undefined_var) — variable never defined
+            MagicMock(
+                content="FINAL(undefined_var)",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+        mock_executor.execute.side_effect = [
+            # Retrieval fails — variable not defined, NameError
+            MagicMock(
+                status="error",
+                stdout="",
+                stderr="NameError: name 'undefined_var' is not defined",
+                error=None,
+                final_answer=None,
+                final_var=None,
+                vars=None,
+            ),
+        ]
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["Doc content"],
+            question="What is the answer?",
+        )
+
+        # Should fall back to the literal identifier, not return ""
+        assert result.answer == "undefined_var"
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
     def test_engine_detects_bare_final_var_in_response(
         self,
         mock_llm_cls: MagicMock,

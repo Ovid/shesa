@@ -556,7 +556,9 @@ class RLMEngine:
                             f"print({final_value})", timeout=self.execution_timeout
                         )
                         bare_answer = (
-                            retrieve_result.stdout.strip() if retrieve_result.stdout else ""
+                            retrieve_result.stdout.strip()
+                            if retrieve_result.stdout
+                            else final_value  # fallback to literal if var undefined
                         )
                     else:
                         bare_answer = final_value
