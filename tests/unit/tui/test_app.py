@@ -449,6 +449,32 @@ class TestAnalysisShortcutTokenDisplay:
             assert "200" in line1
             assert "50" in line1
 
+    async def test_shortcut_answer_records_tokens_in_session(self) -> None:
+        """Shortcut session stats include token counts, matching normal query path."""
+        project = MagicMock()
+        app = SheshaTUI(
+            project=project,
+            project_name="test",
+            model="test-model",
+            api_key="key",
+        )
+        async with app.run_test() as pilot:
+            pilot.app._analysis_context = "Analysis: A web framework."
+
+            def mock_shortcut(question, analysis_context, model, api_key):
+                return ("Shortcut answer", 200, 50)
+
+            with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
+                pilot.app._run_query("What does this do?")
+                await pilot.app._worker_handle.wait()
+                await pilot.pause()
+
+            # Session stats should include token counts
+            assert len(pilot.app._session._history) == 1
+            _q, _a, stats = pilot.app._session._history[0]
+            assert "prompt: 200" in stats
+            assert "completion: 50" in stats
+
     async def test_shortcut_answer_shows_thought_time(self) -> None:
         """Shortcut answer displays 'Thought for N seconds' above the response."""
         project = MagicMock()

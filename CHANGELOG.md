@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Analysis shortcut answers now display `[Thought for N seconds]` above the response, matching the normal query route. Previously, shortcut answers skipped the thought-time indicator entirely.
 - Bare `FINAL(variable_name)` in LLM response now correctly resolves the variable from the sandbox instead of returning the variable name as a literal string. Previously, if the LLM wrote `FINAL(final_answer)` as bare text (outside a code block) intending to return a variable's value, the answer displayed was the literal string "final_answer" instead of the variable's content.
 - `FINAL(identifier)` variable resolution now falls back to the literal identifier when the variable is undefined in the sandbox, instead of returning an empty answer.
+- Analysis shortcut session transcript now includes token counts, matching the normal query path. Previously, `/write` transcripts omitted token usage for shortcut-answered questions.
 
 ### Removed
 

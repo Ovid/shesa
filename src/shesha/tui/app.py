@@ -462,9 +462,14 @@ class SheshaTUI(App[None]):
         output = self.query_one(OutputArea)
         output.add_response(answer + "\n\n*Answered from codebase analysis.*", elapsed)
 
-        self._session.add_exchange(
-            question, answer, f"---\nAnswered from analysis in {elapsed:.2f}s"
+        total = prompt_tokens + completion_tokens
+        stats = (
+            f"---\n"
+            f"Answered from analysis in {elapsed:.2f}s\n"
+            f"Tokens: {total} "
+            f"(prompt: {prompt_tokens}, completion: {completion_tokens})"
         )
+        self._session.add_exchange(question, answer, stats)
 
         self.set_timer(2.0, info_bar.reset_phase)
 
