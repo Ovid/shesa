@@ -196,6 +196,9 @@ def main() -> None:
 
     # --- Reference RLM setup ---
     api_key = os.getenv("SHESHA_API_KEY")
+    if not api_key:
+        print("Error: SHESHA_API_KEY environment variable not set.")
+        sys.exit(1)
     ref = RLM(
         backend=backend,
         backend_kwargs={"api_key": api_key, "model_name": model_name},

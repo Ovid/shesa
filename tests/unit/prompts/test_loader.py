@@ -68,6 +68,18 @@ def test_loader_render_system_prompt(valid_prompts_dir: Path):
     assert len(result) > 0
 
 
+def test_system_prompt_unescapes_double_braces():
+    """System prompt {{var}} examples render as {var} for valid Python."""
+    loader = PromptLoader()
+    result = loader.render_system_prompt()
+    # The prompt contains f-string examples like f"...{chunk}..."
+    # These are stored as {{chunk}} in the template but must be
+    # unescaped to {chunk} when shown to the LLM
+    assert "{{" not in result, (
+        "System prompt contains escaped double braces that should be unescaped"
+    )
+
+
 def test_loader_render_context_metadata(valid_prompts_dir: Path):
     """PromptLoader renders context metadata with new variables."""
     loader = PromptLoader(prompts_dir=valid_prompts_dir)

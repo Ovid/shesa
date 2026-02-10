@@ -88,8 +88,12 @@ class PromptLoader:
             self._prompts[filename] = content
 
     def render_system_prompt(self) -> str:
-        """Render the system prompt (no variables -- 500K hardcoded)."""
-        return self._prompts["system.md"]
+        """Render the system prompt (no variables -- 500K hardcoded).
+
+        Calls .format() to unescape {{/}} in code examples (e.g. {{chunk}} -> {chunk})
+        so the LLM sees valid Python f-string syntax.
+        """
+        return self._prompts["system.md"].format()
 
     def render_context_metadata(
         self,
