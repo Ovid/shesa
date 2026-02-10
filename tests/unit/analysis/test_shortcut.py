@@ -9,9 +9,11 @@ class TestTryAnswerFromAnalysis:
     """Tests for try_answer_from_analysis()."""
 
     def test_returns_answer_when_llm_can_answer(self):
-        """When LLM returns a real answer, function returns it."""
+        """When LLM returns a real answer, function returns answer with token counts."""
         mock_response = MagicMock()
         mock_response.content = "This codebase implements a web framework."
+        mock_response.prompt_tokens = 100
+        mock_response.completion_tokens = 20
 
         with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
             mock_cls.return_value.complete.return_value = mock_response
@@ -22,7 +24,7 @@ class TestTryAnswerFromAnalysis:
                 api_key="test-key",
             )
 
-        assert result == "This codebase implements a web framework."
+        assert result == ("This codebase implements a web framework.", 100, 20)
 
     def test_returns_none_when_need_deeper(self):
         """When LLM returns NEED_DEEPER, function returns None."""
@@ -104,6 +106,24 @@ class TestTryAnswerFromAnalysis:
         assert "<untrusted_document_content>" in user_content
         assert "</untrusted_document_content>" in user_content
         assert "Overview: A web framework..." in user_content
+
+    def test_returns_answer_and_token_usage(self):
+        """When LLM answers, function returns (answer, prompt_tokens, completion_tokens)."""
+        mock_response = MagicMock()
+        mock_response.content = "The codebase uses Flask."
+        mock_response.prompt_tokens = 150
+        mock_response.completion_tokens = 30
+
+        with patch("shesha.analysis.shortcut.LLMClient") as mock_cls:
+            mock_cls.return_value.complete.return_value = mock_response
+            result = try_answer_from_analysis(
+                question="What framework is used?",
+                analysis_context="Overview: Uses Flask...",
+                model="test-model",
+                api_key="test-key",
+            )
+
+        assert result == ("The codebase uses Flask.", 150, 30)
 
     def test_returns_none_on_llm_error(self):
         """LLM exception -> None (graceful fallback)."""

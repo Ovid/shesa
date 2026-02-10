@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Analysis shortcut answers now display token usage in the TUI info bar. Previously, the shortcut discarded token counts from the LLM response, leaving the info bar showing `Tokens: 0 (prompt: 0, comp: 0)`.
 - Bare `FINAL(variable_name)` in LLM response now correctly resolves the variable from the sandbox instead of returning the variable name as a literal string. Previously, if the LLM wrote `FINAL(final_answer)` as bare text (outside a code block) intending to return a variable's value, the answer displayed was the literal string "final_answer" instead of the variable's content.
 
 ### Removed

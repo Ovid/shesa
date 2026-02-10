@@ -329,12 +329,15 @@ class SheshaTUI(App[None]):
                     self._api_key,
                 )
                 if shortcut is not None:
+                    answer, prompt_tokens, completion_tokens = shortcut
                     if self._query_id == my_query_id:
                         self.call_from_thread(
                             self._on_shortcut_answer,
                             my_query_id,
-                            shortcut,
+                            answer,
                             display_question,
+                            prompt_tokens,
+                            completion_tokens,
                         )
                     return None
 
@@ -436,14 +439,24 @@ class SheshaTUI(App[None]):
         self.query_one(OutputArea).add_system_message(f"Error: {error_msg}")
         self.query_one(InfoBar).reset_phase()
 
-    def _on_shortcut_answer(self, query_id: int, answer: str, question: str) -> None:
+    def _on_shortcut_answer(
+        self,
+        query_id: int,
+        answer: str,
+        question: str,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+    ) -> None:
         """Handle answer from analysis shortcut (called on main thread)."""
         if self._query_id != query_id:
             return
         elapsed = time.time() - self._query_start_time
         self._stop_query()
 
+        self._cumulative_prompt_tokens += prompt_tokens
+        self._cumulative_completion_tokens += completion_tokens
         info_bar = self.query_one(InfoBar)
+        info_bar.update_tokens(self._cumulative_prompt_tokens, self._cumulative_completion_tokens)
         info_bar.update_done(elapsed, 0)
 
         output = self.query_one(OutputArea)

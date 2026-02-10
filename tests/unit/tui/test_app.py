@@ -416,6 +416,39 @@ class TestQueryCancellation:
             assert statics_after == statics_before
 
 
+class TestAnalysisShortcutTokenDisplay:
+    """Tests that analysis shortcut answers update token counts in the info bar."""
+
+    async def test_shortcut_answer_updates_token_count(self) -> None:
+        """When shortcut answers a query, token counts appear in the info bar."""
+        project = MagicMock()
+        app = SheshaTUI(
+            project=project,
+            project_name="test",
+            model="test-model",
+            api_key="key",
+        )
+        async with app.run_test() as pilot:
+            pilot.app._analysis_context = "Analysis: A web framework."
+
+            def mock_shortcut(question, analysis_context, model, api_key):
+                return ("Shortcut answer", 200, 50)
+
+            with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
+                pilot.app._run_query("What does this do?")
+                await pilot.pause(delay=0.5)
+
+            # Cumulative tokens should reflect shortcut usage
+            assert pilot.app._cumulative_prompt_tokens == 200
+            assert pilot.app._cumulative_completion_tokens == 50
+
+            # Info bar should display the token counts
+            info_bar = pilot.app.query_one(InfoBar)
+            line1, _ = info_bar._state.render_lines()
+            assert "200" in line1
+            assert "50" in line1
+
+
 class TestAnalysisShortcutHistoryContext:
     """Analysis shortcut must receive conversation history with the question."""
 
@@ -439,7 +472,7 @@ class TestAnalysisShortcutHistoryContext:
 
             def mock_shortcut(question, analysis_context, model, api_key):
                 captured_questions.append(question)
-                return "Shortcut answer"
+                return ("Shortcut answer", 100, 25)
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
                 pilot.app._run_query("What about module B?")

@@ -21,11 +21,12 @@ def try_answer_from_analysis(
     analysis_context: str | None,
     model: str,
     api_key: str | None,
-) -> str | None:
+) -> tuple[str, int, int] | None:
     """Try to answer a question using only the pre-computed analysis.
 
-    Returns the answer string if the LLM can answer from analysis alone,
-    or None if deeper investigation is needed (falls through to full RLM).
+    Returns ``(answer, prompt_tokens, completion_tokens)`` if the LLM can
+    answer from analysis alone, or ``None`` if deeper investigation is needed
+    (falls through to full RLM).
     """
     if not analysis_context:
         return None
@@ -46,4 +47,4 @@ def try_answer_from_analysis(
     if answer == _SENTINEL:
         return None
 
-    return response.content
+    return (response.content, response.prompt_tokens, response.completion_tokens)
