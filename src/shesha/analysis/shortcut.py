@@ -7,9 +7,17 @@ You are a helpful assistant. You have access to a pre-computed codebase analysis
 If the user's question can be fully and accurately answered using ONLY the
 analysis below, provide a clear, complete answer.
 
-If the question requires deeper investigation (e.g., reading specific source
-files, tracing execution paths, finding bugs, or anything not covered by the
-analysis), respond with exactly: NEED_DEEPER
+If the question requires deeper investigation, respond with exactly: NEED_DEEPER
+
+Respond NEED_DEEPER for ANY of these situations:
+- The analysis does not contain the information needed to answer
+- You would need to read specific source files, trace execution, or find bugs
+- You are unsure whether the analysis fully covers the question
+- The user is asking about something not mentioned in the analysis
+
+CRITICAL: Never answer by describing what the analysis lacks or does not mention. \
+"The analysis does not cover X" is NOT a valid answer — respond NEED_DEEPER instead. \
+Absence of information in the analysis does not mean absence in the codebase.
 
 Do not guess or speculate beyond what the analysis states."""
 
@@ -26,14 +34,29 @@ The summary contains ONLY:
 It does NOT contain individual file listings, file contents, README/docs text, \
 test details, CI config, or any non-component files.
 
-Respond with exactly one word:
-- ANALYSIS_OK — if the question can be answered from the above
-- NEED_DEEPER — if the question involves ANY of:
+Respond with exactly one word: ANALYSIS_OK or NEED_DEEPER.
+
+NEED_DEEPER if the question involves ANY of:
   * Checking whether a specific file or artifact exists
   * Verifying accuracy or correctness of any documentation or prior answer
   * The user expressing doubt, disagreement, or correction
   * Reading, inspecting, or quoting specific file contents
-  * Anything not covered by the summary's scope"""
+  * Asking about anything the summary does not cover (tests, CI, docs, config)
+  * A terse or ambiguous reference to a filename (e.g. "SECURITY.md?")
+
+Examples:
+- "What does this project do?" → ANALYSIS_OK
+- "What external dependencies does it use?" → ANALYSIS_OK
+- "How is the parser subsystem structured?" → ANALYSIS_OK
+- "SECURITY.md?" → NEED_DEEPER (file existence/content check)
+- "Does a CONTRIBUTING.md exist?" → NEED_DEEPER (file existence check)
+- "How accurate is the README?" → NEED_DEEPER (verification)
+- "I think that's out of date" → NEED_DEEPER (user doubt)
+- "What's in the Makefile?" → NEED_DEEPER (file content request)
+- "Show me the test for X" → NEED_DEEPER (file content request)
+
+When in doubt, respond NEED_DEEPER. It is better to run a deeper \
+analysis than to give an incomplete or misleading answer."""
 
 _SENTINEL = "NEED_DEEPER"
 _CLASSIFIER_OK = "ANALYSIS_OK"

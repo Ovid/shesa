@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Analysis shortcut classifier now includes few-shot examples and a "when in doubt, NEED_DEEPER" bias, reducing false ANALYSIS_OK classifications on terse or ambiguous queries (e.g. "SECURITY.md?", "I think that's out of date").
+- Analysis shortcut LLM now responds NEED_DEEPER when the analysis lacks information instead of answering with "the analysis does not mention X". Absence from the analysis no longer produces misleading non-answers.
+
 ### Fixed
 
 - Analysis shortcut answers now display token usage in the TUI info bar. Previously, the shortcut discarded token counts from the LLM response, leaving the info bar showing `Tokens: 0 (prompt: 0, comp: 0)`.

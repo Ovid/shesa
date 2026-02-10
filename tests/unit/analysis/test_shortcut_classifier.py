@@ -2,7 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
-from shesha.analysis.shortcut import classify_query, try_answer_from_analysis
+from shesha.analysis.shortcut import (
+    _CLASSIFIER_PROMPT,
+    classify_query,
+    try_answer_from_analysis,
+)
 
 
 class TestClassifyQuery:
@@ -189,6 +193,29 @@ class TestClassifyQuery:
         constructor_kwargs = mock_cls.call_args
         assert constructor_kwargs[1]["model"] == "my-special-model"
         assert constructor_kwargs[1]["api_key"] == "my-key"
+
+
+class TestClassifierPromptContent:
+    """Tests that the classifier prompt contains required guidance."""
+
+    def test_contains_few_shot_examples(self):
+        """Classifier prompt includes concrete examples for reliable classification."""
+        # ANALYSIS_OK examples
+        assert '"What does this project do?" → ANALYSIS_OK' in _CLASSIFIER_PROMPT
+        assert '"What external dependencies does it use?" → ANALYSIS_OK' in _CLASSIFIER_PROMPT
+
+        # NEED_DEEPER examples
+        assert '"SECURITY.md?" → NEED_DEEPER' in _CLASSIFIER_PROMPT
+        assert '"How accurate is the README?" → NEED_DEEPER' in _CLASSIFIER_PROMPT
+        assert '"I think that\'s out of date" → NEED_DEEPER' in _CLASSIFIER_PROMPT
+
+    def test_contains_terse_filename_rule(self):
+        """Classifier prompt flags terse/ambiguous filename references."""
+        assert "terse or ambiguous reference to a filename" in _CLASSIFIER_PROMPT
+
+    def test_contains_when_in_doubt_bias(self):
+        """Classifier prompt biases toward NEED_DEEPER when uncertain."""
+        assert "When in doubt, respond NEED_DEEPER" in _CLASSIFIER_PROMPT
 
 
 class TestTryAnswerFromAnalysisWithClassifier:

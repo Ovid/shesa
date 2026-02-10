@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from shesha.analysis.shortcut import try_answer_from_analysis
+from shesha.analysis.shortcut import _SYSTEM_PROMPT, try_answer_from_analysis
 
 
 class TestTryAnswerFromAnalysis:
@@ -139,3 +139,22 @@ class TestTryAnswerFromAnalysis:
             )
 
         assert result is None
+
+
+class TestShortcutPromptContent:
+    """Tests that the shortcut LLM prompt prevents absence-as-answer."""
+
+    def test_contains_absence_rule(self):
+        """Prompt explicitly forbids answering with 'analysis doesn't mention X'."""
+        assert "Never answer by describing what the analysis lacks" in _SYSTEM_PROMPT
+
+    def test_contains_need_deeper_for_missing_info(self):
+        """Prompt lists 'analysis does not contain the information' as NEED_DEEPER case."""
+        assert "The analysis does not contain the information needed to answer" in _SYSTEM_PROMPT
+
+    def test_contains_absence_not_absence_principle(self):
+        """Prompt states absence from analysis != absence from codebase."""
+        assert (
+            "Absence of information in the analysis does not mean absence in the codebase"
+            in _SYSTEM_PROMPT
+        )
