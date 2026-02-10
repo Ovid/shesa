@@ -436,7 +436,8 @@ class TestAnalysisShortcutTokenDisplay:
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
                 pilot.app._run_query("What does this do?")
-                await pilot.pause(delay=0.5)
+                await pilot.app._worker_handle.wait()
+                await pilot.pause()
 
             # Cumulative tokens should reflect shortcut usage
             assert pilot.app._cumulative_prompt_tokens == 200
@@ -465,7 +466,8 @@ class TestAnalysisShortcutTokenDisplay:
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
                 pilot.app._run_query("What does this do?")
-                await pilot.pause(delay=0.5)
+                await pilot.app._worker_handle.wait()
+                await pilot.pause()
 
             output = pilot.app.query_one(OutputArea)
             statics = output.query("Static")
@@ -508,8 +510,8 @@ class TestAnalysisShortcutHistoryContext:
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
                 pilot.app._run_query("What about module B?")
-                # Give the worker thread a moment to call the shortcut
-                await pilot.pause(delay=0.5)
+                await pilot.app._worker_handle.wait()
+                await pilot.pause()
 
             assert len(captured_questions) == 1
             q = captured_questions[0]
