@@ -567,11 +567,22 @@ class RLMEngine:
                             retrieve_result = executor.execute(
                                 f"print({final_value})", timeout=self.execution_timeout
                             )
-                            bare_answer = (
-                                retrieve_result.stdout.strip()
-                                if retrieve_result.status == "ok"
-                                else final_value  # fallback to literal if var undefined
-                            )
+                            if retrieve_result.status != "ok":
+                                # Variable not found — retry instead of
+                                # returning the variable name as the answer
+                                messages.append({"role": "assistant", "content": response.content})
+                                messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            f"Variable '{final_value}' was not found in the "
+                                            "REPL environment. Define it in a ```repl``` block "
+                                            "first, then use FINAL_VAR(variable_name) to return it."
+                                        ),
+                                    }
+                                )
+                                continue
+                            bare_answer = retrieve_result.stdout.strip()
                         else:
                             bare_answer = final_value
 
@@ -688,33 +699,36 @@ class RLMEngine:
                 # If code blocks didn't produce a final answer, check for
                 # bare FINAL in the same response. Now that code blocks have
                 # executed, any variables they defined exist in the sandbox.
+                var_lookup_failed: str | None = None
                 if final_answer is None and bare_final is not None:
                     final_type, final_value = bare_final
                     if final_type == "final_var":
                         retrieve_result = executor.execute(
                             f"print({final_value})", timeout=self.execution_timeout
                         )
-                        final_answer = (
-                            retrieve_result.stdout.strip()
-                            if retrieve_result.status == "ok"
-                            else final_value
-                        )
+                        if retrieve_result.status == "ok":
+                            final_answer = retrieve_result.stdout.strip()
+                        else:
+                            # Variable not found — record name so a helpful
+                            # message is appended after the code-echo messages
+                            var_lookup_failed = final_value
                     else:
                         final_answer = final_value
 
-                    step = trace.add_step(
-                        type=StepType.FINAL_ANSWER,
-                        content=final_answer,
-                        iteration=iteration,
-                    )
-                    _write_step(step)
-                    if on_progress:
-                        on_progress(
-                            StepType.FINAL_ANSWER,
-                            iteration,
-                            final_answer,
-                            copy.copy(token_usage),
+                    if final_answer is not None:
+                        step = trace.add_step(
+                            type=StepType.FINAL_ANSWER,
+                            content=final_answer,
+                            iteration=iteration,
                         )
+                        _write_step(step)
+                        if on_progress:
+                            on_progress(
+                                StepType.FINAL_ANSWER,
+                                iteration,
+                                final_answer,
+                                copy.copy(token_usage),
+                            )
 
                 if final_answer is not None:
                     verification = None
@@ -830,6 +844,18 @@ class RLMEngine:
                         ),
                     }
                 )
+
+                if var_lookup_failed is not None:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Variable '{var_lookup_failed}' was not found in the "
+                                "REPL environment. Define it in a ```repl``` block "
+                                "first, then use FINAL_VAR(variable_name) to return it."
+                            ),
+                        }
+                    )
 
             # Max iterations reached — ask LLM for one last answer
             fallback_messages = messages + [

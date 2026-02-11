@@ -12,6 +12,8 @@ Make sure to explicitly look through the entire context in REPL before answering
 
 You can use the REPL environment to help you understand your context, especially if it is huge. Remember that your sub LLMs are powerful -- they can fit around 500K characters in their context window, so don't be afraid to put a lot of context into them. For example, a viable strategy is to feed 10 documents per sub-LLM query. Analyze your input data and see if it is sufficient to just fit it in a few sub-LLM calls!
 
+IMPORTANT: Your response must be natural language with Python code inside ```repl``` fenced blocks. Do NOT respond with JSON, structured output, or any format other than natural language and ```repl``` code blocks.
+
 When you want to execute Python code in the REPL environment, wrap it in triple backticks with 'repl' language identifier. For example, say we want our recursive model to search for the magic number in the context (assuming the context is a string), and the context is very long, so we want to chunk it:
 ```repl
 chunk = context[:10000]

@@ -2217,23 +2217,30 @@ class TestFindFinalAnswerInText:
 
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")
-    def test_engine_falls_back_to_literal_when_var_undefined(
+    def test_engine_retries_when_bare_final_var_lookup_fails_no_code_blocks(
         self,
         mock_llm_cls: MagicMock,
         mock_executor_cls: MagicMock,
     ):
-        """Engine falls back to literal identifier when sandbox lookup fails.
+        """Engine retries when bare FINAL(var) lookup fails (no code blocks).
 
-        If the LLM writes FINAL(some_var) but the variable was never defined
-        in the sandbox, the retrieval via print() yields an error with empty
-        stdout. Rather than returning an empty answer, fall back to the
-        identifier itself as a literal.
+        If the LLM writes bare FINAL(undefined_var) with no code blocks and
+        the sandbox lookup fails, the engine should NOT return the variable
+        name as the answer. Instead it should continue iterating with a
+        helpful message so the LLM can fix its mistake.
         """
         mock_llm = MagicMock()
         mock_llm.complete.side_effect = [
             # Iteration 0: bare FINAL(undefined_var) — variable never defined
             MagicMock(
                 content="FINAL(undefined_var)",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Iteration 1: LLM provides a proper literal answer
+            MagicMock(
+                content='FINAL("The real answer")',
                 prompt_tokens=100,
                 completion_tokens=50,
                 total_tokens=150,
@@ -2263,8 +2270,89 @@ class TestFindFinalAnswerInText:
             question="What is the answer?",
         )
 
-        # Should fall back to the literal identifier, not return ""
-        assert result.answer == "undefined_var"
+        assert result.answer == '"The real answer"'
+        assert mock_llm.complete.call_count == 2
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_retries_when_bare_final_var_lookup_fails_after_code(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine retries when bare FINAL(var) lookup fails after code execution.
+
+        If the LLM writes a code block + bare FINAL(my_report) in the same
+        response, the code block executes but doesn't define the variable
+        (e.g., code bug). The sandbox lookup for my_report then fails.
+        The engine should continue iterating, not return the variable name.
+        """
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            # Iteration 0: code block + bare FINAL(my_report)
+            MagicMock(
+                content=(
+                    "Let me analyze the document.\n\n"
+                    "```repl\n"
+                    'print("analyzing...")\n'
+                    "```\n\n"
+                    "FINAL(my_report)"
+                ),
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Iteration 1: LLM provides proper answer
+            MagicMock(
+                content='FINAL("Actual report content")',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+
+        call_count = [0]
+
+        def execute_side_effect(code, timeout=30):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call: execute the code block (doesn't define my_report)
+                return MagicMock(
+                    status="ok",
+                    stdout="analyzing...",
+                    stderr="",
+                    error=None,
+                    final_answer=None,
+                    final_var=None,
+                    vars={},
+                )
+            else:
+                # Second call: print(my_report) — variable not defined
+                return MagicMock(
+                    status="error",
+                    stdout="",
+                    stderr="NameError: name 'my_report' is not defined",
+                    error=None,
+                    final_answer=None,
+                    final_var=None,
+                    vars=None,
+                )
+
+        mock_executor.execute.side_effect = execute_side_effect
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["Doc content"],
+            question="What is the report?",
+        )
+
+        assert result.answer == '"Actual report content"'
+        assert mock_llm.complete.call_count == 2
 
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")

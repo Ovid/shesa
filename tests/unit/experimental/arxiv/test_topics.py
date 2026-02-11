@@ -144,9 +144,7 @@ class TestTopicManager:
         assert project_id_1 == project_id_2
         assert storage.project_exists(project_id_1)
 
-    def test_create_writes_metadata_when_project_exists_without_it(
-        self, tmp_path: Path
-    ) -> None:
+    def test_create_writes_metadata_when_project_exists_without_it(self, tmp_path: Path) -> None:
         """If project exists but _topic.json is missing, create() writes it.
 
         Regression: old buggy code created the project directory but wrote
