@@ -199,7 +199,7 @@ class SheshaTUI(App[None]):
             sub_prefix = parts[1] if len(parts) > 1 else ""
             if self._command_registry.is_group(group_name):
                 matches = self._command_registry.subcommand_completions(group_name, sub_prefix)
-                if matches:
+                if matches and not (len(matches) == 1 and matches[0][0] == sub_prefix):
                     self.query_one(CompletionPopup).show_items(matches)
                     self.query_one(InputArea).completion_active = True
                     self._completing_group = group_name

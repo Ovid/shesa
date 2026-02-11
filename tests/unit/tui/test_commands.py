@@ -371,6 +371,29 @@ class TestTwoLevelAutocomplete:
             popup = pilot.app.query_one(CompletionPopup)
             assert popup.display is False
 
+    async def test_exact_subcommand_hides_popup(self) -> None:
+        """Typing '/topic list' exactly hides popup so Enter submits."""
+        from unittest.mock import MagicMock
+
+        from shesha.tui import SheshaTUI
+        from shesha.tui.widgets.input_area import InputArea
+
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        app._command_registry.register_group("/topic", "Topic management")
+        app._command_registry.register_subcommand("/topic", "list", lambda a: None, "List topics")
+        app._command_registry.register_subcommand(
+            "/topic", "switch", lambda a: None, "Switch topic"
+        )
+
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "/topic list"
+            await pilot.pause()
+            popup = pilot.app.query_one(CompletionPopup)
+            assert popup.display is False
+            assert input_area.completion_active is False
+
 
 class TestCommandUsageHints:
     """Tests for usage hints in command registration."""
