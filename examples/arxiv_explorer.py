@@ -176,10 +176,8 @@ def create_app(
         for i, doc_name in enumerate(docs, 1):
             meta = state.cache.get_meta(doc_name)
             if meta:
-                lines.append(
-                    f"{i}. \\[{meta.arxiv_id}\\] *{meta.title}*  \n"
-                    f"   {meta.arxiv_url}"
-                )
+                lines.append(f'{i}. **[{meta.arxiv_id}]** "{meta.title}"')
+                lines.append(f"   {meta.arxiv_url}\n")
             else:
                 lines.append(f"{i}. {doc_name}")
         output.add_system_markdown("\n".join(lines))
@@ -266,6 +264,23 @@ def create_app(
 
     # --- Threaded commands (use call_from_thread for UI updates) ---
 
+    # Guard: only one threaded command at a time
+    _threaded_busy = False
+
+    def _threaded_guard(handler_name: str, handler, args: str) -> None:  # type: ignore[type-arg]
+        """Wrapper that enforces one-at-a-time for threaded commands."""
+        nonlocal _threaded_busy
+        if _threaded_busy:
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message, "Command in progress."
+            )
+            return
+        _threaded_busy = True
+        try:
+            handler(args)
+        finally:
+            _threaded_busy = False
+
     def _cmd_search(args: str) -> None:
         args = args.strip()
         if not args:
@@ -274,6 +289,7 @@ def create_app(
                 "Usage: /search <query> [--author <name>] [--cat <category>] [--recent <days>]",
             )
             return
+        tui.call_from_thread(tui.query_one(InfoBar).update_thinking, 0.0)
         query, kwargs = _parse_search_flags(args)
         results = state.searcher.search(query, **kwargs)
         state.last_search_results = results
@@ -283,18 +299,20 @@ def create_app(
             tui.call_from_thread(
                 tui.query_one(OutputArea).add_system_message, "No results found."
             )
+            tui.call_from_thread(tui.query_one(InfoBar).reset_phase)
             return
-        lines = [f"**Found {len(results)} results:**\n"]
+        lines = [f'### Search: "{query}" ({len(results)} results)\n']
         for i, meta in enumerate(results, 1):
-            lines.append(
-                f"{i}. \\[{meta.arxiv_id}\\] *{meta.title}*  \n"
-                f"   {', '.join(meta.authors[:3])}"
-                + (f" +{len(meta.authors) - 3} more" if len(meta.authors) > 3 else "")
-                + f" | {meta.primary_category} | {meta.published.strftime('%Y-%m-%d')}  \n"
-                f"   {meta.arxiv_url}"
-            )
-        lines.append("\nUse /more for next page, /load <numbers> to pick, /load to load this page.")
+            authors = ", ".join(meta.authors[:3])
+            if len(meta.authors) > 3:
+                authors += f" +{len(meta.authors) - 3} more"
+            date_str = meta.published.strftime("%Y-%m-%d")
+            lines.append(f'{i}. **[{meta.arxiv_id}]** "{meta.title}"')
+            lines.append(f"   {authors} | {meta.primary_category} | {date_str}")
+            lines.append(f"   {meta.arxiv_url}\n")
+        lines.append("Use /more for next page, /load <numbers> to pick, /load to load this page.")
         tui.call_from_thread(tui.query_one(OutputArea).add_system_markdown, "\n".join(lines))
+        tui.call_from_thread(tui.query_one(InfoBar).reset_phase)
 
     def _cmd_more(args: str) -> None:
         if state._last_search_kwargs is None:
@@ -303,26 +321,29 @@ def create_app(
                 "No previous search. Use /search first.",
             )
             return
+        tui.call_from_thread(tui.query_one(InfoBar).update_thinking, 0.0)
         offset = state._search_offset
         results = state.searcher.search(**state._last_search_kwargs, max_results=10, start=offset)
         if not results:
             tui.call_from_thread(
                 tui.query_one(OutputArea).add_system_message, "No more results."
             )
+            tui.call_from_thread(tui.query_one(InfoBar).reset_phase)
             return
         start_index = len(state.last_search_results) + 1
         state.last_search_results.extend(results)
         state._search_offset = offset + len(results)
-        lines = [f"**Results {start_index}-{start_index + len(results) - 1}:**\n"]
+        lines = [f"### Results {start_index}-{start_index + len(results) - 1}\n"]
         for i, meta in enumerate(results, start_index):
-            lines.append(
-                f"{i}. \\[{meta.arxiv_id}\\] *{meta.title}*  \n"
-                f"   {', '.join(meta.authors[:3])}"
-                + (f" +{len(meta.authors) - 3} more" if len(meta.authors) > 3 else "")
-                + f" | {meta.primary_category} | {meta.published.strftime('%Y-%m-%d')}  \n"
-                f"   {meta.arxiv_url}"
-            )
+            authors = ", ".join(meta.authors[:3])
+            if len(meta.authors) > 3:
+                authors += f" +{len(meta.authors) - 3} more"
+            date_str = meta.published.strftime("%Y-%m-%d")
+            lines.append(f'{i}. **[{meta.arxiv_id}]** "{meta.title}"')
+            lines.append(f"   {authors} | {meta.primary_category} | {date_str}")
+            lines.append(f"   {meta.arxiv_url}\n")
         tui.call_from_thread(tui.query_one(OutputArea).add_system_markdown, "\n".join(lines))
+        tui.call_from_thread(tui.query_one(InfoBar).reset_phase)
 
     def _cmd_load(args: str) -> None:
         if state.current_topic is None:
@@ -342,6 +363,7 @@ def create_app(
             tokens = [str(i) for i in range(1, len(state.last_search_results) + 1)]
         else:
             tokens = args.split()
+        tui.call_from_thread(tui.query_one(InfoBar).update_thinking, 0.0)
         loaded = 0
         for i, token in enumerate(tokens):
             if i > 0:
@@ -388,6 +410,7 @@ def create_app(
                 tui.query_one(OutputArea).add_system_message,
                 f"{loaded} paper(s) loaded into topic.",
             )
+        tui.call_from_thread(tui.query_one(InfoBar).reset_phase)
 
     def _cmd_check_citations(args: str) -> None:
         if state.current_topic is None:
@@ -412,6 +435,7 @@ def create_app(
                     f"Paper {filter_id} not found in current topic.",
                 )
                 return
+        tui.call_from_thread(tui.query_one(InfoBar).update_thinking, 0.0)
         verifier = ArxivVerifier(searcher=state.searcher)
         for doc_name in docs:
             doc_meta = state.cache.get_meta(doc_name)
@@ -486,16 +510,32 @@ def create_app(
                 tui.query_one(OutputArea).add_system_message,
                 f"```\n{report_text}\n```",
             )
+        tui.call_from_thread(tui.query_one(InfoBar).reset_phase)
 
     tui.register_command("/papers", _cmd_papers, "List papers in current topic")
     tui.register_command("/topic", _cmd_topic, "Topic management (switch/create/delete/rename)")
     tui.register_command("/history", _cmd_history, "List all topics")
-    tui.register_command("/search", _cmd_search, "Search arXiv", threaded=True)
-    tui.register_command("/more", _cmd_more, "Next page of search results", threaded=True)
-    tui.register_command("/load", _cmd_load, "Load papers into topic", threaded=True)
+    tui.register_command(
+        "/search",
+        lambda args: _threaded_guard("search", _cmd_search, args),
+        "Search arXiv",
+        threaded=True,
+    )
+    tui.register_command(
+        "/more",
+        lambda args: _threaded_guard("more", _cmd_more, args),
+        "Next page of search results",
+        threaded=True,
+    )
+    tui.register_command(
+        "/load",
+        lambda args: _threaded_guard("load", _cmd_load, args),
+        "Load papers into topic",
+        threaded=True,
+    )
     tui.register_command(
         "/check-citations",
-        _cmd_check_citations,
+        lambda args: _threaded_guard("check", _cmd_check_citations, args),
         "Citation verification",
         threaded=True,
     )
