@@ -15,12 +15,12 @@ Shesha executes LLM-generated code in Docker containers. The primary threats are
 
 ### 1. Prompt Injection Mitigation
 
-- **Untrusted Content Tags**: Two patterns used:
-  - `<untrusted_document_content>` wraps content in sub-LLM calls via `llm_query()`
-  - `<repl_output type="untrusted_document_content">` wraps REPL execution output shown to the main LLM
-- **Hardened System Prompt**: Explicit warnings about adversarial content
+- **Randomized Content Boundaries**: Each query generates a unique boundary token using `secrets.token_hex(16)` (128 bits of entropy). Untrusted document content is wrapped with `{boundary}_BEGIN` / `{boundary}_END` markers. Papers cannot forge closing tags because the boundary is unpredictable and short-lived (discarded after each query).
+- **System Prompt Security Section**: The system prompt explicitly instructs the LLM to treat content within boundary markers as raw data, never as instructions.
+- **Five Wrapping Points**: All paths where document content reaches the LLM are wrapped: sub-LLM calls, REPL output, analysis shortcut, semantic verification, and initial context.
 - **Instruction/Content Separation**: `llm_query(instruction, content)` keeps trusted instructions separate from untrusted document data
-- **Adversarial Testing**: Test suite covers tag injection, instruction override attempts, nested tags, and special character handling
+- **Adversarial Testing**: Test suite covers boundary escape attempts, instruction override attempts, nested boundaries, and special character handling
+- **Known Limitation**: Boundary-based tagging is a strong signal but not a hard guarantee. LLMs can still be socially engineered past prompt-level defenses. Docker isolation mitigates downstream impact.
 
 ### 2. Docker Sandbox
 
