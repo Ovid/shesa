@@ -556,7 +556,6 @@ class TestCheckCitationsCommand:
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "DISCLAIMER" in captured.out
 
-
     def test_check_prints_progress(self, capsys: object) -> None:
         """Citation checking should print progress for each citation verified."""
         from arxiv_explorer import handle_check_citations
@@ -578,6 +577,7 @@ class TestCheckCitationsCommand:
         handle_check_citations("", state=state)
         captured = capsys.readouterr()  # type: ignore[union-attr]
         assert "Verifying 2 citations" in captured.out
+
 
 class TestConversationalQuery:
     """Tests for non-command input (questions)."""

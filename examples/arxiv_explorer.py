@@ -11,6 +11,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from shesha import Shesha
 from shesha.config import SheshaConfig
@@ -35,6 +36,18 @@ from shesha.experimental.arxiv.search import ArxivSearcher, format_result
 from shesha.experimental.arxiv.topics import TopicManager
 from shesha.rlm.trace import StepType
 from shesha.storage.filesystem import FilesystemStorage
+
+# Guard TUI import: textual is an optional dependency (shesha[tui]).
+try:
+    from shesha.tui import SheshaTUI
+    from shesha.tui.widgets.info_bar import InfoBar
+    from shesha.tui.widgets.output_area import OutputArea
+except ModuleNotFoundError:
+    if __name__ == "__main__":
+        print("This example requires the TUI extra: pip install shesha[tui]")
+        sys.exit(1)
+    else:
+        raise
 
 # script_utils lives in examples/ alongside this file
 sys.path.insert(0, str(Path(__file__).parent))
@@ -494,6 +507,40 @@ def dispatch_command(user_input: str, state: AppState) -> bool:
     handler, _ = handler_entry
     handler(cmd_args, state=state)
     return False
+
+
+def create_app(
+    state: AppState,
+    model: str | None = None,
+    startup_message: str | None = None,
+    startup_warning: str | None = None,
+) -> SheshaTUI:
+    """Create and configure the TUI app with arXiv commands."""
+    if state.current_topic:
+        info = state.topic_mgr.get_topic_info_by_project_id(state.current_topic)
+        project_name = info.name if info else state.current_topic
+        project = state.shesha.get_project(state.current_topic)
+    else:
+        project_name = "No topic"
+        # Placeholder project -- queries require a topic, guarded in _run_query
+        project = MagicMock()
+
+    # Subclass to inject startup messages via on_mount (Textual resolves
+    # handlers from the class __dict__, so instance monkey-patching won't work).
+    class _ArxivTUI(SheshaTUI):
+        def on_mount(self) -> None:
+            super().on_mount()
+            output = self.query_one(OutputArea)
+            if startup_warning:
+                output.add_system_message(startup_warning)
+            if startup_message:
+                output.add_system_message(startup_message)
+
+    tui = _ArxivTUI(project=project, project_name=project_name, model=model)
+
+    # Commands will be registered here (see subsequent steps)
+
+    return tui
 
 
 def main() -> None:
