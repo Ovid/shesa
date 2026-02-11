@@ -142,8 +142,24 @@ class SheshaTUI(App[None]):
                 ``app.call_from_thread()`` for any widget updates.
             usage: Optional usage hint (e.g., "<query> [--author, ...]").
         """
-        self._command_registry.register(
-            name, handler, description, threaded=threaded, usage=usage
+        self._command_registry.register(name, handler, description, threaded=threaded, usage=usage)
+
+    def register_group(self, name: str, description: str) -> None:
+        """Register a command group (e.g., '/topic')."""
+        self._command_registry.register_group(name, description)
+
+    def register_subcommand(
+        self,
+        group: str,
+        subcommand: str,
+        handler: Callable[[str], object],
+        description: str,
+        *,
+        threaded: bool = False,
+    ) -> None:
+        """Register a subcommand under a command group."""
+        self._command_registry.register_subcommand(
+            group, subcommand, handler, description, threaded=threaded
         )
 
     def compose(self) -> ComposeResult:

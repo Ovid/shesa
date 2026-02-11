@@ -143,13 +143,13 @@ class TestTUICommands:
     """Tests for non-threaded TUI commands."""
 
     async def test_papers_no_topic_shows_error(self) -> None:
-        """/papers with no topic shows error message."""
+        """/topic papers with no topic shows error message."""
         from arxiv_explorer import create_app
 
         state = _make_state()
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
-            resolved = pilot.app._command_registry.resolve("/papers")
+            resolved = pilot.app._command_registry.resolve("/topic papers")
             assert resolved is not None
             handler, args, _threaded = resolved
             handler(args)
@@ -160,7 +160,7 @@ class TestTUICommands:
             assert any("No topic" in t for t in texts)
 
     async def test_papers_lists_documents(self) -> None:
-        """/papers with topic lists papers as markdown."""
+        """/topic papers with topic lists papers as markdown."""
         from datetime import UTC, datetime
 
         from arxiv_explorer import create_app
@@ -191,7 +191,7 @@ class TestTUICommands:
         )
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
-            resolved = pilot.app._command_registry.resolve("/papers")
+            resolved = pilot.app._command_registry.resolve("/topic papers")
             assert resolved is not None
             handler, args, _threaded = resolved
             handler(args)
@@ -201,21 +201,11 @@ class TestTUICommands:
             all_text = _extract_output_text(output)
             assert "2501.12345" in all_text
 
-    async def test_topic_bare_shows_current(self) -> None:
-        """/topic with no args shows current topic name."""
+    async def test_topic_bare_shows_usage_help(self) -> None:
+        """/topic with no args shows usage help listing subcommands."""
         from arxiv_explorer import create_app
 
-        from shesha.experimental.arxiv.models import TopicInfo
-
-        state = _make_state(current_topic="2025-01-15-quantum")
-        state.topic_mgr.get_topic_info_by_project_id.return_value = TopicInfo(
-            name="quantum",
-            created=MagicMock(),
-            paper_count=2,
-            size_bytes=0,
-            project_id="2025-01-15-quantum",
-        )
-        state.shesha.get_project.return_value = MagicMock()
+        state = _make_state()
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
             resolved = pilot.app._command_registry.resolve("/topic")
@@ -226,10 +216,10 @@ class TestTUICommands:
             output = pilot.app.query_one(OutputArea)
             statics = output.query("Static")
             texts = [str(s.render()) for s in statics]
-            assert any("quantum" in t for t in texts)
+            assert any("Topic management" in t or "/topic list" in t for t in texts)
 
     async def test_topic_creates_and_switches(self) -> None:
-        """/topic <name> creates a new topic, switches, and updates InfoBar."""
+        """/topic create <name> creates a new topic, switches, and updates InfoBar."""
         from arxiv_explorer import create_app
 
         state = _make_state()
@@ -237,7 +227,7 @@ class TestTUICommands:
         state.topic_mgr.create.return_value = "2025-01-15-new-topic"
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
-            resolved = pilot.app._command_registry.resolve("/topic new-topic")
+            resolved = pilot.app._command_registry.resolve("/topic create new-topic")
             assert resolved is not None
             handler, args, _threaded = resolved
             handler(args)
@@ -248,7 +238,7 @@ class TestTUICommands:
             assert "new-topic" in line1
 
     async def test_topic_switch_existing(self) -> None:
-        """/topic <name> switches to existing topic and updates InfoBar."""
+        """/topic switch <name> switches to existing topic and updates InfoBar."""
         from arxiv_explorer import create_app
 
         state = _make_state()
@@ -256,7 +246,7 @@ class TestTUICommands:
         state.topic_mgr._storage.list_documents.return_value = ["doc1", "doc2"]
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
-            resolved = pilot.app._command_registry.resolve("/topic quantum")
+            resolved = pilot.app._command_registry.resolve("/topic switch quantum")
             assert resolved is not None
             handler, args, _threaded = resolved
             handler(args)
@@ -337,14 +327,14 @@ class TestTUICommands:
             assert "qec" in line1
 
     async def test_history_empty_shows_message(self) -> None:
-        """/history with no topics shows info message."""
+        """/topic list with no topics shows info message."""
         from arxiv_explorer import create_app
 
         state = _make_state()
         state.topic_mgr.list_topics.return_value = []
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
-            resolved = pilot.app._command_registry.resolve("/history")
+            resolved = pilot.app._command_registry.resolve("/topic list")
             assert resolved is not None
             handler, args, _threaded = resolved
             handler(args)
@@ -355,7 +345,7 @@ class TestTUICommands:
             assert any("No topics" in t for t in texts)
 
     async def test_history_lists_topics(self) -> None:
-        """/history with topics shows markdown table."""
+        """/topic list with topics shows markdown table."""
         from datetime import UTC, datetime
 
         from arxiv_explorer import create_app
@@ -374,7 +364,7 @@ class TestTUICommands:
         ]
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
-            resolved = pilot.app._command_registry.resolve("/history")
+            resolved = pilot.app._command_registry.resolve("/topic list")
             assert resolved is not None
             handler, args, _threaded = resolved
             handler(args)
@@ -382,6 +372,86 @@ class TestTUICommands:
             output = pilot.app.query_one(OutputArea)
             all_text = _extract_output_text(output)
             assert "quantum" in all_text
+
+    async def test_topic_switch_by_number(self) -> None:
+        """/topic switch <number> switches to topic by list position."""
+        from datetime import UTC, datetime
+
+        from arxiv_explorer import create_app
+
+        from shesha.experimental.arxiv.models import TopicInfo
+
+        state = _make_state()
+        state.topic_mgr.list_topics.return_value = [
+            TopicInfo(
+                name="quantum",
+                created=datetime(2025, 1, 15, tzinfo=UTC),
+                paper_count=2,
+                size_bytes=0,
+                project_id="2025-01-15-quantum",
+            ),
+        ]
+        state.topic_mgr._storage.list_documents.return_value = ["doc1", "doc2"]
+        state.shesha.get_project.return_value = MagicMock()
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/topic switch 1")
+            assert resolved is not None
+            handler, args, _threaded = resolved
+            handler(args)
+            await pilot.pause()
+            assert state.current_topic == "2025-01-15-quantum"
+            info_bar = pilot.app.query_one(InfoBar)
+            line1, _ = info_bar._state.render_lines()
+            assert "quantum" in line1
+
+    async def test_old_commands_not_registered(self) -> None:
+        """Old commands /load, /papers, /history, /check-citations are gone."""
+        from arxiv_explorer import create_app
+
+        state = _make_state()
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            assert pilot.app._command_registry.resolve("/load") is None
+            assert pilot.app._command_registry.resolve("/papers") is None
+            assert pilot.app._command_registry.resolve("/history") is None
+            assert pilot.app._command_registry.resolve("/check-citations") is None
+
+    async def test_topic_switch_not_found_shows_error(self) -> None:
+        """/topic switch nonexistent shows error."""
+        from arxiv_explorer import create_app
+
+        state = _make_state()
+        state.topic_mgr.resolve.return_value = None
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/topic switch nonexistent")
+            assert resolved is not None
+            handler, args, _threaded = resolved
+            handler(args)
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("not found" in t for t in texts)
+
+    async def test_topic_create_already_exists_shows_error(self) -> None:
+        """/topic create <existing> shows error when topic already exists."""
+        from arxiv_explorer import create_app
+
+        state = _make_state()
+        state.topic_mgr.resolve.return_value = "2025-01-15-quantum"
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/topic create quantum")
+            assert resolved is not None
+            handler, args, _threaded = resolved
+            handler(args)
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("already exists" in t for t in texts)
 
 
 class TestTUISearchCommands:
@@ -500,10 +570,10 @@ class TestTUISearchCommands:
 
 
 class TestTUILoadCommand:
-    """Tests for threaded /load TUI command."""
+    """Tests for threaded /topic add TUI command."""
 
     async def test_load_by_number_stores_document(self) -> None:
-        """/load <number> downloads and stores a paper."""
+        """/topic add <number> downloads and stores a paper."""
         from datetime import UTC, datetime
         from unittest.mock import patch
 
@@ -544,7 +614,7 @@ class TestTUILoadCommand:
                     ),
                 ),
             ):
-                resolved = pilot.app._command_registry.resolve("/load 1")
+                resolved = pilot.app._command_registry.resolve("/topic add 1")
                 assert resolved is not None
                 handler, args, threaded = resolved
                 assert threaded is True
@@ -554,13 +624,13 @@ class TestTUILoadCommand:
             state.topic_mgr._storage.store_document.assert_called_once()
 
     async def test_load_requires_topic(self) -> None:
-        """/load without a topic shows error."""
+        """/topic add without a topic shows error."""
         from arxiv_explorer import create_app
 
         state = _make_state()
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
-            resolved = pilot.app._command_registry.resolve("/load 1")
+            resolved = pilot.app._command_registry.resolve("/topic add 1")
             assert resolved is not None
             handler, args, threaded = resolved
             worker = pilot.app.run_worker(lambda: handler(args), thread=True)
@@ -573,10 +643,10 @@ class TestTUILoadCommand:
 
 
 class TestTUICheckCitations:
-    """Tests for threaded /check-citations TUI command."""
+    """Tests for threaded /check TUI command."""
 
     async def test_check_citations_runs_pipeline(self) -> None:
-        """/check-citations runs the citation verification pipeline."""
+        """/check runs the citation verification pipeline."""
         from datetime import UTC, datetime
         from unittest.mock import patch
 
@@ -627,7 +697,7 @@ class TestTUICheckCitations:
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
             with patch("arxiv_explorer.ArxivVerifier", return_value=mock_verifier):
-                resolved = pilot.app._command_registry.resolve("/check-citations")
+                resolved = pilot.app._command_registry.resolve("/check")
                 assert resolved is not None
                 handler, args, threaded = resolved
                 assert threaded is True
@@ -637,13 +707,13 @@ class TestTUICheckCitations:
             mock_verifier.verify.assert_called_once()
 
     async def test_check_citations_requires_topic(self) -> None:
-        """/check-citations without a topic shows error."""
+        """/check without a topic shows error."""
         from arxiv_explorer import create_app
 
         state = _make_state()
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
-            resolved = pilot.app._command_registry.resolve("/check-citations")
+            resolved = pilot.app._command_registry.resolve("/check")
             assert resolved is not None
             handler, args, threaded = resolved
             worker = pilot.app.run_worker(lambda: handler(args), thread=True)
