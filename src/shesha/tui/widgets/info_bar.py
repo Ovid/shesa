@@ -125,6 +125,11 @@ class InfoBar(Static):
         self._state.set_cancelled()
         self._refresh_content()
 
+    def update_project_name(self, name: str) -> None:
+        """Update the displayed project name."""
+        self._state.project_name = name
+        self._refresh_content()
+
     def reset_phase(self) -> None:
         """Reset to ready state."""
         self._state.reset()

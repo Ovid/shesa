@@ -1,6 +1,9 @@
 """Tests for TUI info bar widget."""
 
-from shesha.tui.widgets.info_bar import InfoBarState, abbreviate_model
+from unittest.mock import MagicMock
+
+from shesha.tui.app import SheshaTUI
+from shesha.tui.widgets.info_bar import InfoBar, InfoBarState, abbreviate_model
 
 
 class TestInfoBarState:
@@ -115,3 +118,24 @@ class TestAbbreviateModel:
     def test_only_date_pattern(self) -> None:
         """String that is only a date pattern still strips it."""
         assert abbreviate_model("model-20250514") == "model"
+
+
+class TestInfoBarProjectNameUpdate:
+    """Tests for InfoBar.update_project_name() method."""
+
+    def test_update_project_name_changes_state(self) -> None:
+        """Setting project_name on state changes render_lines output."""
+        state = InfoBarState(project_name="old", model="gpt-4o")
+        state.project_name = "new-topic"
+        line1, _ = state.render_lines()
+        assert "new-topic" in line1
+        assert "old" not in line1
+
+    async def test_info_bar_update_project_name_widget(self) -> None:
+        """update_project_name() updates the widget state."""
+        app = SheshaTUI(project=MagicMock(), project_name="test")
+        async with app.run_test() as pilot:
+            info_bar = pilot.app.query_one(InfoBar)
+            info_bar.update_project_name("new-topic")
+            line1, _ = info_bar._state.render_lines()
+            assert "new-topic" in line1
