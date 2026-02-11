@@ -143,6 +143,20 @@ class TestArxivSearcher:
         meta = searcher.get_by_id("0000.00000")
         assert meta is None
 
+    @patch("shesha.experimental.arxiv.search.arxiv")
+    def test_get_by_id_http_error_returns_none(self, mock_arxiv: MagicMock) -> None:
+        """Invalid IDs that cause HTTP errors should return None, not crash."""
+        # Late import: module under test must be imported after patch is active
+        from shesha.experimental.arxiv.search import ArxivSearcher
+
+        mock_client = MagicMock()
+        mock_arxiv.Client.return_value = mock_client
+        mock_client.results.side_effect = Exception("HTTP 400")
+
+        searcher = ArxivSearcher()
+        meta = searcher.get_by_id("https://example.com/not-an-arxiv-id")
+        assert meta is None
+
     def test_format_result(self) -> None:
         # Late import: module under test
         from shesha.experimental.arxiv.models import PaperMeta

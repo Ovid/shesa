@@ -72,6 +72,22 @@ class TestExtractFromBib:
             extract_citations_from_bib(bib)
         assert "Unknown block type" not in caplog.text
 
+    def test_eprint_url_not_treated_as_arxiv_id(self) -> None:
+        """A URL in the eprint field must not be accepted as an arXiv ID."""
+        from shesha.experimental.arxiv.citations import extract_citations_from_bib
+
+        bib = """
+@article{wiley2023,
+    author = {Author},
+    title = {Some Book Chapter},
+    year = {2023},
+    eprint = {https://onlinelibrary.wiley.com/doi/pdf/10.1002/9781119555568.ch16},
+}
+"""
+        cites = extract_citations_from_bib(bib)
+        assert len(cites) == 1
+        assert cites[0].arxiv_id is None
+
     def test_malformed_bib_does_not_crash(self) -> None:
         from shesha.experimental.arxiv.citations import extract_citations_from_bib
 

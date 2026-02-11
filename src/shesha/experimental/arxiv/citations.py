@@ -48,7 +48,8 @@ def extract_citations_from_bib(bib_content: str) -> list[ExtractedCitation]:
         for entry in library.entries:
             key = entry.key
             fields = {f.key: f.value for f in entry.fields}
-            arxiv_id = fields.get("eprint")
+            raw_eprint = fields.get("eprint")
+            arxiv_id = raw_eprint if raw_eprint and ARXIV_ID_PATTERN.fullmatch(raw_eprint) else None
             # Also check for arXiv ID in note or url fields
             if arxiv_id is None:
                 for field_name in ("note", "url"):

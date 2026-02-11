@@ -121,7 +121,10 @@ class ArxivSearcher:
     def get_by_id(self, arxiv_id: str) -> PaperMeta | None:
         """Fetch metadata for a specific arXiv ID."""
         search = arxiv.Search(id_list=[arxiv_id])
-        results = list(self._client.results(search))
+        try:
+            results = list(self._client.results(search))
+        except Exception:
+            return None  # Invalid ID or network error
         if not results:
             return None
         return _result_to_meta(results[0])
