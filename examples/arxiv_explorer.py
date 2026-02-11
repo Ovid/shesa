@@ -538,7 +538,114 @@ def create_app(
 
     tui = _ArxivTUI(project=project, project_name=project_name, model=model)
 
-    # Commands will be registered here (see subsequent steps)
+    # --- Non-threaded commands ---
+
+    def _cmd_papers(args: str) -> None:
+        output = tui.query_one(OutputArea)
+        if state.current_topic is None:
+            output.add_system_message("No topic selected. Use /topic <name> first.")
+            return
+        docs = state.topic_mgr._storage.list_documents(state.current_topic)
+        if not docs:
+            output.add_system_message("No papers loaded. Use /search and /load to add papers.")
+            return
+        info = state.topic_mgr.get_topic_info_by_project_id(state.current_topic)
+        topic_name = info.name if info else state.current_topic
+        lines = [f'**Papers in "{topic_name}":**\n']
+        for i, doc_name in enumerate(docs, 1):
+            meta = state.cache.get_meta(doc_name)
+            if meta:
+                lines.append(
+                    f"{i}. \\[{meta.arxiv_id}\\] *{meta.title}*  \n"
+                    f"   {meta.arxiv_url}"
+                )
+            else:
+                lines.append(f"{i}. {doc_name}")
+        output.add_system_markdown("\n".join(lines))
+
+    def _cmd_topic(args: str) -> None:
+        output = tui.query_one(OutputArea)
+        args = args.strip()
+        if not args:
+            if state.current_topic:
+                info = state.topic_mgr.get_topic_info_by_project_id(state.current_topic)
+                name = info.name if info else state.current_topic
+                output.add_system_message(f"Current topic: {name}")
+            else:
+                output.add_system_message(
+                    "No topic selected. Use /topic <name> to create or switch."
+                )
+            return
+
+        parts = args.split(maxsplit=1)
+
+        # /topic delete <name>
+        if parts[0] == "delete" and len(parts) > 1:
+            name = parts[1]
+            try:
+                state.topic_mgr.delete(name)
+                output.add_system_message(f"Deleted topic: {name}")
+                if state.current_topic and name in state.current_topic:
+                    state.current_topic = None
+                    tui.query_one(InfoBar).update_project_name("No topic")
+            except ValueError as e:
+                output.add_system_message(f"Error: {e}")
+            return
+
+        # /topic rename <old> <new>
+        if parts[0] == "rename" and len(parts) > 1:
+            rename_parts = parts[1].split(maxsplit=1)
+            if len(rename_parts) < 2:
+                output.add_system_message("Usage: /topic rename <old-name> <new-name>")
+                return
+            old_name, new_name = rename_parts
+            try:
+                state.topic_mgr.rename(old_name, new_name)
+                output.add_system_message(f"Renamed topic: {old_name} -> {new_name}")
+                # Update InfoBar if renaming current topic
+                old_project_id = state.topic_mgr.resolve(new_name)
+                if old_project_id == state.current_topic:
+                    tui.query_one(InfoBar).update_project_name(new_name)
+            except ValueError as e:
+                output.add_system_message(f"Error: {e}")
+            return
+
+        # /topic <name> — switch or create
+        name = args
+        project_id = state.topic_mgr.resolve(name)
+        if project_id:
+            state.current_topic = project_id
+            docs = state.topic_mgr._storage.list_documents(project_id)
+            tui._project = state.shesha.get_project(project_id)
+            tui.query_one(InfoBar).update_project_name(name)
+            output.add_system_message(f"Switched to topic: {name} ({len(docs)} papers)")
+        else:
+            project_id = state.topic_mgr.create(name)
+            state.current_topic = project_id
+            tui._project = state.shesha.get_project(project_id)
+            tui.query_one(InfoBar).update_project_name(name)
+            output.add_system_message(f"Created topic: {name}")
+
+    def _cmd_history(args: str) -> None:
+        output = tui.query_one(OutputArea)
+        topics = state.topic_mgr.list_topics()
+        if not topics:
+            output.add_system_message("No topics yet. Use /search and /load to get started.")
+            return
+        lines = ["| # | Topic | Created | Papers | Size |", "|---|-------|---------|--------|------|"]
+        for i, t in enumerate(topics, 1):
+            created_str = t.created.strftime("%b %d, %Y")
+            papers_word = "paper" if t.paper_count == 1 else "papers"
+            marker = " **\\***" if t.project_id == state.current_topic else ""
+            lines.append(
+                f"| {i} | {t.name}{marker} | {created_str} "
+                f"| {t.paper_count} {papers_word} | {t.formatted_size} |"
+            )
+        output.add_system_markdown("\n".join(lines))
+
+    tui.register_command("/papers", _cmd_papers, "List papers in current topic")
+    tui.register_command("/topic", _cmd_topic, "Topic management (switch/create/delete/rename)")
+    tui.register_command("/history", _cmd_history, "List all topics")
 
     return tui
 
