@@ -129,29 +129,6 @@ def test_truncate_code_output_exact_limit():
     assert result == output
 
 
-def test_wrap_subcall_content_basic():
-    """wrap_subcall_content wraps content in untrusted tags."""
-    from shesha.rlm.prompts import wrap_subcall_content
-
-    content = "Document text here"
-    wrapped = wrap_subcall_content(content)
-
-    assert "<untrusted_document_content>" in wrapped
-    assert "</untrusted_document_content>" in wrapped
-    assert "Document text here" in wrapped
-
-
-def test_wrap_subcall_content_preserves_full_content():
-    """wrap_subcall_content does not truncate content."""
-    from shesha.rlm.prompts import wrap_subcall_content
-
-    large_content = "x" * 600_000
-    wrapped = wrap_subcall_content(large_content)
-
-    assert large_content in wrapped
-    assert "truncated" not in wrapped.lower()
-
-
 def test_iteration_zero_prompt_exists():
     """PromptLoader can render an iteration-0 prompt template."""
     loader = PromptLoader()

@@ -17,7 +17,6 @@ from shesha.prompts import PromptLoader
 from shesha.rlm.prompts import (
     format_code_echo,
     truncate_code_output,
-    wrap_subcall_content,
 )
 from shesha.rlm.semantic_verification import (
     SemanticVerificationReport,
@@ -38,6 +37,18 @@ from shesha.storage.base import StorageBackend
 
 # Callback type for progress notifications
 ProgressCallback = Callable[[StepType, int, str, TokenUsage], None]
+
+
+def _wrap_subcall_content(content: str) -> str:
+    """Temporary: wrap sub-LLM content in static untrusted tags.
+
+    Task 7 will replace this with the boundary module's randomised markers.
+    """
+    return (
+        f"<untrusted_document_content>\n"
+        f"{content}\n"
+        f"</untrusted_document_content>"
+    )
 
 
 @dataclass
@@ -229,7 +240,7 @@ class RLMEngine:
         # Build prompt: when content is empty (single-arg llm_query), send
         # instruction directly. When content is provided, wrap in untrusted tags.
         if content:
-            wrapped_content = wrap_subcall_content(content)
+            wrapped_content = _wrap_subcall_content(content)
             prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
         else:
             prompt = instruction
@@ -293,7 +304,7 @@ class RLMEngine:
             return None
 
         # Wrap cited docs in untrusted content tags (security boundary)
-        wrapped_docs = wrap_subcall_content(cited_docs_text)
+        wrapped_docs = _wrap_subcall_content(cited_docs_text)
 
         # Layer 1: Adversarial verification
         prompt = self.prompt_loader.render_verify_adversarial_prompt(

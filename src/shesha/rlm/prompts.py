@@ -42,14 +42,3 @@ def format_code_echo(
     if vars:
         parts.append(f"\nREPL variables: {list(vars.keys())}")
     return "\n".join(parts)
-
-
-def wrap_subcall_content(content: str) -> str:
-    """Wrap sub-LLM content in untrusted document tags.
-
-    This is a code-level security boundary that ensures untrusted document
-    content is always marked, regardless of prompt template contents.
-    """
-    return f"""<untrusted_document_content>
-{content}
-</untrusted_document_content>"""
