@@ -35,6 +35,12 @@ dev = [
     "tqdm",
     "matplotlib",
     "python-dateutil",
+    "arxiv>=2.0",
+    "bibtexparser>=2.0.0b7",
+]
+arxiv = [
+    "arxiv>=2.0",
+    "bibtexparser>=2.0.0b7",
 ]
 tui = [
     "textual>=1.0",
