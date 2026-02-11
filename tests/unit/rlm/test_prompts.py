@@ -298,3 +298,23 @@ def test_iteration_zero_prompt_includes_step_by_step():
     result = loader.render_iteration_zero(question="What color is the sky?")
     assert "step-by-step" in result.lower()
     assert "What color is the sky?" in result
+
+
+def test_format_code_echo_wraps_output_with_boundary():
+    """Code echo wraps REPL output when boundary is provided."""
+    from shesha.rlm.prompts import format_code_echo
+
+    result = format_code_echo("x = 1", "1", boundary="UNTRUSTED_CONTENT_abc123")
+    assert "UNTRUSTED_CONTENT_abc123_BEGIN" in result
+    assert "UNTRUSTED_CONTENT_abc123_END" in result
+    assert "1" in result
+
+
+def test_format_code_echo_no_wrapping_without_boundary():
+    """Code echo does not wrap when boundary is None."""
+    from shesha.rlm.prompts import format_code_echo
+
+    result = format_code_echo("x = 1", "1")
+    assert "_BEGIN" not in result
+    assert "_END" not in result
+    assert "REPL output:" in result
