@@ -251,7 +251,9 @@ def create_app(
         if not topics:
             output.add_system_message("No topics yet. Use /search and /load to get started.")
             return
-        lines = ["| # | Topic | Created | Papers | Size |", "|---|-------|---------|--------|------|"]
+        header = "| # | Topic | Created | Papers | Size |"
+        sep = "|---|-------|---------|--------|------|"
+        lines = [header, sep]
         for i, t in enumerate(topics, 1):
             created_str = t.created.strftime("%b %d, %Y")
             papers_word = "paper" if t.paper_count == 1 else "papers"
@@ -562,7 +564,7 @@ def main() -> None:
     shesha = Shesha(config=config, storage=storage)
     cache = PaperCache(cache_dir)
     searcher = ArxivSearcher()
-    topic_mgr = TopicManager(shesha=shesha, storage=storage, data_dir=data_dir)
+    topic_mgr = TopicManager(shesha=shesha, storage=storage)
 
     state = AppState(
         shesha=shesha,

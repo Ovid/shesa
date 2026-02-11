@@ -6,13 +6,14 @@ import json
 import os
 import re
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from shesha.exceptions import ProjectExistsError
 from shesha.experimental.arxiv.models import TopicInfo
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from shesha import Shesha
     from shesha.storage.filesystem import FilesystemStorage
 
@@ -36,11 +37,9 @@ class TopicManager:
         self,
         shesha: Shesha,
         storage: FilesystemStorage,
-        data_dir: Path,
     ) -> None:
         self._shesha = shesha
         self._storage = storage
-        self._data_dir = data_dir
 
     def create(self, name: str) -> str:
         """Create a new topic, or return existing project ID if it already exists."""
@@ -50,6 +49,14 @@ class TopicManager:
         try:
             self._storage.create_project(project_id)
         except ProjectExistsError:
+            # Ensure _topic.json exists (may be missing from a prior bug)
+            meta_path = self._project_path(project_id) / self.TOPIC_META_FILE
+            if not meta_path.exists():
+                topic_meta = {
+                    "name": slug,
+                    "created": datetime.now(tz=UTC).isoformat(),
+                }
+                meta_path.write_text(json.dumps(topic_meta, indent=2))
             return project_id
         # Write topic metadata
         topic_meta = {
@@ -145,4 +152,4 @@ class TopicManager:
 
     def _project_path(self, project_id: str) -> Path:
         """Get the filesystem path for a project."""
-        return self._data_dir / "projects" / project_id
+        return self._storage._project_path(project_id)

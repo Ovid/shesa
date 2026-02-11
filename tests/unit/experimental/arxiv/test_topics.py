@@ -36,7 +36,7 @@ class TestTopicManager:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         project_id = mgr.create("quantum-error-correction")
         assert "quantum-error-correction" in project_id
         assert storage.project_exists(project_id)
@@ -45,7 +45,7 @@ class TestTopicManager:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         project_id = mgr.create("test-topic")
         today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
         assert project_id.startswith(today)
@@ -54,14 +54,14 @@ class TestTopicManager:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         assert mgr.list_topics() == []
 
     def test_list_topics_returns_topic_info(self, tmp_path: Path) -> None:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         mgr.create("topic-a")
         topics = mgr.list_topics()
         assert len(topics) == 1
@@ -73,7 +73,7 @@ class TestTopicManager:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         project_id = mgr.create("to-delete")
         mgr.delete("to-delete")
         assert not storage.project_exists(project_id)
@@ -83,7 +83,7 @@ class TestTopicManager:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         project_id = mgr.create("my-topic")
         resolved = mgr.resolve("my-topic")
         assert resolved == project_id
@@ -92,7 +92,7 @@ class TestTopicManager:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         assert mgr.resolve("nonexistent") is None
 
     def test_get_topic_info_with_size(self, tmp_path: Path) -> None:
@@ -100,7 +100,7 @@ class TestTopicManager:
         from shesha.models import ParsedDocument
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         project_id = mgr.create("sized-topic")
         # Store a document to add some size
         doc = ParsedDocument(
@@ -120,7 +120,7 @@ class TestTopicManager:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         project_id = mgr.create("by-id-test")
         info = mgr.get_topic_info_by_project_id(project_id)
         assert info is not None
@@ -130,7 +130,7 @@ class TestTopicManager:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         assert mgr.get_topic_info_by_project_id("nonexistent") is None
 
     def test_create_existing_topic_is_idempotent(self, tmp_path: Path) -> None:
@@ -138,11 +138,68 @@ class TestTopicManager:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        mgr = TopicManager(shesha, storage)
         project_id_1 = mgr.create("existing-topic")
         project_id_2 = mgr.create("existing-topic")
         assert project_id_1 == project_id_2
         assert storage.project_exists(project_id_1)
+
+    def test_create_writes_metadata_when_project_exists_without_it(
+        self, tmp_path: Path
+    ) -> None:
+        """If project exists but _topic.json is missing, create() writes it.
+
+        Regression: old buggy code created the project directory but wrote
+        _topic.json to the wrong path. On re-create, ProjectExistsError was
+        caught and create() returned without writing metadata.
+        """
+        from shesha.experimental.arxiv.topics import TopicManager
+
+        shesha, storage = _make_shesha_and_storage(tmp_path)
+        mgr = TopicManager(shesha, storage)
+
+        # Simulate the stale state: project exists with today's date, no _topic.json
+        today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
+        stale_id = f"{today}-orphan"
+        storage.create_project(stale_id)
+        meta_path = storage._project_path(stale_id) / "_topic.json"
+        assert not meta_path.exists()
+
+        # create() should write _topic.json even though project already exists
+        project_id = mgr.create("orphan")
+        assert project_id == stale_id
+
+        # The topic must now be discoverable
+        topics = mgr.list_topics()
+        topic_names = [t.name for t in topics]
+        assert "orphan" in topic_names
+
+    def test_topic_metadata_stored_in_storage_directory(self, tmp_path: Path) -> None:
+        """_topic.json must be written inside FilesystemStorage's project dir.
+
+        Regression: TopicManager used data_dir/projects/ but storage uses
+        shesha_data/projects/ — the metadata was written to the wrong path.
+        """
+        from shesha.experimental.arxiv.topics import TopicManager
+
+        # Mirror production layout: data_dir != storage root
+        data_dir = tmp_path / "app-data"
+        shesha_data = data_dir / "shesha_data"
+        shesha_data.mkdir(parents=True)
+
+        from shesha.storage.filesystem import FilesystemStorage
+
+        storage = FilesystemStorage(shesha_data)
+        shesha = MagicMock()
+        shesha._storage = storage
+
+        mgr = TopicManager(shesha, storage)
+        mgr.create("regression-test")
+
+        # Metadata must be readable (lives in storage dir, not data_dir)
+        topics = mgr.list_topics()
+        assert len(topics) == 1
+        assert topics[0].name == "regression-test"
 
     def test_slugify(self, tmp_path: Path) -> None:
         """Topic names are slugified (lowercase, hyphens, no special chars)."""
@@ -161,13 +218,12 @@ class TestTopicRename:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        data_dir = tmp_path / "shesha_data"
-        mgr = TopicManager(shesha, storage, data_dir)
+        mgr = TopicManager(shesha, storage)
         project_id = mgr.create("old-name")
 
         mgr.rename("old-name", "new-name")
 
-        meta_path = data_dir / "projects" / project_id / "_topic.json"
+        meta_path = storage.projects_dir / project_id / "_topic.json"
         meta = json.loads(meta_path.read_text())
         assert meta["name"] == "new-name"
 
@@ -176,8 +232,7 @@ class TestTopicRename:
         from shesha.experimental.arxiv.topics import TopicManager
 
         shesha, storage = _make_shesha_and_storage(tmp_path)
-        data_dir = tmp_path / "shesha_data"
-        mgr = TopicManager(shesha, storage, data_dir)
+        mgr = TopicManager(shesha, storage)
 
         with pytest.raises(ValueError, match="Topic not found"):
             mgr.rename("nonexistent", "new")
