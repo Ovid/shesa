@@ -126,3 +126,135 @@ class TestCommandRegistry:
         handler, args, _threaded = result
         handler(args)
         assert called_with == ["hello"]
+
+
+class TestCommandGroupRegistration:
+    """Tests for register_group and register_subcommand."""
+
+    def test_register_group_appears_in_list_commands(self) -> None:
+        reg = CommandRegistry()
+        reg.register_group("/topic", "Topic management")
+        commands = reg.list_commands()
+        assert ("/topic", "Topic management") in commands
+
+    def test_register_subcommand(self) -> None:
+        reg = CommandRegistry()
+        reg.register_group("/topic", "Topic management")
+        called_with: list[str] = []
+        reg.register_subcommand(
+            "/topic", "list", lambda args: called_with.append(args), "List all topics"
+        )
+        names = [name for name, _ in reg.list_commands()]
+        assert "/topic list" not in names
+
+    def test_resolve_subcommand(self) -> None:
+        reg = CommandRegistry()
+        reg.register_group("/topic", "Topic management")
+        called_with: list[str] = []
+        reg.register_subcommand(
+            "/topic", "switch", lambda args: called_with.append(args), "Switch topic"
+        )
+        result = reg.resolve("/topic switch my-topic")
+        assert result is not None
+        handler, args, threaded = result
+        handler(args)
+        assert called_with == ["my-topic"]
+
+    def test_resolve_subcommand_no_args(self) -> None:
+        reg = CommandRegistry()
+        reg.register_group("/topic", "Topic management")
+        called_with: list[str] = []
+        reg.register_subcommand(
+            "/topic", "list", lambda args: called_with.append(args), "List topics"
+        )
+        result = reg.resolve("/topic list")
+        assert result is not None
+        handler, args, threaded = result
+        handler(args)
+        assert called_with == [""]
+
+    def test_resolve_bare_group_returns_help_handler(self) -> None:
+        reg = CommandRegistry()
+        reg.register_group("/topic", "Topic management")
+        reg.register_subcommand("/topic", "list", lambda args: None, "List all topics")
+        result = reg.resolve("/topic")
+        assert result is not None
+        handler, args, threaded = result
+        assert args == ""
+
+    def test_resolve_unknown_subcommand_returns_help_handler(self) -> None:
+        reg = CommandRegistry()
+        reg.register_group("/topic", "Topic management")
+        reg.register_subcommand("/topic", "list", lambda args: None, "List topics")
+        result = reg.resolve("/topic bogus")
+        assert result is not None
+        handler, args, threaded = result
+        assert args == "bogus"
+
+    def test_subcommand_threaded_flag(self) -> None:
+        reg = CommandRegistry()
+        reg.register_group("/topic", "Topic management")
+        reg.register_subcommand("/topic", "add", lambda args: None, "Add papers", threaded=True)
+        result = reg.resolve("/topic add 1 2 3")
+        assert result is not None
+        _handler, _args, threaded = result
+        assert threaded is True
+
+    def test_list_subcommands(self) -> None:
+        reg = CommandRegistry()
+        reg.register_group("/topic", "Topic management")
+        reg.register_subcommand("/topic", "switch", lambda a: None, "Switch topic")
+        reg.register_subcommand("/topic", "add", lambda a: None, "Add papers")
+        reg.register_subcommand("/topic", "list", lambda a: None, "List topics")
+        subs = reg.list_subcommands("/topic")
+        names = [name for name, _ in subs]
+        assert names == ["add", "list", "switch"]
+
+    def test_list_subcommands_unknown_group(self) -> None:
+        reg = CommandRegistry()
+        assert reg.list_subcommands("/bogus") == []
+
+
+class TestCommandGroupCompletions:
+    """Tests for two-level autocomplete with command groups."""
+
+    def test_completions_top_level_includes_groups(self) -> None:
+        reg = CommandRegistry()
+        reg.register("/help", lambda a: None, "Show help")
+        reg.register_group("/topic", "Topic management")
+        completions = reg.completions("/")
+        names = [name for name, _ in completions]
+        assert "/help" in names
+        assert "/topic" in names
+
+    def test_completions_group_prefix_filters(self) -> None:
+        reg = CommandRegistry()
+        reg.register("/help", lambda a: None, "Show help")
+        reg.register_group("/topic", "Topic management")
+        completions = reg.completions("/to")
+        assert len(completions) == 1
+        assert completions[0][0] == "/topic"
+
+    def test_subcommand_completions(self) -> None:
+        reg = CommandRegistry()
+        reg.register_group("/topic", "Topic management")
+        reg.register_subcommand("/topic", "list", lambda a: None, "List topics")
+        reg.register_subcommand("/topic", "switch", lambda a: None, "Switch topic")
+        reg.register_subcommand("/topic", "create", lambda a: None, "Create topic")
+        subs = reg.subcommand_completions("/topic", "")
+        assert len(subs) == 3
+        subs = reg.subcommand_completions("/topic", "sw")
+        assert len(subs) == 1
+        assert subs[0][0] == "switch"
+
+    def test_subcommand_completions_unknown_group(self) -> None:
+        reg = CommandRegistry()
+        assert reg.subcommand_completions("/bogus", "") == []
+
+    def test_is_group(self) -> None:
+        reg = CommandRegistry()
+        reg.register_group("/topic", "Topic management")
+        reg.register("/help", lambda a: None, "Help")
+        assert reg.is_group("/topic") is True
+        assert reg.is_group("/help") is False
+        assert reg.is_group("/bogus") is False
