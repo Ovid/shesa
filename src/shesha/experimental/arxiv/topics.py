@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from shesha.exceptions import ProjectExistsError
 from shesha.experimental.arxiv.models import TopicInfo
 
 if TYPE_CHECKING:
@@ -42,11 +43,14 @@ class TopicManager:
         self._data_dir = data_dir
 
     def create(self, name: str) -> str:
-        """Create a new topic. Returns the project ID."""
+        """Create a new topic, or return existing project ID if it already exists."""
         slug = slugify(name)
         today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
         project_id = f"{today}-{slug}"
-        self._storage.create_project(project_id)
+        try:
+            self._storage.create_project(project_id)
+        except ProjectExistsError:
+            return project_id
         # Write topic metadata
         topic_meta = {
             "name": slug,

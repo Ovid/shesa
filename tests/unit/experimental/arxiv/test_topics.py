@@ -130,6 +130,17 @@ class TestTopicManager:
         mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
         assert mgr.get_topic_info_by_project_id("nonexistent") is None
 
+    def test_create_existing_topic_is_idempotent(self, tmp_path: Path) -> None:
+        """Creating a topic that already exists returns its project ID."""
+        from shesha.experimental.arxiv.topics import TopicManager
+
+        shesha, storage = _make_shesha_and_storage(tmp_path)
+        mgr = TopicManager(shesha, storage, tmp_path / "shesha_data")
+        project_id_1 = mgr.create("existing-topic")
+        project_id_2 = mgr.create("existing-topic")
+        assert project_id_1 == project_id_2
+        assert storage.project_exists(project_id_1)
+
     def test_slugify(self, tmp_path: Path) -> None:
         """Topic names are slugified (lowercase, hyphens, no special chars)."""
         from shesha.experimental.arxiv.topics import slugify

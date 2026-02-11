@@ -151,7 +151,7 @@ def handle_topic(args: str, state: AppState) -> None:
             print(f"Error: {e}")
         return
 
-    # Switch to or create topic
+    # Switch to or create topic (create is idempotent)
     name = args
     project_id = state.topic_mgr.resolve(name)
     if project_id:
