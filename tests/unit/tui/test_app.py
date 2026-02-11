@@ -506,7 +506,7 @@ class TestAnalysisShortcutTokenDisplay:
         async with app.run_test() as pilot:
             pilot.app._analysis_context = "Analysis: A web framework."
 
-            def mock_shortcut(question, analysis_context, model, api_key):
+            def mock_shortcut(question, analysis_context, model, api_key, **kwargs):
                 return ("Shortcut answer", 200, 50)
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
@@ -536,7 +536,7 @@ class TestAnalysisShortcutTokenDisplay:
         async with app.run_test() as pilot:
             pilot.app._analysis_context = "Analysis: A web framework."
 
-            def mock_shortcut(question, analysis_context, model, api_key):
+            def mock_shortcut(question, analysis_context, model, api_key, **kwargs):
                 return ("Shortcut answer", 200, 50)
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
@@ -562,7 +562,7 @@ class TestAnalysisShortcutTokenDisplay:
         async with app.run_test() as pilot:
             pilot.app._analysis_context = "Analysis: A web framework."
 
-            def mock_shortcut(question, analysis_context, model, api_key):
+            def mock_shortcut(question, analysis_context, model, api_key, **kwargs):
                 return ("Shortcut answer", 200, 50)
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
@@ -605,7 +605,7 @@ class TestAnalysisShortcutHistoryContext:
 
             captured_questions: list[str] = []
 
-            def mock_shortcut(question, analysis_context, model, api_key):
+            def mock_shortcut(question, analysis_context, model, api_key, **kwargs):
                 captured_questions.append(question)
                 return ("Shortcut answer", 100, 25)
 
