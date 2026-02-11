@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import re
 
-from shesha.experimental.arxiv.models import ExtractedCitation
+from shesha.experimental.arxiv.models import (
+    CheckReport,
+    ExtractedCitation,
+    VerificationResult,
+    VerificationStatus,
+)
+from shesha.experimental.arxiv.search import ArxivSearcher
 
 # Patterns that suggest LLM-generated text
 LLM_TELL_PATTERNS = [
@@ -126,3 +132,93 @@ def detect_llm_phrases(text: str) -> list[tuple[int, str]]:
                 results.append((line_num, line.strip()))
                 break  # One match per line is enough
     return results
+
+
+DISCLAIMER = """DISCLAIMER: This analysis is generated using AI and automated heuristics.
+It is capable of making mistakes. A flagged citation does NOT mean a paper is
+fraudulent -- there may be legitimate explanations (metadata lag, preprint
+title changes, version differences). Always verify findings manually before
+drawing conclusions."""
+
+
+class ArxivVerifier:
+    """Verify citations against the arXiv API."""
+
+    def __init__(self, searcher: ArxivSearcher | None = None) -> None:
+        self._searcher = searcher or ArxivSearcher()
+
+    def verify(self, citation: ExtractedCitation) -> VerificationResult:
+        """Verify a single citation."""
+        if citation.arxiv_id is None:
+            return VerificationResult(
+                citation_key=citation.key,
+                status=VerificationStatus.UNRESOLVED,
+                message="Non-arXiv citation, cannot verify",
+            )
+        actual = self._searcher.get_by_id(citation.arxiv_id)
+        if actual is None:
+            return VerificationResult(
+                citation_key=citation.key,
+                status=VerificationStatus.NOT_FOUND,
+                message=f"arXiv ID {citation.arxiv_id} does not exist",
+            )
+        # Compare titles if we have one
+        if citation.title and not _titles_match(citation.title, actual.title):
+            return VerificationResult(
+                citation_key=citation.key,
+                status=VerificationStatus.MISMATCH,
+                message=f'Cites "{citation.title}" but actual paper is "{actual.title}"',
+                actual_title=actual.title,
+                arxiv_url=actual.arxiv_url,
+            )
+        return VerificationResult(
+            citation_key=citation.key,
+            status=VerificationStatus.VERIFIED,
+            arxiv_url=actual.arxiv_url,
+        )
+
+
+def _titles_match(cited: str, actual: str) -> bool:
+    """Fuzzy title comparison -- normalize and check containment."""
+
+    def normalize(t: str) -> str:
+        return re.sub(r"[^\w\s]", "", t.lower()).strip()
+
+    c, a = normalize(cited), normalize(actual)
+    # Exact match or one contains the other (handles truncated titles)
+    return c == a or c in a or a in c
+
+
+def format_check_report(report: CheckReport) -> str:
+    """Format a citation check report for display."""
+    lines = [DISCLAIMER, ""]
+    lines.append(f'-- Citation Check: {report.arxiv_id} "{report.title}" --')
+    lines.append("")
+    lines.append(f"Citations found: {len(report.citations)}")
+    lines.append(f"  OK  {report.verified_count} verified")
+    lines.append(f"  ?   {report.unresolved_count} unresolved (non-arXiv, could not verify)")
+    lines.append(f"  X   {report.mismatch_count} mismatches")
+
+    # Show mismatch details
+    mismatches = [
+        r
+        for r in report.verification_results
+        if r.status in (VerificationStatus.MISMATCH, VerificationStatus.NOT_FOUND)
+    ]
+    if mismatches:
+        lines.append("")
+        for r in mismatches:
+            lines.append(f"  MISMATCH [{r.citation_key}]: {r.message}")
+            if r.arxiv_url:
+                lines.append(f"    {r.arxiv_url}")
+
+    # Show LLM-tell phrases
+    lines.append("")
+    if report.llm_phrases:
+        lines.append("LLM-tell phrases found:")
+        for line_num, phrase in report.llm_phrases:
+            lines.append(f'  Line {line_num}: "{phrase}"')
+    else:
+        lines.append("LLM-tell phrases: none detected")
+
+    return "\n".join(lines)
