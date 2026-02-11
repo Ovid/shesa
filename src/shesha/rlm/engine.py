@@ -14,6 +14,7 @@ from pathlib import Path
 from shesha.llm.client import LLMClient
 from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
+from shesha.rlm.boundary import generate_boundary, wrap_untrusted
 from shesha.rlm.prompts import (
     format_code_echo,
     truncate_code_output,
@@ -37,18 +38,6 @@ from shesha.storage.base import StorageBackend
 
 # Callback type for progress notifications
 ProgressCallback = Callable[[StepType, int, str, TokenUsage], None]
-
-
-def _wrap_subcall_content(content: str) -> str:
-    """Temporary: wrap sub-LLM content in static untrusted tags.
-
-    Task 7 will replace this with the boundary module's randomised markers.
-    """
-    return (
-        f"<untrusted_document_content>\n"
-        f"{content}\n"
-        f"</untrusted_document_content>"
-    )
 
 
 @dataclass
@@ -182,6 +171,7 @@ class RLMEngine:
         self.verify_citations = verify_citations
         self.verify = verify
         self._subcall_lock = threading.Lock()
+        self._boundary = generate_boundary()
 
     def _handle_llm_query(
         self,
@@ -240,7 +230,7 @@ class RLMEngine:
         # Build prompt: when content is empty (single-arg llm_query), send
         # instruction directly. When content is provided, wrap in untrusted tags.
         if content:
-            wrapped_content = _wrap_subcall_content(content)
+            wrapped_content = wrap_untrusted(content, self._boundary)
             prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
         else:
             prompt = instruction
@@ -304,7 +294,7 @@ class RLMEngine:
             return None
 
         # Wrap cited docs in untrusted content tags (security boundary)
-        wrapped_docs = _wrap_subcall_content(cited_docs_text)
+        wrapped_docs = wrap_untrusted(cited_docs_text, self._boundary)
 
         # Layer 1: Adversarial verification
         prompt = self.prompt_loader.render_verify_adversarial_prompt(
@@ -432,6 +422,8 @@ class RLMEngine:
         start_time = time.time()
         trace = Trace()
         token_usage = TokenUsage()
+        boundary = generate_boundary()
+        self._boundary = boundary
 
         if doc_names is None:
             doc_names = [f"doc_{i}" for i in range(len(documents))]
@@ -440,7 +432,7 @@ class RLMEngine:
         doc_sizes = [len(d) for d in documents]
         total_chars = sum(doc_sizes)
 
-        system_prompt = self.prompt_loader.render_system_prompt()
+        system_prompt = self.prompt_loader.render_system_prompt(boundary=boundary)
 
         # Context metadata as assistant message: primes the model to
         # continue working rather than start fresh. Matches reference
@@ -533,7 +525,8 @@ class RLMEngine:
 
         try:
             # Set up context in sandbox
-            executor.setup_context(documents)
+            wrapped_documents = [wrap_untrusted(doc, boundary) for doc in documents]
+            executor.setup_context(wrapped_documents)
 
             for iteration in range(self.max_iterations):
                 executor.llm_query_handler = _make_llm_callback(iteration)
@@ -824,7 +817,7 @@ class RLMEngine:
                     self._pool.discard(executor)
                     executor = self._pool.acquire()
                     executor.llm_query_handler = _make_llm_callback(iteration)
-                    executor.setup_context(documents)
+                    executor.setup_context(wrapped_documents)
                 elif not executor.is_alive:
                     answer = "[Executor died — cannot continue]"
                     query_result = QueryResult(
@@ -842,7 +835,7 @@ class RLMEngine:
                     messages.append(
                         {
                             "role": "user",
-                            "content": format_code_echo(code_block, output, exec_result.vars),
+                            "content": format_code_echo(code_block, output, exec_result.vars, boundary=boundary),
                         }
                     )
 

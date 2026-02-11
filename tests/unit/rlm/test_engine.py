@@ -595,7 +595,7 @@ class TestRLMEngine:
         call_args = mock_sub_llm.complete.call_args
         messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
         prompt_text = messages[0]["content"]
-        assert "<untrusted_document_content>" not in prompt_text
+        assert "_BEGIN" not in prompt_text
         assert "What is 2+2?" in prompt_text
 
     @patch("shesha.rlm.engine.LLMClient")
@@ -629,8 +629,8 @@ class TestRLMEngine:
         call_args = mock_sub_llm.complete.call_args
         messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
         prompt_text = messages[0]["content"]
-        assert "<untrusted_document_content>" in prompt_text
-        assert "</untrusted_document_content>" in prompt_text
+        assert "_BEGIN" in prompt_text
+        assert "_END" in prompt_text
         assert "Untrusted document data" in prompt_text
 
     @patch("shesha.rlm.engine.LLMClient")
@@ -873,8 +873,8 @@ class TestRLMEngine:
         # Layer 1 verification is the 2nd LLM call (index 1)
         layer1_call = mock_llm.complete.call_args_list[1]
         layer1_prompt = layer1_call.kwargs["messages"][0]["content"]
-        assert "<untrusted_document_content>" in layer1_prompt
-        assert "</untrusted_document_content>" in layer1_prompt
+        assert "_BEGIN" in layer1_prompt
+        assert "_END" in layer1_prompt
 
     @patch("shesha.rlm.engine.LLMClient")
     @patch("shesha.rlm.engine.ContainerExecutor")
