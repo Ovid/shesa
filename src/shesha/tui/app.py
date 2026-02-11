@@ -18,6 +18,7 @@ from textual.widgets import Static, TextArea
 from textual.worker import Worker
 
 from shesha.analysis.shortcut import try_answer_from_analysis
+from shesha.rlm.boundary import generate_boundary
 from shesha.rlm.trace import StepType, TokenUsage
 from shesha.tui.commands import CommandRegistry
 from shesha.tui.history import InputHistory
@@ -328,11 +329,13 @@ class SheshaTUI(App[None]):
         def run() -> QueryResult | None:
             # Try analysis shortcut before full RLM
             if self._analysis_context and self._model:
+                shortcut_boundary = generate_boundary()
                 shortcut = try_answer_from_analysis(
                     question_with_history or display_question,
                     self._analysis_context,
                     self._model,
                     self._api_key,
+                    boundary=shortcut_boundary,
                 )
                 if shortcut is not None:
                     answer, prompt_tokens, completion_tokens = shortcut

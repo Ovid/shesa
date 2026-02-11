@@ -176,6 +176,7 @@ class TestClassifyQuery:
         messages = call_args[0][0]
         user_content = messages[0]["content"]
         assert "<untrusted_document_content>" not in user_content
+        assert "_BEGIN" not in user_content
 
     def test_uses_same_model_as_shortcut(self):
         """Classifier should use the same model passed to it."""

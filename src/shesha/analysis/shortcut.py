@@ -1,6 +1,7 @@
 """Analysis shortcut — skip RLM when the pre-computed analysis can answer."""
 
 from shesha.llm.client import LLMClient
+from shesha.rlm.boundary import wrap_untrusted
 
 _SYSTEM_PROMPT = """\
 You are a helpful assistant. You have access to a pre-computed codebase analysis.
@@ -91,6 +92,7 @@ def try_answer_from_analysis(
     analysis_context: str | None,
     model: str,
     api_key: str | None,
+    boundary: str | None = None,
 ) -> tuple[str, int, int] | None:
     """Try to answer a question using only the pre-computed analysis.
 
@@ -107,10 +109,11 @@ def try_answer_from_analysis(
 
     client = LLMClient(model=model, system_prompt=_SYSTEM_PROMPT, api_key=api_key)
 
-    user_content = (
-        f"<untrusted_document_content>\n{analysis_context}\n</untrusted_document_content>"
-        f"\n\nQuestion: {question}"
-    )
+    if boundary is not None:
+        wrapped = wrap_untrusted(analysis_context, boundary)
+    else:
+        wrapped = f"<untrusted_document_content>\n{analysis_context}\n</untrusted_document_content>"
+    user_content = f"{wrapped}\n\nQuestion: {question}"
 
     try:
         response = client.complete([{"role": "user", "content": user_content}])
