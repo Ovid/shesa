@@ -11,14 +11,33 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from shesha import Shesha
+from shesha.config import SheshaConfig
+from shesha.experimental.arxiv.cache import PaperCache
+from shesha.experimental.arxiv.citations import (
+    ArxivVerifier,
+    detect_llm_phrases,
+    extract_citations_from_bbl,
+    extract_citations_from_bib,
+    extract_citations_from_text,
+    format_check_report,
+)
+from shesha.experimental.arxiv.download import download_paper, to_parsed_document
+from shesha.experimental.arxiv.models import CheckReport, ExtractedCitation, PaperMeta, TopicInfo
+from shesha.experimental.arxiv.search import ArxivSearcher, format_result
+from shesha.experimental.arxiv.topics import TopicManager
+from shesha.rlm.trace import StepType
+from shesha.storage.filesystem import FilesystemStorage
+
 # script_utils lives in examples/ alongside this file
 sys.path.insert(0, str(Path(__file__).parent))
 
-from shesha.experimental.arxiv.cache import PaperCache  # noqa: E402
-from shesha.experimental.arxiv.download import download_paper, to_parsed_document  # noqa: E402
-from shesha.experimental.arxiv.models import PaperMeta, TopicInfo  # noqa: E402
-from shesha.experimental.arxiv.search import ArxivSearcher, format_result  # noqa: E402
-from shesha.experimental.arxiv.topics import TopicManager  # noqa: E402
+from script_utils import (  # noqa: E402
+    ThinkingSpinner,
+    format_progress,
+    format_stats,
+    format_thought_time,
+)
 
 STARTUP_BANNER = """\
 Shesha arXiv Explorer
@@ -302,6 +321,106 @@ def handle_load(args: str, state: AppState) -> None:
         print(f"\n{loaded} paper(s) loaded into topic.")
 
 
+def handle_check_citations(args: str, state: AppState) -> None:
+    """Check citations for papers in the current topic."""
+    if state.current_topic is None:
+        print("No topic selected. Use /topic <name> first.")
+        return
+
+    docs = state.topic_mgr._storage.list_documents(state.current_topic)
+    if not docs:
+        print("No papers loaded. Use /search and /load to add papers first.")
+        return
+
+    # Optionally filter by arXiv ID
+    filter_id = args.strip() if args.strip() else None
+    if filter_id:
+        docs = [d for d in docs if d == filter_id]
+        if not docs:
+            print(f"Paper {filter_id} not found in current topic.")
+            return
+
+    verifier = ArxivVerifier(searcher=state.searcher)
+
+    for doc_name in docs:
+        meta = state.cache.get_meta(doc_name)
+        if meta is None:
+            print(f"  Skipping {doc_name}: no metadata in cache")
+            continue
+
+        source_files = state.cache.get_source_files(doc_name)
+        if not source_files:
+            print(f"  Skipping {doc_name}: no source files in cache")
+            continue
+
+        # Extract citations from available files
+        citations: list[ExtractedCitation] = []
+        all_text = ""
+        for filename, content in source_files.items():
+            if filename.endswith(".bib"):
+                citations.extend(extract_citations_from_bib(content))
+            elif filename.endswith(".bbl"):
+                citations.extend(extract_citations_from_bbl(content))
+            all_text += content + "\n"
+
+        # If no citations found from bib/bbl, try text extraction
+        if not citations:
+            citations = extract_citations_from_text(all_text)
+
+        # Detect LLM-tell phrases
+        llm_phrases = detect_llm_phrases(all_text)
+
+        # Verify each citation
+        results = [verifier.verify(c) for c in citations]
+
+        report = CheckReport(
+            arxiv_id=meta.arxiv_id,
+            title=meta.title,
+            citations=citations,
+            verification_results=results,
+            llm_phrases=llm_phrases,
+        )
+        print(format_check_report(report))
+
+
+def handle_query(question: str, state: AppState) -> None:
+    """Handle a conversational query about loaded papers."""
+    if state.current_topic is None:
+        print("No topic selected. Use /topic <name> first.")
+        return
+
+    docs = state.topic_mgr._storage.list_documents(state.current_topic)
+    if not docs:
+        print("No papers loaded. Use /search and /load to add papers first.")
+        return
+
+    project = state.shesha.get_project(state.current_topic)
+
+    spinner = ThinkingSpinner()
+    start_time = time.time()
+
+    def on_progress(step_type: StepType, iteration: int, content: str, token_usage: object) -> None:
+        elapsed = time.time() - start_time
+        if step_type == StepType.FINAL_ANSWER:
+            spinner.stop()
+        else:
+            msg = format_progress(step_type, iteration, content, elapsed_seconds=elapsed)
+            spinner.stop()
+            print(msg)
+            spinner.start()
+
+    spinner.start()
+    try:
+        result = project.query(question, on_progress=on_progress)
+    finally:
+        spinner.stop()
+
+    elapsed = time.time() - start_time
+    print(f"\n{format_thought_time(elapsed)}")
+    print(result.answer)
+    print(format_stats(result.execution_time, result.token_usage, result.trace))
+
+
 COMMANDS: dict[str, tuple[Callable[..., None], str]] = {
     "/help": (handle_help, "Show available commands"),
     "/history": (handle_history, "List topics"),
@@ -310,7 +429,7 @@ COMMANDS: dict[str, tuple[Callable[..., None], str]] = {
     "/search": (handle_search, "Search arXiv"),
     "/more": (handle_more, "Next page of results"),
     "/load": (handle_load, "Load papers"),
-    # /check-citations added in Task 10
+    "/check-citations": (handle_check_citations, "Citation verification"),
 }
 
 
@@ -335,10 +454,69 @@ def dispatch_command(user_input: str, state: AppState) -> bool:
 
 def main() -> None:
     """Main entry point."""
-    _args = parse_args()
+    args = parse_args()
     print(STARTUP_BANNER)
-    # Full initialization deferred to Tasks 9-10
-    # For now, just the REPL loop skeleton
+
+    # Set up directories
+    data_dir = Path(args.data_dir) if args.data_dir else DEFAULT_DATA_DIR
+    shesha_data = data_dir / "shesha"
+    cache_dir = data_dir / "cache"
+    shesha_data.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initialize components
+    config = SheshaConfig.load(storage_path=str(shesha_data))
+    if args.model:
+        config.model = args.model
+    storage = FilesystemStorage(shesha_data)
+    shesha = Shesha(config=config, storage=storage)
+    cache = PaperCache(cache_dir)
+    searcher = ArxivSearcher()
+    topic_mgr = TopicManager(shesha=shesha, storage=storage, data_dir=data_dir)
+
+    state = AppState(
+        shesha=shesha,
+        topic_mgr=topic_mgr,
+        cache=cache,
+        searcher=searcher,
+    )
+
+    # Handle --topic flag
+    if args.topic:
+        project_id = topic_mgr.resolve(args.topic)
+        if project_id:
+            state.current_topic = project_id
+            docs = topic_mgr._storage.list_documents(project_id)
+            print(f"Topic: {args.topic} ({len(docs)} papers)")
+        else:
+            project_id = topic_mgr.create(args.topic)
+            state.current_topic = project_id
+            print(f"Created topic: {args.topic}")
+
+    # REPL loop
+    try:
+        while True:
+            try:
+                prompt = f"[{state.current_topic}] " if state.current_topic else ""
+                user_input = input(f"{prompt}> ").strip()
+            except EOFError:
+                break
+
+            if not user_input:
+                continue
+
+            if user_input.startswith("/"):
+                should_quit = dispatch_command(user_input, state)
+                if should_quit:
+                    break
+            else:
+                handle_query(user_input, state=state)
+    finally:
+        if hasattr(shesha, "shutdown"):
+            try:
+                shesha.shutdown()
+            except Exception:
+                pass  # Shutdown errors are acceptable during exit
 
 
 if __name__ == "__main__":

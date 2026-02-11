@@ -465,3 +465,187 @@ class TestLoadCommand:
         state.current_topic = None
         handle_load("1", state=state)
         # Should print error asking to select/create a topic first
+
+
+class TestCheckCitationsCommand:
+    """Tests for /check-citations command."""
+
+    def test_check_requires_topic(self) -> None:
+        from arxiv import handle_check_citations
+
+        state = MagicMock()
+        state.current_topic = None
+        handle_check_citations("", state=state)
+        # Should not crash, prints error
+
+    def test_check_no_papers_prints_message(self) -> None:
+        from arxiv import handle_check_citations
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        state.topic_mgr._storage.list_documents.return_value = []
+        handle_check_citations("", state=state)
+        # Should print "no papers" message
+
+    @patch("arxiv.ArxivVerifier")
+    def test_check_runs_full_pipeline(self, mock_verifier_cls: MagicMock) -> None:
+        from datetime import UTC, datetime
+
+        from arxiv import handle_check_citations
+
+        from shesha.experimental.arxiv.models import (
+            PaperMeta,
+            VerificationResult,
+            VerificationStatus,
+        )
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        state.topic_mgr._storage.list_documents.return_value = ["2501.12345"]
+        meta = PaperMeta(
+            arxiv_id="2501.12345",
+            title="Test Paper",
+            authors=["A"],
+            abstract="",
+            published=datetime(2025, 1, 1, tzinfo=UTC),
+            updated=datetime(2025, 1, 1, tzinfo=UTC),
+            categories=["cs.AI"],
+            primary_category="cs.AI",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/2501.12345",
+            source_type="latex",
+        )
+        state.cache.get_meta.return_value = meta
+        state.cache.get_source_files.return_value = {
+            "main.tex": "\\documentclass{article}\\begin{document}Test.\\end{document}",
+            "refs.bib": (
+                "@article{a, author={A}, title={Paper A}, year={2023}, eprint={2301.00001}}"
+            ),
+        }
+        mock_verifier = MagicMock()
+        mock_verifier_cls.return_value = mock_verifier
+        mock_verifier.verify.return_value = VerificationResult(
+            citation_key="a",
+            status=VerificationStatus.VERIFIED,
+        )
+        handle_check_citations("", state=state)
+        mock_verifier.verify.assert_called_once()
+
+    def test_check_output_includes_disclaimer(self, capsys: object) -> None:
+        """Regardless of what happens, /check-citations must print the disclaimer."""
+        from arxiv import handle_check_citations
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        state.topic_mgr._storage.list_documents.return_value = ["2501.12345"]
+        state.cache.get_meta.return_value = MagicMock(
+            arxiv_id="2501.12345", title="Test", source_type="latex"
+        )
+        state.cache.get_source_files.return_value = {"main.tex": "\\documentclass{article}"}
+        handle_check_citations("", state=state)
+        captured = capsys.readouterr()  # type: ignore[union-attr]
+        assert "DISCLAIMER" in captured.out
+
+
+class TestConversationalQuery:
+    """Tests for non-command input (questions)."""
+
+    def test_query_requires_topic(self) -> None:
+        from arxiv import handle_query
+
+        state = MagicMock()
+        state.current_topic = None
+        handle_query("What is this paper about?", state=state)
+        # Should not crash
+
+    def test_query_requires_papers(self) -> None:
+        from arxiv import handle_query
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        state.topic_mgr._storage.list_documents.return_value = []
+        handle_query("What is this paper about?", state=state)
+        # Should print error about no papers
+
+    @patch("arxiv.ThinkingSpinner")
+    def test_query_calls_shesha_project_query(self, mock_spinner: MagicMock) -> None:
+        from arxiv import handle_query
+
+        from shesha.rlm.trace import TokenUsage, Trace
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        state.topic_mgr._storage.list_documents.return_value = ["2501.12345"]
+
+        mock_result = MagicMock()
+        mock_result.answer = "The paper discusses quantum error correction."
+        mock_result.execution_time = 5.2
+        mock_result.token_usage = TokenUsage(prompt_tokens=100, completion_tokens=50)
+        mock_result.trace = Trace()
+        mock_result.semantic_verification = None
+        state.shesha.get_project.return_value.query.return_value = mock_result
+
+        handle_query("What is this paper about?", state=state)
+        state.shesha.get_project.assert_called_once_with("2025-01-15-test")
+        state.shesha.get_project.return_value.query.assert_called_once()
+
+
+class TestMainFunction:
+    """Tests for the main() entry point."""
+
+    @patch("sys.argv", ["arxiv"])
+    @patch("arxiv.input", side_effect=EOFError)
+    @patch("arxiv.TopicManager")
+    @patch("arxiv.PaperCache")
+    @patch("arxiv.ArxivSearcher")
+    @patch("arxiv.Shesha")
+    @patch("arxiv.SheshaConfig")
+    @patch("arxiv.FilesystemStorage")
+    def test_main_prints_startup_banner(
+        self,
+        mock_storage: MagicMock,
+        mock_config: MagicMock,
+        mock_shesha: MagicMock,
+        mock_searcher: MagicMock,
+        mock_cache: MagicMock,
+        mock_topic_mgr: MagicMock,
+        mock_input: MagicMock,
+        capsys: object,
+    ) -> None:
+        from arxiv import main
+
+        mock_config.load.return_value = MagicMock(storage_path="/tmp/test")
+        mock_storage.return_value = MagicMock()
+        mock_storage.return_value.list_projects.return_value = []
+        try:
+            main()
+        except SystemExit:
+            pass
+        captured = capsys.readouterr()  # type: ignore[union-attr]
+        assert "Shesha arXiv Explorer" in captured.out
+        assert "AI-generated" in captured.out
+
+    @patch("sys.argv", ["arxiv"])
+    @patch("arxiv.input", side_effect=["/quit"])
+    @patch("arxiv.TopicManager")
+    @patch("arxiv.PaperCache")
+    @patch("arxiv.ArxivSearcher")
+    @patch("arxiv.Shesha")
+    @patch("arxiv.SheshaConfig")
+    @patch("arxiv.FilesystemStorage")
+    def test_main_quit_command_exits(
+        self,
+        mock_storage: MagicMock,
+        mock_config: MagicMock,
+        mock_shesha: MagicMock,
+        mock_searcher: MagicMock,
+        mock_cache: MagicMock,
+        mock_topic_mgr: MagicMock,
+        mock_input: MagicMock,
+    ) -> None:
+        from arxiv import main
+
+        mock_config.load.return_value = MagicMock(storage_path="/tmp/test")
+        mock_storage.return_value = MagicMock()
+        mock_storage.return_value.list_projects.return_value = []
+        main()
