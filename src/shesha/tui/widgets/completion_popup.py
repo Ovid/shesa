@@ -13,7 +13,7 @@ class CompletionPopup(Static):
     DEFAULT_CSS = """
     CompletionPopup {
         height: auto;
-        max-height: 8;
+        max-height: 20;
         display: none;
         border: solid $accent;
         padding: 0 1;

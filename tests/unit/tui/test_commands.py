@@ -1,6 +1,9 @@
 """Tests for TUI command registry."""
 
+import re
+
 from shesha.tui.commands import CommandRegistry
+from shesha.tui.widgets.completion_popup import CompletionPopup
 
 
 class TestCommandRegistry:
@@ -258,3 +261,16 @@ class TestCommandGroupCompletions:
         assert reg.is_group("/topic") is True
         assert reg.is_group("/help") is False
         assert reg.is_group("/bogus") is False
+
+
+class TestCompletionPopupHeight:
+    """Tests for CompletionPopup displaying all items."""
+
+    def test_popup_max_height_fits_all_commands(self) -> None:
+        """CompletionPopup max-height should accommodate at least 15 items."""
+        popup = CompletionPopup()
+        css = popup.DEFAULT_CSS
+        match = re.search(r"max-height:\s*(\d+)", css)
+        assert match is not None
+        max_height = int(match.group(1))
+        assert max_height >= 15, f"max-height {max_height} too small for 15+ commands"
