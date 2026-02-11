@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "examples"))
 
@@ -244,3 +244,224 @@ class TestDispatchQuit:
 
         state = MagicMock()
         assert dispatch_command("/help", state) is False
+
+
+class TestSearchCommand:
+    """Tests for /search command."""
+
+    def test_search_stores_results_in_state(self) -> None:
+        from datetime import UTC, datetime
+
+        from arxiv import handle_search
+
+        from shesha.experimental.arxiv.models import PaperMeta
+
+        state = MagicMock()
+        meta = PaperMeta(
+            arxiv_id="2501.12345",
+            title="Test",
+            authors=["A"],
+            abstract="",
+            published=datetime(2025, 1, 1, tzinfo=UTC),
+            updated=datetime(2025, 1, 1, tzinfo=UTC),
+            categories=["cs.AI"],
+            primary_category="cs.AI",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/2501.12345",
+        )
+        state.searcher.search.return_value = [meta]
+        state.last_search_results = []
+        handle_search("quantum computing", state=state)
+        assert len(state.last_search_results) == 1
+
+    def test_search_empty_query_prints_usage(self) -> None:
+        from arxiv import handle_search
+
+        state = MagicMock()
+        handle_search("", state=state)
+        state.searcher.search.assert_not_called()
+
+    def test_search_parses_author_flag(self) -> None:
+        from arxiv import handle_search
+
+        state = MagicMock()
+        state.searcher.search.return_value = []
+        state.last_search_results = []
+        handle_search('--author "del maestro"', state=state)
+        state.searcher.search.assert_called_once()
+        call_kwargs = state.searcher.search.call_args
+        assert call_kwargs.kwargs.get("author") == "del maestro"
+
+    def test_search_parses_category_flag(self) -> None:
+        from arxiv import handle_search
+
+        state = MagicMock()
+        state.searcher.search.return_value = []
+        state.last_search_results = []
+        handle_search("--cat cs.AI language models", state=state)
+        call_kwargs = state.searcher.search.call_args
+        assert call_kwargs.kwargs.get("category") == "cs.AI"
+
+    def test_search_parses_recent_flag(self) -> None:
+        from arxiv import handle_search
+
+        state = MagicMock()
+        state.searcher.search.return_value = []
+        state.last_search_results = []
+        handle_search("--cat cs.AI --recent 7 transformers", state=state)
+        call_kwargs = state.searcher.search.call_args
+        assert call_kwargs.kwargs.get("recent_days") == 7
+        assert call_kwargs.kwargs.get("category") == "cs.AI"
+
+
+class TestMoreCommand:
+    """Tests for /more command."""
+
+    def test_more_without_search_prints_error(self) -> None:
+        from arxiv import handle_more
+
+        state = MagicMock()
+        state.last_search_results = []
+        state._search_offset = 0
+        state._last_search_kwargs = None
+        handle_more("", state=state)
+        # Should print "No previous search" or similar
+
+    def test_more_fetches_next_page(self) -> None:
+        from datetime import UTC, datetime
+
+        from arxiv import handle_more
+
+        from shesha.experimental.arxiv.models import PaperMeta
+
+        state = MagicMock()
+        meta = PaperMeta(
+            arxiv_id="2502.00001",
+            title="Next Page Paper",
+            authors=["B"],
+            abstract="",
+            published=datetime(2025, 2, 1, tzinfo=UTC),
+            updated=datetime(2025, 2, 1, tzinfo=UTC),
+            categories=["cs.AI"],
+            primary_category="cs.AI",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/2502.00001",
+        )
+        state.searcher.search.return_value = [meta]
+        state.last_search_results = [MagicMock()]  # Has previous results
+        state._search_offset = 10
+        state._last_search_kwargs = {"query": "test", "author": None, "category": None}
+        handle_more("", state=state)
+        state.searcher.search.assert_called_once()
+        call_kwargs = state.searcher.search.call_args
+        assert call_kwargs.kwargs.get("start") == 10
+
+
+class TestLoadCommand:
+    """Tests for /load command."""
+
+    def test_load_requires_topic(self) -> None:
+        from arxiv import handle_load
+
+        state = MagicMock()
+        state.current_topic = None
+        handle_load("1", state=state)
+        # Should print error about no topic
+
+    @patch("arxiv.download_paper")
+    @patch("arxiv.to_parsed_document")
+    def test_load_by_search_result_number(
+        self, mock_to_doc: MagicMock, mock_download: MagicMock
+    ) -> None:
+        from datetime import UTC, datetime
+
+        from arxiv import handle_load
+
+        from shesha.experimental.arxiv.models import PaperMeta
+        from shesha.models import ParsedDocument
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        meta = PaperMeta(
+            arxiv_id="2501.12345",
+            title="Test",
+            authors=["A"],
+            abstract="",
+            published=datetime(2025, 1, 1, tzinfo=UTC),
+            updated=datetime(2025, 1, 1, tzinfo=UTC),
+            categories=["cs.AI"],
+            primary_category="cs.AI",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/2501.12345",
+            source_type="latex",
+        )
+        state.last_search_results = [meta]
+        state.cache.has.return_value = True
+        state.cache.get_meta.return_value = meta
+        mock_download.return_value = meta
+        mock_to_doc.return_value = ParsedDocument(
+            name="2501.12345",
+            content="content",
+            format="latex",
+            metadata={"arxiv_url": "https://arxiv.org/abs/2501.12345"},
+            char_count=7,
+        )
+        handle_load("1", state=state)
+        state.topic_mgr._storage.store_document.assert_called_once()
+
+    @patch("arxiv.download_paper")
+    @patch("arxiv.to_parsed_document")
+    def test_load_by_arxiv_id(self, mock_to_doc: MagicMock, mock_download: MagicMock) -> None:
+        from datetime import UTC, datetime
+
+        from arxiv import handle_load
+
+        from shesha.experimental.arxiv.models import PaperMeta
+        from shesha.models import ParsedDocument
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        meta = PaperMeta(
+            arxiv_id="2501.12345",
+            title="Test",
+            authors=["A"],
+            abstract="",
+            published=datetime(2025, 1, 1, tzinfo=UTC),
+            updated=datetime(2025, 1, 1, tzinfo=UTC),
+            categories=["cs.AI"],
+            primary_category="cs.AI",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/2501.12345",
+            source_type="latex",
+        )
+        state.cache.has.return_value = False
+        state.searcher.get_by_id.return_value = meta
+        mock_download.return_value = meta
+        mock_to_doc.return_value = ParsedDocument(
+            name="2501.12345",
+            content="content",
+            format="latex",
+            metadata={"arxiv_url": "https://arxiv.org/abs/2501.12345"},
+            char_count=7,
+        )
+        state.last_search_results = []
+        handle_load("2501.12345", state=state)
+        state.searcher.get_by_id.assert_called_once_with("2501.12345")
+
+    def test_load_invalid_input_prints_error(self) -> None:
+        from arxiv import handle_load
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        state.last_search_results = []
+        handle_load("not-a-number-or-id", state=state)
+        # Should print error about invalid input
+
+    def test_load_creates_topic_if_none_selected_and_search_exists(self) -> None:
+        """If no topic is selected but we have search results, auto-create topic."""
+        from arxiv import handle_load
+
+        state = MagicMock()
+        state.current_topic = None
+        handle_load("1", state=state)
+        # Should print error asking to select/create a topic first
