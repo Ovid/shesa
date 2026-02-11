@@ -382,3 +382,274 @@ class TestTUICommands:
             output = pilot.app.query_one(OutputArea)
             all_text = _extract_output_text(output)
             assert "quantum" in all_text
+
+
+class TestTUISearchCommands:
+    """Tests for threaded /search and /more TUI commands."""
+
+    async def test_search_shows_results(self) -> None:
+        """/search shows formatted results in OutputArea."""
+        from datetime import UTC, datetime
+
+        from arxiv_explorer import create_app
+
+        from shesha.experimental.arxiv.models import PaperMeta
+
+        state = _make_state()
+        meta = PaperMeta(
+            arxiv_id="2501.12345",
+            title="Quantum Error Correction",
+            authors=["Smith"],
+            abstract="Abstract",
+            published=datetime(2025, 1, 1, tzinfo=UTC),
+            updated=datetime(2025, 1, 1, tzinfo=UTC),
+            categories=["cs.AI"],
+            primary_category="cs.AI",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/2501.12345",
+        )
+        state.searcher.search.return_value = [meta]
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/search quantum")
+            assert resolved is not None
+            handler, args, threaded = resolved
+            assert threaded is True
+            worker = pilot.app.run_worker(lambda: handler(args), thread=True)
+            await worker.wait()
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            all_text = _extract_output_text(output)
+            assert "2501.12345" in all_text
+            assert len(state.last_search_results) == 1
+
+    async def test_search_empty_shows_usage(self) -> None:
+        """/search with no query shows usage message."""
+        from arxiv_explorer import create_app
+
+        state = _make_state()
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/search")
+            assert resolved is not None
+            handler, args, threaded = resolved
+            worker = pilot.app.run_worker(lambda: handler(args), thread=True)
+            await worker.wait()
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("Usage" in t or "usage" in t for t in texts)
+
+    async def test_more_fetches_next_page(self) -> None:
+        """/more fetches and appends next page of results."""
+        from datetime import UTC, datetime
+
+        from arxiv_explorer import create_app
+
+        from shesha.experimental.arxiv.models import PaperMeta
+
+        state = _make_state()
+        state._last_search_kwargs = {"query": "quantum"}
+        state._search_offset = 10
+        state.last_search_results = [MagicMock()]
+        next_meta = PaperMeta(
+            arxiv_id="2502.00001",
+            title="Next Page Paper",
+            authors=["Jones"],
+            abstract="",
+            published=datetime(2025, 2, 1, tzinfo=UTC),
+            updated=datetime(2025, 2, 1, tzinfo=UTC),
+            categories=["cs.AI"],
+            primary_category="cs.AI",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/2502.00001",
+        )
+        state.searcher.search.return_value = [next_meta]
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/more")
+            assert resolved is not None
+            handler, args, threaded = resolved
+            assert threaded is True
+            worker = pilot.app.run_worker(lambda: handler(args), thread=True)
+            await worker.wait()
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            all_text = _extract_output_text(output)
+            assert "2502.00001" in all_text
+
+    async def test_more_without_search_shows_error(self) -> None:
+        """/more without prior search shows error."""
+        from arxiv_explorer import create_app
+
+        state = _make_state()
+        state._last_search_kwargs = None
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/more")
+            assert resolved is not None
+            handler, args, threaded = resolved
+            worker = pilot.app.run_worker(lambda: handler(args), thread=True)
+            await worker.wait()
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("No previous search" in t for t in texts)
+
+
+class TestTUILoadCommand:
+    """Tests for threaded /load TUI command."""
+
+    async def test_load_by_number_stores_document(self) -> None:
+        """/load <number> downloads and stores a paper."""
+        from datetime import UTC, datetime
+        from unittest.mock import patch
+
+        from arxiv_explorer import create_app
+
+        from shesha.experimental.arxiv.models import PaperMeta
+        from shesha.models import ParsedDocument
+
+        state = _make_state(current_topic="2025-01-15-test")
+        state.topic_mgr.get_topic_info_by_project_id.return_value = MagicMock(name="test")
+        state.shesha.get_project.return_value = MagicMock()
+        meta = PaperMeta(
+            arxiv_id="2501.12345",
+            title="Test Paper",
+            authors=["A"],
+            abstract="",
+            published=datetime(2025, 1, 1, tzinfo=UTC),
+            updated=datetime(2025, 1, 1, tzinfo=UTC),
+            categories=["cs.AI"],
+            primary_category="cs.AI",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/2501.12345",
+            source_type="latex",
+        )
+        state.last_search_results = [meta]
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            with (
+                patch("arxiv_explorer.download_paper", return_value=meta),
+                patch(
+                    "arxiv_explorer.to_parsed_document",
+                    return_value=ParsedDocument(
+                        name="2501.12345",
+                        content="content",
+                        format="latex",
+                        metadata={},
+                        char_count=7,
+                    ),
+                ),
+            ):
+                resolved = pilot.app._command_registry.resolve("/load 1")
+                assert resolved is not None
+                handler, args, threaded = resolved
+                assert threaded is True
+                worker = pilot.app.run_worker(lambda: handler(args), thread=True)
+                await worker.wait()
+                await pilot.pause()
+            state.topic_mgr._storage.store_document.assert_called_once()
+
+    async def test_load_requires_topic(self) -> None:
+        """/load without a topic shows error."""
+        from arxiv_explorer import create_app
+
+        state = _make_state()
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/load 1")
+            assert resolved is not None
+            handler, args, threaded = resolved
+            worker = pilot.app.run_worker(lambda: handler(args), thread=True)
+            await worker.wait()
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("No topic" in t for t in texts)
+
+
+class TestTUICheckCitations:
+    """Tests for threaded /check-citations TUI command."""
+
+    async def test_check_citations_runs_pipeline(self) -> None:
+        """/check-citations runs the citation verification pipeline."""
+        from datetime import UTC, datetime
+        from unittest.mock import patch
+
+        from arxiv_explorer import create_app
+
+        from shesha.experimental.arxiv.models import (
+            PaperMeta,
+            TopicInfo,
+            VerificationResult,
+            VerificationStatus,
+        )
+
+        state = _make_state(current_topic="2025-01-15-test")
+        state.topic_mgr.get_topic_info_by_project_id.return_value = TopicInfo(
+            name="test",
+            created=datetime(2025, 1, 15, tzinfo=UTC),
+            paper_count=1,
+            size_bytes=0,
+            project_id="2025-01-15-test",
+        )
+        state.shesha.get_project.return_value = MagicMock()
+        state.topic_mgr._storage.list_documents.return_value = ["2501.12345"]
+        meta = PaperMeta(
+            arxiv_id="2501.12345",
+            title="Test Paper",
+            authors=["A"],
+            abstract="",
+            published=datetime(2025, 1, 1, tzinfo=UTC),
+            updated=datetime(2025, 1, 1, tzinfo=UTC),
+            categories=["cs.AI"],
+            primary_category="cs.AI",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/2501.12345",
+            source_type="latex",
+        )
+        state.cache.get_meta.return_value = meta
+        state.cache.get_source_files.return_value = {
+            "main.tex": "\\documentclass{article}\\begin{document}Test.\\end{document}",
+            "refs.bib": (
+                "@article{a, author={A}, title={Paper A}, year={2023}, eprint={2301.00001}}"
+            ),
+        }
+        mock_verifier = MagicMock()
+        mock_verifier.verify.return_value = VerificationResult(
+            citation_key="a",
+            status=VerificationStatus.VERIFIED,
+        )
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            with patch("arxiv_explorer.ArxivVerifier", return_value=mock_verifier):
+                resolved = pilot.app._command_registry.resolve("/check-citations")
+                assert resolved is not None
+                handler, args, threaded = resolved
+                assert threaded is True
+                worker = pilot.app.run_worker(lambda: handler(args), thread=True)
+                await worker.wait()
+                await pilot.pause()
+            mock_verifier.verify.assert_called_once()
+
+    async def test_check_citations_requires_topic(self) -> None:
+        """/check-citations without a topic shows error."""
+        from arxiv_explorer import create_app
+
+        state = _make_state()
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/check-citations")
+            assert resolved is not None
+            handler, args, threaded = resolved
+            worker = pilot.app.run_worker(lambda: handler(args), thread=True)
+            await worker.wait()
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("No topic" in t for t in texts)

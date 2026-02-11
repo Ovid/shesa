@@ -643,9 +643,241 @@ def create_app(
             )
         output.add_system_markdown("\n".join(lines))
 
+    # --- Threaded commands (use call_from_thread for UI updates) ---
+
+    def _cmd_search(args: str) -> None:
+        args = args.strip()
+        if not args:
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message,
+                "Usage: /search <query> [--author <name>] [--cat <category>] [--recent <days>]",
+            )
+            return
+        query, kwargs = _parse_search_flags(args)
+        results = state.searcher.search(query, **kwargs)
+        state.last_search_results = results
+        state._search_offset = len(results)
+        state._last_search_kwargs = {"query": query, **kwargs}
+        if not results:
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message, "No results found."
+            )
+            return
+        lines = [f"**Found {len(results)} results:**\n"]
+        for i, meta in enumerate(results, 1):
+            lines.append(
+                f"{i}. \\[{meta.arxiv_id}\\] *{meta.title}*  \n"
+                f"   {', '.join(meta.authors[:3])}"
+                + (f" +{len(meta.authors) - 3} more" if len(meta.authors) > 3 else "")
+                + f" | {meta.primary_category} | {meta.published.strftime('%Y-%m-%d')}  \n"
+                f"   {meta.arxiv_url}"
+            )
+        lines.append("\nUse /more for next page, /load <numbers> to pick, /load to load this page.")
+        tui.call_from_thread(tui.query_one(OutputArea).add_system_markdown, "\n".join(lines))
+
+    def _cmd_more(args: str) -> None:
+        if state._last_search_kwargs is None:
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message,
+                "No previous search. Use /search first.",
+            )
+            return
+        offset = state._search_offset
+        results = state.searcher.search(**state._last_search_kwargs, max_results=10, start=offset)
+        if not results:
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message, "No more results."
+            )
+            return
+        start_index = len(state.last_search_results) + 1
+        state.last_search_results.extend(results)
+        state._search_offset = offset + len(results)
+        lines = [f"**Results {start_index}-{start_index + len(results) - 1}:**\n"]
+        for i, meta in enumerate(results, start_index):
+            lines.append(
+                f"{i}. \\[{meta.arxiv_id}\\] *{meta.title}*  \n"
+                f"   {', '.join(meta.authors[:3])}"
+                + (f" +{len(meta.authors) - 3} more" if len(meta.authors) > 3 else "")
+                + f" | {meta.primary_category} | {meta.published.strftime('%Y-%m-%d')}  \n"
+                f"   {meta.arxiv_url}"
+            )
+        tui.call_from_thread(tui.query_one(OutputArea).add_system_markdown, "\n".join(lines))
+
+    def _cmd_load(args: str) -> None:
+        if state.current_topic is None:
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message,
+                "No topic selected. Use /topic <name> first.",
+            )
+            return
+        args = args.strip()
+        if not args:
+            if not state.last_search_results:
+                tui.call_from_thread(
+                    tui.query_one(OutputArea).add_system_message,
+                    "No search results. Use /search first.",
+                )
+                return
+            tokens = [str(i) for i in range(1, len(state.last_search_results) + 1)]
+        else:
+            tokens = args.split()
+        loaded = 0
+        for i, token in enumerate(tokens):
+            if i > 0:
+                time.sleep(3)  # Rate limit between downloads
+            meta: PaperMeta | None = None
+            if token.isdigit():
+                idx = int(token) - 1
+                if 0 <= idx < len(state.last_search_results):
+                    meta = state.last_search_results[idx]
+                else:
+                    tui.call_from_thread(
+                        tui.query_one(OutputArea).add_system_message,
+                        f"Invalid result number: {token}",
+                    )
+                    continue
+            elif ARXIV_ID_RE.match(token):
+                if state.cache.has(token):
+                    meta = state.cache.get_meta(token)
+                else:
+                    meta = state.searcher.get_by_id(token)
+                if meta is None:
+                    tui.call_from_thread(
+                        tui.query_one(OutputArea).add_system_message,
+                        f"Paper not found: {token}",
+                    )
+                    continue
+            else:
+                tui.call_from_thread(
+                    tui.query_one(OutputArea).add_system_message,
+                    f"Invalid input: {token} (use a result number or arXiv ID like 2501.12345)",
+                )
+                continue
+            updated_meta = download_paper(meta, state.cache)
+            doc = to_parsed_document(updated_meta.arxiv_id, state.cache)
+            state.topic_mgr._storage.store_document(state.current_topic, doc)
+            loaded += 1
+            source_label = updated_meta.source_type or "unknown"
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message,
+                f'Loaded [{updated_meta.arxiv_id}] "{updated_meta.title}" ({source_label})',
+            )
+        if loaded:
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message,
+                f"{loaded} paper(s) loaded into topic.",
+            )
+
+    def _cmd_check_citations(args: str) -> None:
+        if state.current_topic is None:
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message,
+                "No topic selected. Use /topic <name> first.",
+            )
+            return
+        docs = state.topic_mgr._storage.list_documents(state.current_topic)
+        if not docs:
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message,
+                "No papers loaded. Use /search and /load to add papers first.",
+            )
+            return
+        filter_id = args.strip() if args.strip() else None
+        if filter_id:
+            docs = [d for d in docs if filter_id in d]
+            if not docs:
+                tui.call_from_thread(
+                    tui.query_one(OutputArea).add_system_message,
+                    f"Paper {filter_id} not found in current topic.",
+                )
+                return
+        verifier = ArxivVerifier(searcher=state.searcher)
+        for doc_name in docs:
+            doc_meta = state.cache.get_meta(doc_name)
+            if doc_meta is None:
+                tui.call_from_thread(
+                    tui.query_one(OutputArea).add_system_message,
+                    f"Skipping {doc_name}: no metadata in cache",
+                )
+                continue
+            citations: list[ExtractedCitation] = []
+            source_files = state.cache.get_source_files(doc_name)
+            full_text = ""
+            if source_files is not None:
+                for filename, content in source_files.items():
+                    full_text += content + "\n"
+                    if filename.endswith(".bib"):
+                        citations.extend(extract_citations_from_bib(content))
+                    elif filename.endswith(".bbl"):
+                        citations.extend(extract_citations_from_bbl(content))
+            else:
+                try:
+                    doc = state.topic_mgr._storage.get_document(
+                        state.current_topic, doc_name
+                    )
+                    full_text = doc.content
+                    citations.extend(extract_citations_from_text(full_text))
+                except Exception:
+                    full_text = ""  # No source available
+            llm_phrases = detect_llm_phrases(full_text)
+            arxiv_citations = [c for c in citations if c.arxiv_id is not None]
+            if arxiv_citations:
+                tui.call_from_thread(
+                    tui.query_one(OutputArea).add_system_message,
+                    f"Checking citations in {doc_meta.arxiv_id}... "
+                    f"Verifying {len(arxiv_citations)} citations with arXiv IDs",
+                )
+            else:
+                tui.call_from_thread(
+                    tui.query_one(OutputArea).add_system_message,
+                    f"Checking citations in {doc_meta.arxiv_id}...",
+                )
+            results = []
+            for ci, c in enumerate(citations, 1):
+                if c.arxiv_id is not None:
+                    status_map = {
+                        VerificationStatus.VERIFIED: "OK",
+                        VerificationStatus.MISMATCH: "MISMATCH",
+                        VerificationStatus.NOT_FOUND: "NOT FOUND",
+                        VerificationStatus.UNRESOLVED: "?",
+                    }
+                    tui.call_from_thread(
+                        tui.query_one(OutputArea).add_system_message,
+                        f"[{ci}/{len(citations)}] {c.key}...",
+                    )
+                    r = verifier.verify(c)
+                    tui.call_from_thread(
+                        tui.query_one(OutputArea).add_system_message,
+                        f"  -> {status_map[r.status]}",
+                    )
+                    results.append(r)
+                else:
+                    results.append(verifier.verify(c))
+            report = CheckReport(
+                arxiv_id=doc_meta.arxiv_id,
+                title=doc_meta.title,
+                citations=citations,
+                verification_results=results,
+                llm_phrases=llm_phrases,
+            )
+            report_text = format_check_report(report)
+            tui.call_from_thread(
+                tui.query_one(OutputArea).add_system_message,
+                f"```\n{report_text}\n```",
+            )
+
     tui.register_command("/papers", _cmd_papers, "List papers in current topic")
     tui.register_command("/topic", _cmd_topic, "Topic management (switch/create/delete/rename)")
     tui.register_command("/history", _cmd_history, "List all topics")
+    tui.register_command("/search", _cmd_search, "Search arXiv", threaded=True)
+    tui.register_command("/more", _cmd_more, "Next page of search results", threaded=True)
+    tui.register_command("/load", _cmd_load, "Load papers into topic", threaded=True)
+    tui.register_command(
+        "/check-citations",
+        _cmd_check_citations,
+        "Citation verification",
+        threaded=True,
+    )
 
     return tui
 
