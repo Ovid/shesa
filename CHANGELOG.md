@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- arXiv Explorer example (`examples/arxiv.py`) — interactive CLI for searching arXiv,
+  loading papers into topics, and querying them with Shesha. Features:
+  - `/search` with author, category, and keyword filtering
+  - `/load` papers by search result number or arXiv ID (source first, PDF fallback)
+  - `/check-citations` for automated citation verification against arXiv API with
+    LLM-tell phrase detection (always shown with AI disclaimer)
+  - `/history` for persistent topic management with creation dates and size on disk
+  - Central paper cache to avoid redundant downloads
+
 ## [0.9.0] - 2026-02-10
 
 ### Changed

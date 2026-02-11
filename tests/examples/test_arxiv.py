@@ -649,3 +649,15 @@ class TestMainFunction:
         mock_storage.return_value = MagicMock()
         mock_storage.return_value.list_projects.return_value = []
         main()
+
+
+class TestEdgeCases:
+    """Tests for edge cases and error handling."""
+
+    def test_topic_delete_nonexistent(self) -> None:
+        from arxiv import handle_topic
+
+        state = MagicMock()
+        state.topic_mgr.delete.side_effect = ValueError("Topic not found: fake")
+        handle_topic("delete fake", state=state)
+        # Should print error message, not crash

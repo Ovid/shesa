@@ -52,11 +52,11 @@ class PaperMeta:
         return cls(
             arxiv_id=str(d["arxiv_id"]),
             title=str(d["title"]),
-            authors=list(d["authors"]),  # type: ignore[arg-type]
+            authors=[str(a) for a in d["authors"]],  # type: ignore[attr-defined]
             abstract=str(d["abstract"]),
             published=datetime.fromisoformat(str(d["published"])),
             updated=datetime.fromisoformat(str(d["updated"])),
-            categories=list(d["categories"]),  # type: ignore[arg-type]
+            categories=[str(c) for c in d["categories"]],  # type: ignore[attr-defined]
             primary_category=str(d["primary_category"]),
             pdf_url=str(d["pdf_url"]),
             arxiv_url=str(d["arxiv_url"]),
