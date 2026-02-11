@@ -403,9 +403,11 @@ def create_app(
         else:
             tokens = args.split()
         tui.call_from_thread(tui.query_one(InfoBar).update_thinking, 0.0)
+        existing_docs = set(state.topic_mgr._storage.list_documents(state.current_topic))
         loaded = 0
+        skipped = 0
         for i, token in enumerate(tokens):
-            if i > 0:
+            if i > 0 and loaded > 0:
                 time.sleep(3)  # Rate limit between downloads
             meta: PaperMeta | None = None
             if token.isdigit():
@@ -435,6 +437,9 @@ def create_app(
                     f"Invalid input: {token} (use a result number or arXiv ID like 2501.12345)",
                 )
                 continue
+            if meta.arxiv_id in existing_docs:
+                skipped += 1
+                continue
             updated_meta = download_paper(meta, state.cache)
             doc = to_parsed_document(updated_meta.arxiv_id, state.cache)
             state.topic_mgr._storage.store_document(state.current_topic, doc)
@@ -444,10 +449,15 @@ def create_app(
                 tui.query_one(OutputArea).add_system_message,
                 f'Loaded [{updated_meta.arxiv_id}] "{updated_meta.title}" ({source_label})',
             )
+        parts = []
         if loaded:
+            parts.append(f"{loaded} paper(s) loaded into topic.")
+        if skipped:
+            parts.append(f"{skipped} already in topic, skipped.")
+        if parts:
             tui.call_from_thread(
                 tui.query_one(OutputArea).add_system_message,
-                f"{loaded} paper(s) loaded into topic.",
+                " ".join(parts),
             )
         tui.call_from_thread(tui.query_one(InfoBar).reset_phase)
 
@@ -644,6 +654,7 @@ def main() -> None:
     )
     tui.run()
     print("Cleaning up...")
+    searcher.close()
     try:
         shesha.stop()
     except Exception:

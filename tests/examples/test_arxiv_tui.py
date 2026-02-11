@@ -623,6 +623,64 @@ class TestTUILoadCommand:
                 await pilot.pause()
             state.topic_mgr._storage.store_document.assert_called_once()
 
+    async def test_load_skips_already_added_papers(self) -> None:
+        """/topic add skips papers already in the topic."""
+        from datetime import UTC, datetime
+        from unittest.mock import patch
+
+        from arxiv_explorer import create_app
+
+        from shesha.experimental.arxiv.models import PaperMeta
+        from shesha.models import ParsedDocument
+
+        state = _make_state(current_topic="2025-01-15-test")
+        state.topic_mgr.get_topic_info_by_project_id.return_value = MagicMock(name="test")
+        state.shesha.get_project.return_value = MagicMock()
+        meta = PaperMeta(
+            arxiv_id="2501.12345",
+            title="Test Paper",
+            authors=["A"],
+            abstract="",
+            published=datetime(2025, 1, 1, tzinfo=UTC),
+            updated=datetime(2025, 1, 1, tzinfo=UTC),
+            categories=["cs.AI"],
+            primary_category="cs.AI",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/2501.12345",
+            source_type="latex",
+        )
+        state.last_search_results = [meta]
+        # Paper is already in the topic
+        state.topic_mgr._storage.list_documents.return_value = ["2501.12345"]
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            with (
+                patch("arxiv_explorer.download_paper", return_value=meta) as mock_download,
+                patch(
+                    "arxiv_explorer.to_parsed_document",
+                    return_value=ParsedDocument(
+                        name="2501.12345",
+                        content="content",
+                        format="latex",
+                        metadata={},
+                        char_count=7,
+                    ),
+                ),
+            ):
+                resolved = pilot.app._command_registry.resolve("/topic add 1")
+                assert resolved is not None
+                handler, args, threaded = resolved
+                worker = pilot.app.run_worker(lambda: handler(args), thread=True)
+                await worker.wait()
+                await pilot.pause()
+            # Should NOT have downloaded the paper
+            mock_download.assert_not_called()
+            # Should show a "skipped" or "already" message
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("already" in t.lower() for t in texts)
+
     async def test_load_requires_topic(self) -> None:
         """/topic add without a topic shows error."""
         from arxiv_explorer import create_app
