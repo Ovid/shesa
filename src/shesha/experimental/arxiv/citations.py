@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 
 from shesha.experimental.arxiv.models import (
@@ -35,7 +36,14 @@ def extract_citations_from_bib(bib_content: str) -> list[ExtractedCitation]:
         # Late import: bibtexparser is an optional dependency
         import bibtexparser
 
-        library = bibtexparser.parse_string(bib_content)  # type: ignore[attr-defined]
+        # Suppress noisy warnings about DuplicateBlockKeyBlock etc.
+        _btp_logger = logging.getLogger("bibtexparser.middlewares.middleware")
+        _prev_level = _btp_logger.level
+        _btp_logger.setLevel(logging.ERROR)
+        try:
+            library = bibtexparser.parse_string(bib_content)  # type: ignore[attr-defined]
+        finally:
+            _btp_logger.setLevel(_prev_level)
         citations = []
         for entry in library.entries:
             key = entry.key

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 
 class TestExtractFromBib:
     """Tests for .bib file citation extraction."""
@@ -57,6 +59,18 @@ class TestExtractFromBib:
         from shesha.experimental.arxiv.citations import extract_citations_from_bib
 
         assert extract_citations_from_bib("") == []
+
+    def test_duplicate_keys_no_log_noise(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Duplicate bib keys must not emit warnings to the log."""
+        from shesha.experimental.arxiv.citations import extract_citations_from_bib
+
+        bib = """
+@article{dup, author={A}, title={T1}, year={2020}}
+@article{dup, author={B}, title={T2}, year={2021}}
+"""
+        with caplog.at_level("WARNING"):
+            extract_citations_from_bib(bib)
+        assert "Unknown block type" not in caplog.text
 
     def test_malformed_bib_does_not_crash(self) -> None:
         from shesha.experimental.arxiv.citations import extract_citations_from_bib
