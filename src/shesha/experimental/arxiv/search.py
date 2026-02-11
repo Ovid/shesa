@@ -65,6 +65,10 @@ class ArxivSearcher:
         )
         self._page_size = page_size
 
+    def close(self) -> None:
+        """Close the underlying HTTP session."""
+        self._client._session.close()
+
     def search(
         self,
         query: str,

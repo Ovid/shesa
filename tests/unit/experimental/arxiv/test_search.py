@@ -216,3 +216,15 @@ class TestArxivSearcher:
 
         assert extract_arxiv_id("http://arxiv.org/abs/2501.12345v1") == "2501.12345v1"
         assert extract_arxiv_id("http://arxiv.org/abs/2501.12345") == "2501.12345"
+
+    @patch("shesha.experimental.arxiv.search.arxiv")
+    def test_close_closes_underlying_session(self, mock_arxiv: MagicMock) -> None:
+        """close() should close the arxiv.Client's requests session."""
+        from shesha.experimental.arxiv.search import ArxivSearcher
+
+        mock_client = MagicMock()
+        mock_arxiv.Client.return_value = mock_client
+
+        searcher = ArxivSearcher()
+        searcher.close()
+        mock_client._session.close.assert_called_once()
