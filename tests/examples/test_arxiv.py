@@ -13,7 +13,7 @@ class TestParseArgs:
     """Tests for argument parsing."""
 
     def test_defaults(self) -> None:
-        from arxiv import parse_args
+        from arxiv_explorer import parse_args
 
         args = parse_args([])
         assert args.model is None
@@ -21,19 +21,19 @@ class TestParseArgs:
         assert args.topic is None
 
     def test_model_flag(self) -> None:
-        from arxiv import parse_args
+        from arxiv_explorer import parse_args
 
         args = parse_args(["--model", "claude-sonnet-4-20250514"])
         assert args.model == "claude-sonnet-4-20250514"
 
     def test_data_dir_flag(self) -> None:
-        from arxiv import parse_args
+        from arxiv_explorer import parse_args
 
         args = parse_args(["--data-dir", "/tmp/test"])
         assert args.data_dir == "/tmp/test"
 
     def test_topic_flag(self) -> None:
-        from arxiv import parse_args
+        from arxiv_explorer import parse_args
 
         args = parse_args(["--topic", "my-topic"])
         assert args.topic == "my-topic"
@@ -43,21 +43,21 @@ class TestCommandDispatch:
     """Tests for slash command dispatch."""
 
     def test_help_command(self, capsys: object) -> None:
-        from arxiv import handle_help
+        from arxiv_explorer import handle_help
 
         # handle_help should print available commands
         handle_help("", state=MagicMock())
         # Just verify it doesn't crash — output goes to stdout
 
     def test_unknown_command_prints_error(self, capsys: object) -> None:
-        from arxiv import dispatch_command
+        from arxiv_explorer import dispatch_command
 
         state = MagicMock()
         dispatch_command("/unknown", state)
         # Should print "Unknown command" message
 
     def test_dispatch_routes_to_help(self) -> None:
-        from arxiv import COMMANDS, dispatch_command
+        from arxiv_explorer import COMMANDS, dispatch_command
 
         state = MagicMock()
         mock_help = MagicMock()
@@ -74,7 +74,7 @@ class TestHistoryCommand:
     """Tests for /history command."""
 
     def test_history_empty(self, capsys: object) -> None:
-        from arxiv import handle_history
+        from arxiv_explorer import handle_history
 
         state = MagicMock()
         state.topic_mgr.list_topics.return_value = []
@@ -84,7 +84,7 @@ class TestHistoryCommand:
     def test_history_shows_topics(self, capsys: object) -> None:
         from datetime import UTC, datetime
 
-        from arxiv import handle_history
+        from arxiv_explorer import handle_history
 
         from shesha.experimental.arxiv.models import TopicInfo
 
@@ -106,7 +106,7 @@ class TestTopicCommand:
     """Tests for /topic command."""
 
     def test_topic_no_args_no_current(self, capsys: object) -> None:
-        from arxiv import handle_topic
+        from arxiv_explorer import handle_topic
 
         state = MagicMock()
         state.current_topic = None
@@ -114,7 +114,7 @@ class TestTopicCommand:
         # Should print message about no topic selected
 
     def test_topic_no_args_shows_current(self, capsys: object) -> None:
-        from arxiv import handle_topic
+        from arxiv_explorer import handle_topic
 
         from shesha.experimental.arxiv.models import TopicInfo
 
@@ -131,7 +131,7 @@ class TestTopicCommand:
         # Should print current topic name
 
     def test_topic_switch_existing(self) -> None:
-        from arxiv import handle_topic
+        from arxiv_explorer import handle_topic
 
         state = MagicMock()
         state.topic_mgr.resolve.return_value = "2025-01-15-quantum"
@@ -140,7 +140,7 @@ class TestTopicCommand:
         assert state.current_topic == "2025-01-15-quantum"
 
     def test_topic_create_new(self) -> None:
-        from arxiv import handle_topic
+        from arxiv_explorer import handle_topic
 
         state = MagicMock()
         state.topic_mgr.resolve.return_value = None
@@ -149,7 +149,7 @@ class TestTopicCommand:
         assert state.current_topic == "2025-01-15-new-topic"
 
     def test_topic_delete(self) -> None:
-        from arxiv import handle_topic
+        from arxiv_explorer import handle_topic
 
         state = MagicMock()
         state.current_topic = "2025-01-15-quantum"
@@ -161,7 +161,7 @@ class TestPapersCommand:
     """Tests for /papers command."""
 
     def test_papers_no_topic(self, capsys: object) -> None:
-        from arxiv import handle_papers
+        from arxiv_explorer import handle_papers
 
         state = MagicMock()
         state.current_topic = None
@@ -169,7 +169,7 @@ class TestPapersCommand:
         # Should print error about no topic
 
     def test_papers_empty_topic(self, capsys: object) -> None:
-        from arxiv import handle_papers
+        from arxiv_explorer import handle_papers
 
         state = MagicMock()
         state.current_topic = "2025-01-15-test"
@@ -180,7 +180,7 @@ class TestPapersCommand:
     def test_papers_lists_documents(self, capsys: object) -> None:
         from datetime import UTC, datetime
 
-        from arxiv import handle_papers
+        from arxiv_explorer import handle_papers
 
         from shesha.experimental.arxiv.models import PaperMeta, TopicInfo
 
@@ -214,12 +214,12 @@ class TestStartupBanner:
     """Tests for the startup banner."""
 
     def test_banner_contains_title(self) -> None:
-        from arxiv import STARTUP_BANNER
+        from arxiv_explorer import STARTUP_BANNER
 
         assert "arXiv Explorer" in STARTUP_BANNER
 
     def test_banner_contains_disclaimer(self) -> None:
-        from arxiv import STARTUP_BANNER
+        from arxiv_explorer import STARTUP_BANNER
 
         assert "AI-generated" in STARTUP_BANNER
 
@@ -228,19 +228,19 @@ class TestDispatchQuit:
     """Tests for quit command."""
 
     def test_quit_returns_true(self) -> None:
-        from arxiv import dispatch_command
+        from arxiv_explorer import dispatch_command
 
         state = MagicMock()
         assert dispatch_command("/quit", state) is True
 
     def test_exit_returns_true(self) -> None:
-        from arxiv import dispatch_command
+        from arxiv_explorer import dispatch_command
 
         state = MagicMock()
         assert dispatch_command("/exit", state) is True
 
     def test_help_returns_false(self) -> None:
-        from arxiv import dispatch_command
+        from arxiv_explorer import dispatch_command
 
         state = MagicMock()
         assert dispatch_command("/help", state) is False
@@ -252,7 +252,7 @@ class TestSearchCommand:
     def test_search_stores_results_in_state(self) -> None:
         from datetime import UTC, datetime
 
-        from arxiv import handle_search
+        from arxiv_explorer import handle_search
 
         from shesha.experimental.arxiv.models import PaperMeta
 
@@ -275,14 +275,14 @@ class TestSearchCommand:
         assert len(state.last_search_results) == 1
 
     def test_search_empty_query_prints_usage(self) -> None:
-        from arxiv import handle_search
+        from arxiv_explorer import handle_search
 
         state = MagicMock()
         handle_search("", state=state)
         state.searcher.search.assert_not_called()
 
     def test_search_parses_author_flag(self) -> None:
-        from arxiv import handle_search
+        from arxiv_explorer import handle_search
 
         state = MagicMock()
         state.searcher.search.return_value = []
@@ -293,7 +293,7 @@ class TestSearchCommand:
         assert call_kwargs.kwargs.get("author") == "del maestro"
 
     def test_search_parses_category_flag(self) -> None:
-        from arxiv import handle_search
+        from arxiv_explorer import handle_search
 
         state = MagicMock()
         state.searcher.search.return_value = []
@@ -303,7 +303,7 @@ class TestSearchCommand:
         assert call_kwargs.kwargs.get("category") == "cs.AI"
 
     def test_search_parses_recent_flag(self) -> None:
-        from arxiv import handle_search
+        from arxiv_explorer import handle_search
 
         state = MagicMock()
         state.searcher.search.return_value = []
@@ -318,7 +318,7 @@ class TestMoreCommand:
     """Tests for /more command."""
 
     def test_more_without_search_prints_error(self) -> None:
-        from arxiv import handle_more
+        from arxiv_explorer import handle_more
 
         state = MagicMock()
         state.last_search_results = []
@@ -330,7 +330,7 @@ class TestMoreCommand:
     def test_more_fetches_next_page(self) -> None:
         from datetime import UTC, datetime
 
-        from arxiv import handle_more
+        from arxiv_explorer import handle_more
 
         from shesha.experimental.arxiv.models import PaperMeta
 
@@ -361,21 +361,21 @@ class TestLoadCommand:
     """Tests for /load command."""
 
     def test_load_requires_topic(self) -> None:
-        from arxiv import handle_load
+        from arxiv_explorer import handle_load
 
         state = MagicMock()
         state.current_topic = None
         handle_load("1", state=state)
         # Should print error about no topic
 
-    @patch("arxiv.download_paper")
-    @patch("arxiv.to_parsed_document")
+    @patch("arxiv_explorer.download_paper")
+    @patch("arxiv_explorer.to_parsed_document")
     def test_load_by_search_result_number(
         self, mock_to_doc: MagicMock, mock_download: MagicMock
     ) -> None:
         from datetime import UTC, datetime
 
-        from arxiv import handle_load
+        from arxiv_explorer import handle_load
 
         from shesha.experimental.arxiv.models import PaperMeta
         from shesha.models import ParsedDocument
@@ -409,12 +409,12 @@ class TestLoadCommand:
         handle_load("1", state=state)
         state.topic_mgr._storage.store_document.assert_called_once()
 
-    @patch("arxiv.download_paper")
-    @patch("arxiv.to_parsed_document")
+    @patch("arxiv_explorer.download_paper")
+    @patch("arxiv_explorer.to_parsed_document")
     def test_load_by_arxiv_id(self, mock_to_doc: MagicMock, mock_download: MagicMock) -> None:
         from datetime import UTC, datetime
 
-        from arxiv import handle_load
+        from arxiv_explorer import handle_load
 
         from shesha.experimental.arxiv.models import PaperMeta
         from shesha.models import ParsedDocument
@@ -449,7 +449,7 @@ class TestLoadCommand:
         state.searcher.get_by_id.assert_called_once_with("2501.12345")
 
     def test_load_invalid_input_prints_error(self) -> None:
-        from arxiv import handle_load
+        from arxiv_explorer import handle_load
 
         state = MagicMock()
         state.current_topic = "2025-01-15-test"
@@ -459,7 +459,7 @@ class TestLoadCommand:
 
     def test_load_creates_topic_if_none_selected_and_search_exists(self) -> None:
         """If no topic is selected but we have search results, auto-create topic."""
-        from arxiv import handle_load
+        from arxiv_explorer import handle_load
 
         state = MagicMock()
         state.current_topic = None
@@ -471,7 +471,7 @@ class TestCheckCitationsCommand:
     """Tests for /check-citations command."""
 
     def test_check_requires_topic(self) -> None:
-        from arxiv import handle_check_citations
+        from arxiv_explorer import handle_check_citations
 
         state = MagicMock()
         state.current_topic = None
@@ -479,7 +479,7 @@ class TestCheckCitationsCommand:
         # Should not crash, prints error
 
     def test_check_no_papers_prints_message(self) -> None:
-        from arxiv import handle_check_citations
+        from arxiv_explorer import handle_check_citations
 
         state = MagicMock()
         state.current_topic = "2025-01-15-test"
@@ -487,11 +487,11 @@ class TestCheckCitationsCommand:
         handle_check_citations("", state=state)
         # Should print "no papers" message
 
-    @patch("arxiv.ArxivVerifier")
+    @patch("arxiv_explorer.ArxivVerifier")
     def test_check_runs_full_pipeline(self, mock_verifier_cls: MagicMock) -> None:
         from datetime import UTC, datetime
 
-        from arxiv import handle_check_citations
+        from arxiv_explorer import handle_check_citations
 
         from shesha.experimental.arxiv.models import (
             PaperMeta,
@@ -533,7 +533,7 @@ class TestCheckCitationsCommand:
 
     def test_check_output_includes_disclaimer(self, capsys: object) -> None:
         """Regardless of what happens, /check-citations must print the disclaimer."""
-        from arxiv import handle_check_citations
+        from arxiv_explorer import handle_check_citations
 
         state = MagicMock()
         state.current_topic = "2025-01-15-test"
@@ -551,7 +551,7 @@ class TestConversationalQuery:
     """Tests for non-command input (questions)."""
 
     def test_query_requires_topic(self) -> None:
-        from arxiv import handle_query
+        from arxiv_explorer import handle_query
 
         state = MagicMock()
         state.current_topic = None
@@ -559,7 +559,7 @@ class TestConversationalQuery:
         # Should not crash
 
     def test_query_requires_papers(self) -> None:
-        from arxiv import handle_query
+        from arxiv_explorer import handle_query
 
         state = MagicMock()
         state.current_topic = "2025-01-15-test"
@@ -567,9 +567,9 @@ class TestConversationalQuery:
         handle_query("What is this paper about?", state=state)
         # Should print error about no papers
 
-    @patch("arxiv.ThinkingSpinner")
+    @patch("arxiv_explorer.ThinkingSpinner")
     def test_query_calls_shesha_project_query(self, mock_spinner: MagicMock) -> None:
-        from arxiv import handle_query
+        from arxiv_explorer import handle_query
 
         from shesha.rlm.trace import TokenUsage, Trace
 
@@ -594,13 +594,13 @@ class TestMainFunction:
     """Tests for the main() entry point."""
 
     @patch("sys.argv", ["arxiv"])
-    @patch("arxiv.input", side_effect=EOFError)
-    @patch("arxiv.TopicManager")
-    @patch("arxiv.PaperCache")
-    @patch("arxiv.ArxivSearcher")
-    @patch("arxiv.Shesha")
-    @patch("arxiv.SheshaConfig")
-    @patch("arxiv.FilesystemStorage")
+    @patch("arxiv_explorer.input", side_effect=EOFError)
+    @patch("arxiv_explorer.TopicManager")
+    @patch("arxiv_explorer.PaperCache")
+    @patch("arxiv_explorer.ArxivSearcher")
+    @patch("arxiv_explorer.Shesha")
+    @patch("arxiv_explorer.SheshaConfig")
+    @patch("arxiv_explorer.FilesystemStorage")
     def test_main_prints_startup_banner(
         self,
         mock_storage: MagicMock,
@@ -612,7 +612,7 @@ class TestMainFunction:
         mock_input: MagicMock,
         capsys: object,
     ) -> None:
-        from arxiv import main
+        from arxiv_explorer import main
 
         mock_config.load.return_value = MagicMock(storage_path="/tmp/test")
         mock_storage.return_value = MagicMock()
@@ -626,13 +626,13 @@ class TestMainFunction:
         assert "AI-generated" in captured.out
 
     @patch("sys.argv", ["arxiv"])
-    @patch("arxiv.input", side_effect=["/quit"])
-    @patch("arxiv.TopicManager")
-    @patch("arxiv.PaperCache")
-    @patch("arxiv.ArxivSearcher")
-    @patch("arxiv.Shesha")
-    @patch("arxiv.SheshaConfig")
-    @patch("arxiv.FilesystemStorage")
+    @patch("arxiv_explorer.input", side_effect=["/quit"])
+    @patch("arxiv_explorer.TopicManager")
+    @patch("arxiv_explorer.PaperCache")
+    @patch("arxiv_explorer.ArxivSearcher")
+    @patch("arxiv_explorer.Shesha")
+    @patch("arxiv_explorer.SheshaConfig")
+    @patch("arxiv_explorer.FilesystemStorage")
     def test_main_quit_command_exits(
         self,
         mock_storage: MagicMock,
@@ -643,7 +643,7 @@ class TestMainFunction:
         mock_topic_mgr: MagicMock,
         mock_input: MagicMock,
     ) -> None:
-        from arxiv import main
+        from arxiv_explorer import main
 
         mock_config.load.return_value = MagicMock(storage_path="/tmp/test")
         mock_storage.return_value = MagicMock()
@@ -654,8 +654,55 @@ class TestMainFunction:
 class TestEdgeCases:
     """Tests for edge cases and error handling."""
 
+    @patch("arxiv_explorer.download_paper")
+    @patch("arxiv_explorer.to_parsed_document")
+    def test_bare_load_loads_all_search_results(
+        self, mock_to_doc: MagicMock, mock_download: MagicMock
+    ) -> None:
+        from datetime import UTC, datetime
+
+        from arxiv_explorer import handle_load
+
+        from shesha.experimental.arxiv.models import PaperMeta
+        from shesha.models import ParsedDocument
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        metas = [
+            PaperMeta(
+                arxiv_id=f"2501.{i:05d}",
+                title=f"Paper {i}",
+                authors=["A"],
+                abstract="",
+                published=datetime(2025, 1, 1, tzinfo=UTC),
+                updated=datetime(2025, 1, 1, tzinfo=UTC),
+                categories=["cs.AI"],
+                primary_category="cs.AI",
+                pdf_url="",
+                arxiv_url=f"https://arxiv.org/abs/2501.{i:05d}",
+                source_type="latex",
+            )
+            for i in range(1, 4)
+        ]
+        state.last_search_results = metas
+        mock_download.side_effect = metas
+        mock_to_doc.return_value = ParsedDocument(
+            name="test", content="c", format="latex", metadata={}, char_count=1
+        )
+        handle_load("", state=state)
+        assert state.topic_mgr._storage.store_document.call_count == 3
+
+    def test_bare_load_no_results_prints_error(self) -> None:
+        from arxiv_explorer import handle_load
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        state.last_search_results = []
+        handle_load("", state=state)
+        state.topic_mgr._storage.store_document.assert_not_called()
+
     def test_topic_delete_nonexistent(self) -> None:
-        from arxiv import handle_topic
+        from arxiv_explorer import handle_topic
 
         state = MagicMock()
         state.topic_mgr.delete.side_effect = ValueError("Topic not found: fake")

@@ -103,12 +103,11 @@ class ArxivSearcher:
 
         search = arxiv.Search(
             query=full_query,
-            max_results=max_results,
+            max_results=max_results + start,
             sort_by=arxiv.SortCriterion.SubmittedDate,
             sort_order=arxiv.SortOrder.Descending,
-            start=start,
         )
-        results = list(self._client.results(search))
+        results = list(self._client.results(search, offset=start))
         return [_result_to_meta(r) for r in results]
 
     def get_by_id(self, arxiv_id: str) -> PaperMeta | None:

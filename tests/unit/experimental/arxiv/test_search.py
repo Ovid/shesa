@@ -94,11 +94,12 @@ class TestArxivSearcher:
 
         searcher = ArxivSearcher()
         searcher.search("quantum", start=10)
+        # offset is passed to client.results(), not Search()
+        results_call = mock_client.results.call_args
+        assert results_call.kwargs.get("offset") == 10
+        # max_results includes offset so enough results are fetched
         search_call = mock_arxiv.Search.call_args
-        assert (
-            search_call.kwargs.get("start", search_call.args[1] if len(search_call.args) > 1 else 0)
-            == 10
-        )
+        assert search_call.kwargs.get("max_results") == 20
 
     @patch("shesha.experimental.arxiv.search.arxiv")
     def test_search_recent_days(self, mock_arxiv: MagicMock) -> None:

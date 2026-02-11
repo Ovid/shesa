@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import readline  # noqa: F401 — enables arrow keys and history for input()
 import re
 import sys
 import time
@@ -241,7 +242,7 @@ def handle_search(args: str, state: AppState) -> None:
     print(f"\nFound {len(results)} results:")
     for i, meta in enumerate(results, 1):
         print(format_result(meta, i))
-    print("\nUse /more for next page, /load <number> to load a paper.")
+    print("\nUse /more for next page, /load <numbers> to pick, /load to load this page.")
 
 
 def handle_more(args: str, state: AppState) -> None:
@@ -275,10 +276,13 @@ def handle_load(args: str, state: AppState) -> None:
 
     args = args.strip()
     if not args:
-        print("Usage: /load <number(s) or arXiv ID(s)>")
-        return
-
-    tokens = args.split()
+        # Bare /load: load all current search results
+        if not state.last_search_results:
+            print("No search results. Use /search first.")
+            return
+        tokens = [str(i) for i in range(1, len(state.last_search_results) + 1)]
+    else:
+        tokens = args.split()
     loaded = 0
     for i, token in enumerate(tokens):
         if i > 0:
