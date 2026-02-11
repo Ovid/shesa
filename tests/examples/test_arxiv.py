@@ -557,6 +557,28 @@ class TestCheckCitationsCommand:
         assert "DISCLAIMER" in captured.out
 
 
+    def test_check_prints_progress(self, capsys: object) -> None:
+        """Citation checking should print progress for each citation verified."""
+        from arxiv_explorer import handle_check_citations
+
+        state = MagicMock()
+        state.current_topic = "2025-01-15-test"
+        state.topic_mgr._storage.list_documents.return_value = ["2501.12345"]
+        state.cache.get_meta.return_value = MagicMock(
+            arxiv_id="2501.12345", title="Test", source_type="latex"
+        )
+        # Two citations with arXiv IDs → two verify calls
+        state.cache.get_source_files.return_value = {
+            "refs.bib": (
+                "@article{a, author={A}, title={Paper A}, year={2023}, eprint={2301.00001}}\n"
+                "@article{b, author={B}, title={Paper B}, year={2024}, eprint={2401.00002}}"
+            ),
+        }
+        state.searcher.get_by_id.return_value = None  # Treat as not found
+        handle_check_citations("", state=state)
+        captured = capsys.readouterr()  # type: ignore[union-attr]
+        assert "Verifying 2 citations" in captured.out
+
 class TestConversationalQuery:
     """Tests for non-command input (questions)."""
 

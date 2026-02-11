@@ -24,7 +24,13 @@ from shesha.experimental.arxiv.citations import (
     format_check_report,
 )
 from shesha.experimental.arxiv.download import download_paper, to_parsed_document
-from shesha.experimental.arxiv.models import CheckReport, ExtractedCitation, PaperMeta, TopicInfo
+from shesha.experimental.arxiv.models import (
+    CheckReport,
+    ExtractedCitation,
+    PaperMeta,
+    TopicInfo,
+    VerificationStatus,
+)
 from shesha.experimental.arxiv.search import ArxivSearcher, format_result
 from shesha.experimental.arxiv.topics import TopicManager
 from shesha.rlm.trace import StepType
@@ -381,8 +387,29 @@ def handle_check_citations(args: str, state: AppState) -> None:
         llm_phrases = detect_llm_phrases(full_text)
 
         # Verify each citation
-        print(f"  Checking citations in {meta.arxiv_id}...")
-        results = [verifier.verify(c) for c in citations]
+        arxiv_citations = [c for c in citations if c.arxiv_id is not None]
+        if arxiv_citations:
+            print(
+                f"  Checking citations in {meta.arxiv_id}... "
+                f"Verifying {len(arxiv_citations)} citations with arXiv IDs"
+            )
+        else:
+            print(f"  Checking citations in {meta.arxiv_id}...")
+        results = []
+        for i, c in enumerate(citations, 1):
+            if c.arxiv_id is not None:
+                print(f"    [{i}/{len(citations)}] {c.key}...", end="", flush=True)
+                r = verifier.verify(c)
+                status_icon = {
+                    VerificationStatus.VERIFIED: "OK",
+                    VerificationStatus.MISMATCH: "MISMATCH",
+                    VerificationStatus.NOT_FOUND: "NOT FOUND",
+                    VerificationStatus.UNRESOLVED: "?",
+                }[r.status]
+                print(f" {status_icon}")
+                results.append(r)
+            else:
+                results.append(verifier.verify(c))
 
         report = CheckReport(
             arxiv_id=meta.arxiv_id,
