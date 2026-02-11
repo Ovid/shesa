@@ -318,3 +318,22 @@ def test_format_code_echo_no_wrapping_without_boundary():
     assert "_BEGIN" not in result
     assert "_END" not in result
     assert "REPL output:" in result
+
+
+def test_system_prompt_contains_boundary_section():
+    """System prompt includes security section when boundary is provided."""
+    loader = PromptLoader()
+    boundary = "UNTRUSTED_CONTENT_abc123"
+    prompt = loader.render_system_prompt(boundary=boundary)
+    assert "UNTRUSTED_CONTENT_abc123_BEGIN" in prompt
+    assert "UNTRUSTED_CONTENT_abc123_END" in prompt
+    assert "UNTRUSTED" in prompt
+    assert "raw document data" in prompt.lower()
+
+
+def test_system_prompt_no_boundary_section_by_default():
+    """System prompt has no boundary section when no boundary is provided."""
+    loader = PromptLoader()
+    prompt = loader.render_system_prompt()
+    assert "_BEGIN" not in prompt
+    assert "_END" not in prompt
