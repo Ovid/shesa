@@ -168,6 +168,34 @@ class TestArxivSearcher:
         assert "cs.QI" in output
         assert "https://arxiv.org/abs/2501.12345" in output
 
+    @patch("shesha.experimental.arxiv.search.arxiv")
+    def test_search_sort_by_date(self, mock_arxiv: MagicMock) -> None:
+        # Late import: module under test must be imported after patch is active
+        from shesha.experimental.arxiv.search import ArxivSearcher
+
+        mock_client = MagicMock()
+        mock_arxiv.Client.return_value = mock_client
+        mock_client.results.return_value = iter([])
+
+        searcher = ArxivSearcher()
+        searcher.search("quantum", sort_by="date")
+        search_call = mock_arxiv.Search.call_args
+        assert search_call.kwargs.get("sort_by") == mock_arxiv.SortCriterion.SubmittedDate
+
+    @patch("shesha.experimental.arxiv.search.arxiv")
+    def test_search_sort_by_defaults_to_relevance(self, mock_arxiv: MagicMock) -> None:
+        # Late import: module under test must be imported after patch is active
+        from shesha.experimental.arxiv.search import ArxivSearcher
+
+        mock_client = MagicMock()
+        mock_arxiv.Client.return_value = mock_client
+        mock_client.results.return_value = iter([])
+
+        searcher = ArxivSearcher()
+        searcher.search("quantum")
+        search_call = mock_arxiv.Search.call_args
+        assert search_call.kwargs.get("sort_by") == mock_arxiv.SortCriterion.Relevance
+
     def test_extract_arxiv_id_from_entry_id(self) -> None:
         # Late import: module under test
         from shesha.experimental.arxiv.search import extract_arxiv_id

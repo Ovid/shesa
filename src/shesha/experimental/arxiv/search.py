@@ -72,6 +72,7 @@ class ArxivSearcher:
         author: str | None = None,
         category: str | None = None,
         recent_days: int | None = None,
+        sort_by: str = "relevance",
         max_results: int = 10,
         start: int = 0,
     ) -> list[PaperMeta]:
@@ -82,6 +83,7 @@ class ArxivSearcher:
             author: Filter by author name.
             category: Filter by arXiv category (e.g., "cs.AI").
             recent_days: Only return papers from the last N days.
+            sort_by: Sort order — "relevance", "date", or "updated".
             max_results: Maximum results to return.
             start: Offset for pagination (0-based).
         """
@@ -101,10 +103,16 @@ class ArxivSearcher:
             parts.append(f"submittedDate:[{date_from}+TO+{date_to}]")
         full_query = " AND ".join(parts) if parts else "all:*"
 
+        sort_criterion = {
+            "relevance": arxiv.SortCriterion.Relevance,
+            "date": arxiv.SortCriterion.SubmittedDate,
+            "updated": arxiv.SortCriterion.LastUpdatedDate,
+        }.get(sort_by, arxiv.SortCriterion.Relevance)
+
         search = arxiv.Search(
             query=full_query,
             max_results=max_results + start,
-            sort_by=arxiv.SortCriterion.SubmittedDate,
+            sort_by=sort_criterion,
             sort_order=arxiv.SortOrder.Descending,
         )
         results = list(self._client.results(search, offset=start))

@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import readline  # noqa: F401 — enables arrow keys and history for input()
 import re
+import readline  # noqa: F401 — enables arrow keys and history for input()
 import sys
 import time
 from collections.abc import Callable
@@ -80,7 +80,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def handle_help(args: str, state: AppState) -> None:
     """Print available commands."""
     commands = [
-        ("/search <query>", "Search arXiv (--author, --cat, --recent)"),
+        ("/search <query>", "Search arXiv (--author, --cat, --recent, --sort)"),
         ("/more", "Show next page of search results"),
         ("/load <nums or IDs>", "Load papers into current topic"),
         ("/papers", "List papers in current topic with arXiv URLs"),
@@ -218,6 +218,12 @@ def _parse_search_flags(args_str: str) -> tuple[str, dict[str, object]]:
     if recent_match:
         kwargs["recent_days"] = int(recent_match.group(1))
         remaining = remaining[: recent_match.start()] + remaining[recent_match.end() :]
+
+    # --sort relevance|date|updated
+    sort_match = re.search(r"--sort\s+(\S+)", remaining)
+    if sort_match:
+        kwargs["sort_by"] = sort_match.group(1)
+        remaining = remaining[: sort_match.start()] + remaining[sort_match.end() :]
 
     return remaining.strip(), kwargs
 

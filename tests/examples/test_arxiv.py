@@ -313,6 +313,16 @@ class TestSearchCommand:
         assert call_kwargs.kwargs.get("recent_days") == 7
         assert call_kwargs.kwargs.get("category") == "cs.AI"
 
+    def test_search_parses_sort_flag(self) -> None:
+        from arxiv_explorer import handle_search
+
+        state = MagicMock()
+        state.searcher.search.return_value = []
+        state.last_search_results = []
+        handle_search("--sort date quantum computing", state=state)
+        call_kwargs = state.searcher.search.call_args
+        assert call_kwargs.kwargs.get("sort_by") == "date"
+
 
 class TestMoreCommand:
     """Tests for /more command."""
