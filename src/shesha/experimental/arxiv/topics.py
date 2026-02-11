@@ -77,6 +77,18 @@ class TopicManager:
             raise ValueError(msg)
         self._storage.delete_project(project_id)
 
+    def rename(self, old_name: str, new_name: str) -> None:
+        """Rename a topic's display name (does not rename the directory)."""
+        project_id = self.resolve(old_name)
+        if project_id is None:
+            msg = f"Topic not found: {old_name}"
+            raise ValueError(msg)
+        meta = self._read_topic_meta(project_id)
+        assert meta is not None  # resolve guarantees this
+        meta["name"] = slugify(new_name)
+        meta_path = self._project_path(project_id) / self.TOPIC_META_FILE
+        meta_path.write_text(json.dumps(meta, indent=2))
+
     def resolve(self, name: str) -> str | None:
         """Resolve a topic slug to its full project ID."""
         slug = slugify(name)

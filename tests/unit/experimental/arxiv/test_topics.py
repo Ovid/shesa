@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
+
+import pytest
 
 if TYPE_CHECKING:
     from shesha.storage.filesystem import FilesystemStorage
@@ -148,3 +151,33 @@ class TestTopicManager:
         assert slugify("Quantum Error Correction") == "quantum-error-correction"
         assert slugify("cs.AI + language models!") == "cs-ai-language-models"
         assert slugify("  spaces  everywhere  ") == "spaces-everywhere"
+
+
+class TestTopicRename:
+    """Tests for TopicManager.rename()."""
+
+    def test_rename_updates_topic_meta(self, tmp_path: Path) -> None:
+        """Renaming a topic updates the name field in _topic.json."""
+        from shesha.experimental.arxiv.topics import TopicManager
+
+        shesha, storage = _make_shesha_and_storage(tmp_path)
+        data_dir = tmp_path / "shesha_data"
+        mgr = TopicManager(shesha, storage, data_dir)
+        project_id = mgr.create("old-name")
+
+        mgr.rename("old-name", "new-name")
+
+        meta_path = data_dir / "projects" / project_id / "_topic.json"
+        meta = json.loads(meta_path.read_text())
+        assert meta["name"] == "new-name"
+
+    def test_rename_not_found_raises(self, tmp_path: Path) -> None:
+        """Renaming a nonexistent topic raises ValueError."""
+        from shesha.experimental.arxiv.topics import TopicManager
+
+        shesha, storage = _make_shesha_and_storage(tmp_path)
+        data_dir = tmp_path / "shesha_data"
+        mgr = TopicManager(shesha, storage, data_dir)
+
+        with pytest.raises(ValueError, match="Topic not found"):
+            mgr.rename("nonexistent", "new")
