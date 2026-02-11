@@ -626,14 +626,14 @@ class TestMainFunction:
     """Tests for the main() entry point."""
 
     @patch("sys.argv", ["arxiv"])
-    @patch("arxiv_explorer.input", side_effect=EOFError)
+    @patch("arxiv_explorer.create_app")
     @patch("arxiv_explorer.TopicManager")
     @patch("arxiv_explorer.PaperCache")
     @patch("arxiv_explorer.ArxivSearcher")
     @patch("arxiv_explorer.Shesha")
     @patch("arxiv_explorer.SheshaConfig")
     @patch("arxiv_explorer.FilesystemStorage")
-    def test_main_prints_startup_banner(
+    def test_main_creates_app_and_runs(
         self,
         mock_storage: MagicMock,
         mock_config: MagicMock,
@@ -641,46 +641,48 @@ class TestMainFunction:
         mock_searcher: MagicMock,
         mock_cache: MagicMock,
         mock_topic_mgr: MagicMock,
-        mock_input: MagicMock,
-        capsys: object,
+        mock_create_app: MagicMock,
     ) -> None:
         from arxiv_explorer import main
 
-        mock_config.load.return_value = MagicMock(storage_path="/tmp/test")
+        mock_config.load.return_value = MagicMock(storage_path="/tmp/test", model="gpt-4o")
         mock_storage.return_value = MagicMock()
         mock_storage.return_value.list_projects.return_value = []
-        try:
-            main()
-        except SystemExit:
-            pass
-        captured = capsys.readouterr()  # type: ignore[union-attr]
-        assert "Shesha arXiv Explorer" in captured.out
-        assert "AI-generated" in captured.out
-
-    @patch("sys.argv", ["arxiv"])
-    @patch("arxiv_explorer.input", side_effect=["/quit"])
-    @patch("arxiv_explorer.TopicManager")
-    @patch("arxiv_explorer.PaperCache")
-    @patch("arxiv_explorer.ArxivSearcher")
-    @patch("arxiv_explorer.Shesha")
-    @patch("arxiv_explorer.SheshaConfig")
-    @patch("arxiv_explorer.FilesystemStorage")
-    def test_main_quit_command_exits(
-        self,
-        mock_storage: MagicMock,
-        mock_config: MagicMock,
-        mock_shesha: MagicMock,
-        mock_searcher: MagicMock,
-        mock_cache: MagicMock,
-        mock_topic_mgr: MagicMock,
-        mock_input: MagicMock,
-    ) -> None:
-        from arxiv_explorer import main
-
-        mock_config.load.return_value = MagicMock(storage_path="/tmp/test")
-        mock_storage.return_value = MagicMock()
-        mock_storage.return_value.list_projects.return_value = []
+        mock_tui = MagicMock()
+        mock_create_app.return_value = mock_tui
         main()
+        mock_create_app.assert_called_once()
+        mock_tui.run.assert_called_once()
+
+    @patch("sys.argv", ["arxiv", "--topic", "quantum"])
+    @patch("arxiv_explorer.create_app")
+    @patch("arxiv_explorer.TopicManager")
+    @patch("arxiv_explorer.PaperCache")
+    @patch("arxiv_explorer.ArxivSearcher")
+    @patch("arxiv_explorer.Shesha")
+    @patch("arxiv_explorer.SheshaConfig")
+    @patch("arxiv_explorer.FilesystemStorage")
+    def test_main_topic_not_found_passes_warning(
+        self,
+        mock_storage: MagicMock,
+        mock_config: MagicMock,
+        mock_shesha: MagicMock,
+        mock_searcher: MagicMock,
+        mock_cache: MagicMock,
+        mock_topic_mgr: MagicMock,
+        mock_create_app: MagicMock,
+    ) -> None:
+        from arxiv_explorer import main
+
+        mock_config.load.return_value = MagicMock(storage_path="/tmp/test", model="gpt-4o")
+        mock_storage.return_value = MagicMock()
+        mock_storage.return_value.list_projects.return_value = []
+        mock_topic_mgr.return_value.resolve.return_value = None
+        mock_tui = MagicMock()
+        mock_create_app.return_value = mock_tui
+        main()
+        call_kwargs = mock_create_app.call_args
+        assert "not found" in call_kwargs.kwargs.get("startup_warning", "")
 
 
 class TestEdgeCases:

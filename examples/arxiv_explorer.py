@@ -901,7 +901,6 @@ def create_app(
 def main() -> None:
     """Main entry point."""
     args = parse_args()
-    print(STARTUP_BANNER)
 
     # Set up directories
     data_dir = Path(args.data_dir) if args.data_dir else DEFAULT_DATA_DIR
@@ -927,43 +926,36 @@ def main() -> None:
         searcher=searcher,
     )
 
+    startup_message = None
+    startup_warning = None
+
     # Handle --topic flag
     if args.topic:
         project_id = topic_mgr.resolve(args.topic)
         if project_id:
             state.current_topic = project_id
             docs = topic_mgr._storage.list_documents(project_id)
-            print(f"Topic: {args.topic} ({len(docs)} papers)")
+            info = topic_mgr.get_topic_info_by_project_id(project_id)
+            topic_name = info.name if info else args.topic
+            startup_message = f"Switched to topic: {topic_name} ({len(docs)} papers)"
         else:
-            project_id = topic_mgr.create(args.topic)
-            state.current_topic = project_id
-            print(f"Created topic: {args.topic}")
+            startup_warning = (
+                f"Topic '{args.topic}' not found. "
+                "Use /history to see existing topics, or /topic <name> to create one."
+            )
 
-    # REPL loop
+    tui = create_app(
+        state,
+        model=config.model,
+        startup_message=startup_message,
+        startup_warning=startup_warning,
+    )
+    tui.run()
+    print("Cleaning up...")
     try:
-        while True:
-            try:
-                user_input = input("arxiv> ").strip()
-            except EOFError:
-                break
-
-            if not user_input:
-                continue
-
-            if user_input.startswith("/"):
-                should_quit = dispatch_command(user_input, state)
-                if should_quit:
-                    break
-            else:
-                handle_query(user_input, state=state)
-    except KeyboardInterrupt:
-        print()  # Clean newline after ^C
-    finally:
-        print("Cleaning up...")
-        try:
-            shesha.stop()
-        except Exception:
-            pass  # May not have started
+        shesha.stop()
+    except Exception:
+        pass  # May not have started
 
 
 if __name__ == "__main__":
