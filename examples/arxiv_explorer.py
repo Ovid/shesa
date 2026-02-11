@@ -525,8 +525,9 @@ def create_app(
         # Placeholder project -- queries require a topic, guarded in _run_query
         project = MagicMock()
 
-    # Subclass to inject startup messages via on_mount (Textual resolves
-    # handlers from the class __dict__, so instance monkey-patching won't work).
+    # Subclass to inject startup messages via on_mount and guard queries
+    # (Textual resolves handlers from the class __dict__, so instance
+    # monkey-patching won't work).
     class _ArxivTUI(SheshaTUI):
         def on_mount(self) -> None:
             super().on_mount()
@@ -535,6 +536,21 @@ def create_app(
                 output.add_system_message(startup_warning)
             if startup_message:
                 output.add_system_message(startup_message)
+
+        def _run_query(self, question: str) -> None:
+            output = self.query_one(OutputArea)
+            if state.current_topic is None:
+                output.add_system_message(
+                    "No topic selected. Use /topic <name> first."
+                )
+                return
+            docs = state.topic_mgr._storage.list_documents(state.current_topic)
+            if not docs:
+                output.add_system_message(
+                    "No papers loaded. Use /search and /load to add papers first."
+                )
+                return
+            super()._run_query(question)
 
     tui = _ArxivTUI(project=project, project_name=project_name, model=model)
 

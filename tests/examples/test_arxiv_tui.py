@@ -653,3 +653,90 @@ class TestTUICheckCitations:
             statics = output.query("Static")
             texts = [str(s.render()) for s in statics]
             assert any("No topic" in t for t in texts)
+
+
+class TestTUIConversationalQuery:
+    """Tests for conversational query guard."""
+
+    async def test_query_with_no_topic_shows_error(self) -> None:
+        """Submitting a question with no topic selected shows error, not a query."""
+        from arxiv_explorer import create_app
+
+        from shesha.tui.widgets.input_area import InputArea
+
+        state = _make_state()
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "What is this paper about?"
+            await pilot.press("enter")
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("No topic" in t for t in texts)
+            # Should NOT have started a query
+            assert pilot.app._query_in_progress is False
+
+    async def test_query_with_no_papers_shows_error(self) -> None:
+        """Submitting a question with no papers loaded shows error."""
+        from arxiv_explorer import create_app
+
+        from shesha.experimental.arxiv.models import TopicInfo
+        from shesha.tui.widgets.input_area import InputArea
+
+        state = _make_state(current_topic="2025-01-15-quantum")
+        state.topic_mgr.get_topic_info_by_project_id.return_value = TopicInfo(
+            name="quantum",
+            created=MagicMock(),
+            paper_count=0,
+            size_bytes=0,
+            project_id="2025-01-15-quantum",
+        )
+        state.shesha.get_project.return_value = MagicMock()
+        state.topic_mgr._storage.list_documents.return_value = []
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "What is this paper about?"
+            await pilot.press("enter")
+            await pilot.pause()
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("No papers" in t for t in texts)
+            assert pilot.app._query_in_progress is False
+
+    async def test_query_with_topic_and_papers_proceeds(self) -> None:
+        """With topic and papers, query proceeds to _run_query."""
+        from arxiv_explorer import create_app
+
+        from shesha.experimental.arxiv.models import TopicInfo
+        from shesha.tui.widgets.input_area import InputArea
+
+        state = _make_state(current_topic="2025-01-15-quantum")
+        state.topic_mgr.get_topic_info_by_project_id.return_value = TopicInfo(
+            name="quantum",
+            created=MagicMock(),
+            paper_count=1,
+            size_bytes=0,
+            project_id="2025-01-15-quantum",
+        )
+        mock_project = MagicMock()
+        state.shesha.get_project.return_value = mock_project
+        state.topic_mgr._storage.list_documents.return_value = ["2501.12345"]
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "What is this paper about?"
+            await pilot.press("enter")
+            await pilot.pause()
+            # Query should have started (it will fail because mock project
+            # doesn't implement query properly, but _query_in_progress
+            # should have been set)
+            # We check that no "No topic" or "No papers" message was shown
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert not any("No topic" in t for t in texts)
+            assert not any("No papers" in t for t in texts)
