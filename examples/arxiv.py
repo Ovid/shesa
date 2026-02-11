@@ -310,9 +310,7 @@ def handle_load(args: str, state: AppState) -> None:
         # Download and store
         updated_meta = download_paper(meta, state.cache)
         doc = to_parsed_document(updated_meta.arxiv_id, state.cache)
-        state.topic_mgr._storage.store_document(
-            state.current_topic, doc.name, doc.content, doc.metadata
-        )
+        state.topic_mgr._storage.store_document(state.current_topic, doc)
         loaded += 1
         source_label = updated_meta.source_type or "unknown"
         print(f'  Loaded [{updated_meta.arxiv_id}] "{updated_meta.title}" ({source_label})')
@@ -335,7 +333,7 @@ def handle_check_citations(args: str, state: AppState) -> None:
     # Optionally filter by arXiv ID
     filter_id = args.strip() if args.strip() else None
     if filter_id:
-        docs = [d for d in docs if d == filter_id]
+        docs = [d for d in docs if filter_id in d]
         if not docs:
             print(f"Paper {filter_id} not found in current topic.")
             return
@@ -348,29 +346,32 @@ def handle_check_citations(args: str, state: AppState) -> None:
             print(f"  Skipping {doc_name}: no metadata in cache")
             continue
 
-        source_files = state.cache.get_source_files(doc_name)
-        if not source_files:
-            print(f"  Skipping {doc_name}: no source files in cache")
-            continue
-
-        # Extract citations from available files
+        # Extract citations
         citations: list[ExtractedCitation] = []
-        all_text = ""
-        for filename, content in source_files.items():
-            if filename.endswith(".bib"):
-                citations.extend(extract_citations_from_bib(content))
-            elif filename.endswith(".bbl"):
-                citations.extend(extract_citations_from_bbl(content))
-            all_text += content + "\n"
+        source_files = state.cache.get_source_files(doc_name)
+        full_text = ""
 
-        # If no citations found from bib/bbl, try text extraction
-        if not citations:
-            citations = extract_citations_from_text(all_text)
+        if source_files is not None:
+            for filename, content in source_files.items():
+                full_text += content + "\n"
+                if filename.endswith(".bib"):
+                    citations.extend(extract_citations_from_bib(content))
+                elif filename.endswith(".bbl"):
+                    citations.extend(extract_citations_from_bbl(content))
+        else:
+            # Try to get text from the stored document (PDF fallback)
+            try:
+                doc = state.topic_mgr._storage.get_document(state.current_topic, doc_name)
+                full_text = doc.content
+                citations.extend(extract_citations_from_text(full_text))
+            except Exception:
+                full_text = ""  # No source available
 
         # Detect LLM-tell phrases
-        llm_phrases = detect_llm_phrases(all_text)
+        llm_phrases = detect_llm_phrases(full_text)
 
         # Verify each citation
+        print(f"  Checking citations in {meta.arxiv_id}...")
         results = [verifier.verify(c) for c in citations]
 
         report = CheckReport(
@@ -381,6 +382,7 @@ def handle_check_citations(args: str, state: AppState) -> None:
             llm_phrases=llm_phrases,
         )
         print(format_check_report(report))
+        print()
 
 
 def handle_query(question: str, state: AppState) -> None:
@@ -412,12 +414,17 @@ def handle_query(question: str, state: AppState) -> None:
     spinner.start()
     try:
         result = project.query(question, on_progress=on_progress)
-    finally:
+    except Exception as e:
         spinner.stop()
+        print(f"Query error: {e}")
+        return
+    spinner.stop()
 
     elapsed = time.time() - start_time
-    print(f"\n{format_thought_time(elapsed)}")
+    print(format_thought_time(elapsed))
+    print()
     print(result.answer)
+    print()
     print(format_stats(result.execution_time, result.token_usage, result.trace))
 
 
@@ -459,8 +466,8 @@ def main() -> None:
 
     # Set up directories
     data_dir = Path(args.data_dir) if args.data_dir else DEFAULT_DATA_DIR
-    shesha_data = data_dir / "shesha"
-    cache_dir = data_dir / "cache"
+    shesha_data = data_dir / "shesha_data"
+    cache_dir = data_dir / "paper-cache"
     shesha_data.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -497,8 +504,7 @@ def main() -> None:
     try:
         while True:
             try:
-                prompt = f"[{state.current_topic}] " if state.current_topic else ""
-                user_input = input(f"{prompt}> ").strip()
+                user_input = input("arxiv> ").strip()
             except EOFError:
                 break
 
@@ -511,12 +517,14 @@ def main() -> None:
                     break
             else:
                 handle_query(user_input, state=state)
+    except KeyboardInterrupt:
+        print()  # Clean newline after ^C
     finally:
-        if hasattr(shesha, "shutdown"):
-            try:
-                shesha.shutdown()
-            except Exception:
-                pass  # Shutdown errors are acceptable during exit
+        print("Cleaning up...")
+        try:
+            shesha.stop()
+        except Exception:
+            pass  # May not have started
 
 
 if __name__ == "__main__":
