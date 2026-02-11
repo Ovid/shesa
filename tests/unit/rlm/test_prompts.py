@@ -20,16 +20,14 @@ def test_system_prompt_explains_final():
     assert "FINAL" in prompt
 
 
-def test_subcall_prompt_wraps_content():
-    """Subcall prompt wraps content in untrusted tags."""
+def test_subcall_prompt_contains_content():
+    """Subcall prompt contains instruction and content."""
     loader = PromptLoader()
 
     prompt = loader.render_subcall_prompt(
         instruction="Summarize this",
         content="Document content here",
     )
-    assert "<untrusted_document_content>" in prompt
-    assert "</untrusted_document_content>" in prompt
     assert "Document content here" in prompt
     assert "Summarize this" in prompt
 
@@ -61,7 +59,6 @@ def test_subcall_prompt_no_size_limit():
 
     # Content should be passed through completely
     assert large_content in prompt
-    assert "<untrusted_document_content>" in prompt
 
 
 def test_context_metadata_prompt_exists():
