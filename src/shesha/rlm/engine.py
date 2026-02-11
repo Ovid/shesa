@@ -835,7 +835,9 @@ class RLMEngine:
                     messages.append(
                         {
                             "role": "user",
-                            "content": format_code_echo(code_block, output, exec_result.vars, boundary=boundary),
+                            "content": format_code_echo(
+                                code_block, output, exec_result.vars, boundary=boundary
+                            ),
                         }
                     )
 
