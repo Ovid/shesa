@@ -274,3 +274,124 @@ class TestCompletionPopupHeight:
         assert match is not None
         max_height = int(match.group(1))
         assert max_height >= 15, f"max-height {max_height} too small for 15+ commands"
+
+
+class TestTwoLevelAutocomplete:
+    """Tests for two-level autocomplete in SheshaTUI."""
+
+    async def test_group_space_shows_subcommand_completions(self) -> None:
+        """Typing '/topic ' shows subcommand completions."""
+        from unittest.mock import MagicMock
+
+        from shesha.tui import SheshaTUI
+        from shesha.tui.widgets.input_area import InputArea
+
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        app._command_registry.register_group("/topic", "Topic management")
+        app._command_registry.register_subcommand("/topic", "list", lambda a: None, "List topics")
+        app._command_registry.register_subcommand(
+            "/topic", "switch", lambda a: None, "Switch topic"
+        )
+
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "/topic "
+            await pilot.pause()
+            popup = pilot.app.query_one(CompletionPopup)
+            assert popup.display is True
+            rendered = str(popup.render())
+            assert "list" in rendered
+            assert "switch" in rendered
+
+    async def test_group_space_prefix_filters_subcommands(self) -> None:
+        """Typing '/topic sw' narrows to 'switch'."""
+        from unittest.mock import MagicMock
+
+        from shesha.tui import SheshaTUI
+        from shesha.tui.widgets.input_area import InputArea
+
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        app._command_registry.register_group("/topic", "Topic management")
+        app._command_registry.register_subcommand("/topic", "list", lambda a: None, "List topics")
+        app._command_registry.register_subcommand(
+            "/topic", "switch", lambda a: None, "Switch topic"
+        )
+
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "/topic sw"
+            await pilot.pause()
+            popup = pilot.app.query_one(CompletionPopup)
+            assert popup.display is True
+            rendered = str(popup.render())
+            assert "switch" in rendered
+            assert "list" not in rendered
+
+    async def test_subcommand_accept_fills_group_and_subcommand(self) -> None:
+        """Accepting a subcommand completion fills '/topic switch '."""
+        from unittest.mock import MagicMock
+
+        from shesha.tui import SheshaTUI
+        from shesha.tui.widgets.input_area import InputArea
+
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        app._command_registry.register_group("/topic", "Topic management")
+        app._command_registry.register_subcommand("/topic", "list", lambda a: None, "List topics")
+        app._command_registry.register_subcommand(
+            "/topic", "switch", lambda a: None, "Switch topic"
+        )
+
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "/topic "
+            await pilot.pause()
+            popup = pilot.app.query_one(CompletionPopup)
+            popup.select_next()  # Move from "list" to "switch"
+            input_area.post_message(InputArea.CompletionAccept())
+            await pilot.pause()
+            assert input_area.text == "/topic switch "
+
+    async def test_non_group_space_hides_popup(self) -> None:
+        """Typing '/help ' (not a group) hides the popup."""
+        from unittest.mock import MagicMock
+
+        from shesha.tui import SheshaTUI
+        from shesha.tui.widgets.input_area import InputArea
+
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+
+        async with app.run_test() as pilot:
+            input_area = pilot.app.query_one(InputArea)
+            input_area.text = "/help "
+            await pilot.pause()
+            popup = pilot.app.query_one(CompletionPopup)
+            assert popup.display is False
+
+
+class TestCommandUsageHints:
+    """Tests for usage hints in command registration."""
+
+    def test_register_with_usage(self) -> None:
+        """Commands can be registered with a usage string."""
+        reg = CommandRegistry()
+        reg.register("/search", lambda a: None, "Search arXiv", usage="<query> [--author, ...]")
+        commands = reg.list_commands()
+        assert ("/search", "Search arXiv") in commands
+
+    def test_list_commands_with_usage(self) -> None:
+        """list_commands_with_usage returns (name, usage, description) tuples."""
+        reg = CommandRegistry()
+        reg.register("/search", lambda a: None, "Search arXiv", usage="<query> [--author, ...]")
+        reg.register("/quit", lambda a: None, "Exit")
+        reg.register_group("/topic", "Topic management")
+        result = reg.list_commands_with_usage()
+        search_entry = next(e for e in result if e[0] == "/search")
+        assert search_entry == ("/search", "<query> [--author, ...]", "Search arXiv")
+        quit_entry = next(e for e in result if e[0] == "/quit")
+        assert quit_entry == ("/quit", "", "Exit")
+        topic_entry = next(e for e in result if e[0] == "/topic")
+        assert topic_entry == ("/topic", "<subcommand>", "Topic management")

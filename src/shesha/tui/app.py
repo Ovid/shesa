@@ -94,6 +94,7 @@ class SheshaTUI(App[None]):
         self._model = model
         self._api_key = api_key
         self._command_registry = CommandRegistry()
+        self._completing_group: str | None = None
         self._input_history = InputHistory()
         self._session = ConversationSession(project_name=project_name)
         self._query_in_progress = False
@@ -113,7 +114,7 @@ class SheshaTUI(App[None]):
         """Register the default slash commands."""
         self._command_registry.register("/help", self._cmd_help, "Show available commands")
         self._command_registry.register(
-            "/write", self._cmd_write, "Save session transcript [filename]"
+            "/write", self._cmd_write, "Save session transcript", usage="[filename]"
         )
         self._command_registry.register(
             "/markdown", self._cmd_markdown, "Toggle markdown rendering"
@@ -128,6 +129,7 @@ class SheshaTUI(App[None]):
         description: str,
         *,
         threaded: bool = False,
+        usage: str = "",
     ) -> None:
         """Register a custom slash command.
 
@@ -138,8 +140,11 @@ class SheshaTUI(App[None]):
             threaded: If True, handler runs in a worker thread to avoid
                 blocking the UI. Threaded handlers must use
                 ``app.call_from_thread()`` for any widget updates.
+            usage: Optional usage hint (e.g., "<query> [--author, ...]").
         """
-        self._command_registry.register(name, handler, description, threaded=threaded)
+        self._command_registry.register(
+            name, handler, description, threaded=threaded, usage=usage
+        )
 
     def compose(self) -> ComposeResult:
         """Create the app layout."""
@@ -166,13 +171,33 @@ class SheshaTUI(App[None]):
         """Update completion popup when input text changes."""
         raw_text = self.query_one(InputArea).text
         text = raw_text.strip()
-        # Only complete bare slash-prefixed tokens with no spaces
-        if text.startswith("/") and " " not in raw_text:
-            matches = self._command_registry.completions(text)
-            if matches:
-                self.query_one(CompletionPopup).show_items(matches)
-                self.query_one(InputArea).completion_active = True
-                return
+
+        if not text.startswith("/"):
+            self._hide_completions()
+            return
+
+        # Two-level: check for group + subcommand completion
+        if " " in raw_text:
+            parts = text.split(maxsplit=1)
+            group_name = parts[0]
+            sub_prefix = parts[1] if len(parts) > 1 else ""
+            if self._command_registry.is_group(group_name):
+                matches = self._command_registry.subcommand_completions(group_name, sub_prefix)
+                if matches:
+                    self.query_one(CompletionPopup).show_items(matches)
+                    self.query_one(InputArea).completion_active = True
+                    self._completing_group = group_name
+                    return
+            self._hide_completions()
+            return
+
+        # Top-level: bare slash-prefixed token with no spaces
+        matches = self._command_registry.completions(text)
+        if matches:
+            self.query_one(CompletionPopup).show_items(matches)
+            self.query_one(InputArea).completion_active = True
+            self._completing_group = None
+            return
         self._hide_completions()
 
     def on_input_area_completion_navigate(self, event: InputArea.CompletionNavigate) -> None:
@@ -186,10 +211,14 @@ class SheshaTUI(App[None]):
     def on_input_area_completion_accept(self, event: InputArea.CompletionAccept) -> None:
         """Handle completion acceptance."""
         value = self.query_one(CompletionPopup).selected_value
+        group = self._completing_group
         self._hide_completions()
         if value:
             input_area = self.query_one(InputArea)
-            filled = value + " "
+            if group is not None:
+                filled = f"{group} {value} "
+            else:
+                filled = value + " "
             input_area.text = filled
             input_area.move_cursor((0, len(filled)))
 
@@ -241,6 +270,7 @@ class SheshaTUI(App[None]):
         """Hide the completion popup and deactivate completion mode."""
         self.query_one(CompletionPopup).hide()
         self.query_one(InputArea).completion_active = False
+        self._completing_group = None
 
     def on_input_submitted(self, event: InputSubmitted) -> None:
         """Handle user input submission."""
@@ -503,8 +533,12 @@ class SheshaTUI(App[None]):
     def _cmd_help(self, args: str) -> None:
         """Show help."""
         lines = ["Available commands:"]
-        for name, desc in self._command_registry.list_commands():
-            lines.append(f"  {name:20s} {desc}")
+        for name, usage, desc in self._command_registry.list_commands_with_usage():
+            if usage:
+                label = f"{name} {usage}"
+            else:
+                label = name
+            lines.append(f"  {label:36s} {desc}")
         self.query_one(OutputArea).add_system_message("\n".join(lines))
 
     def _cmd_write(self, args: str) -> None:

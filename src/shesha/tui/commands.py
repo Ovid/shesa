@@ -16,7 +16,7 @@ class CommandRegistry:
     """
 
     def __init__(self) -> None:
-        self._commands: dict[str, tuple[Callable[[str], object], str, bool]] = {}
+        self._commands: dict[str, tuple[Callable[[str], object], str, bool, str]] = {}
         self._groups: dict[
             str,
             tuple[
@@ -33,9 +33,10 @@ class CommandRegistry:
         description: str,
         *,
         threaded: bool = False,
+        usage: str = "",
     ) -> None:
         """Register a slash command."""
-        self._commands[name] = (handler, description, threaded)
+        self._commands[name] = (handler, description, threaded, usage)
 
     def register_group(self, name: str, description: str) -> None:
         """Register a command group (e.g., '/topic')."""
@@ -74,10 +75,19 @@ class CommandRegistry:
         Groups appear as top-level entries; individual subcommands do not.
         """
         items: list[tuple[str, str]] = []
-        for name, (_handler, desc, _threaded) in self._commands.items():
+        for name, (_handler, desc, _threaded, _usage) in self._commands.items():
             items.append((name, desc))
         for name, (desc, _help, _subs) in self._groups.items():
             items.append((name, desc))
+        return sorted(items)
+
+    def list_commands_with_usage(self) -> list[tuple[str, str, str]]:
+        """Return (name, usage, description) tuples for all top-level commands/groups."""
+        items: list[tuple[str, str, str]] = []
+        for name, (_handler, desc, _threaded, usage) in self._commands.items():
+            items.append((name, usage, desc))
+        for name, (desc, _help, _subs) in self._groups.items():
+            items.append((name, "<subcommand>", desc))
         return sorted(items)
 
     def list_subcommands(self, group: str) -> list[tuple[str, str]]:
@@ -114,7 +124,7 @@ class CommandRegistry:
 
         if cmd_name not in self._commands:
             return None
-        handler, _desc, threaded = self._commands[cmd_name]
+        handler, _desc, threaded, _usage = self._commands[cmd_name]
         return handler, args, threaded
 
     def dispatch(self, text: str) -> bool:
@@ -134,7 +144,7 @@ class CommandRegistry:
         """Return matching commands for auto-complete (top-level only)."""
         prefix = prefix.strip()
         items: list[tuple[str, str]] = []
-        for name, (_handler, desc, _threaded) in self._commands.items():
+        for name, (_handler, desc, _threaded, _usage) in self._commands.items():
             if name.startswith(prefix):
                 items.append((name, desc))
         for name, (desc, _help, _subs) in self._groups.items():
