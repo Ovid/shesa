@@ -58,6 +58,8 @@ export default function App() {
         }
       } else if (msg.type === 'error') {
         setPhase('Error')
+        setCitationChecking(false)
+        setCitationError(msg.message ?? 'Unknown error')
       } else if (msg.type === 'cancelled') {
         setPhase('Ready')
       }
@@ -72,6 +74,7 @@ export default function App() {
   const [citationChecking, setCitationChecking] = useState(false)
   const [citationProgress, setCitationProgress] = useState<{ current: number; total: number } | null>(null)
   const [citationReport, setCitationReport] = useState<object | null>(null)
+  const [citationError, setCitationError] = useState<string | null>(null)
 
   // Download tasks
   const [downloadTaskIds, setDownloadTaskIds] = useState<string[]>([])
@@ -162,6 +165,7 @@ export default function App() {
     setCitationChecking(true)
     setCitationProgress(null)
     setCitationReport(null)
+    setCitationError(null)
     send({ type: 'check_citations', topic: activeTopic })
   }, [activeTopic, send])
 
@@ -292,9 +296,11 @@ export default function App() {
         checking={citationChecking}
         progress={citationProgress}
         report={citationReport}
+        error={citationError}
         onClose={() => {
           setCitationChecking(false)
           setCitationReport(null)
+          setCitationError(null)
         }}
       />
 

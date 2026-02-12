@@ -2,11 +2,12 @@ interface CitationReportProps {
   checking: boolean
   progress: { current: number; total: number } | null
   report: object | null
+  error: string | null
   onClose: () => void
 }
 
-export default function CitationReport({ checking, progress, report, onClose }: CitationReportProps) {
-  if (!checking && !report) return null
+export default function CitationReport({ checking, progress, report, error, onClose }: CitationReportProps) {
+  if (!checking && !report && !error) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -33,7 +34,13 @@ export default function CitationReport({ checking, progress, report, onClose }: 
             </div>
           )}
 
-          {checking && !progress && (
+          {error && (
+            <div className="text-center py-8 text-red text-sm">
+              {error}
+            </div>
+          )}
+
+          {checking && !progress && !error && (
             <div className="text-center py-8 text-text-dim text-sm">
               Starting citation check...
             </div>

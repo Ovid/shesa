@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeAll } from 'vitest'
 
 beforeAll(() => {
@@ -41,14 +41,18 @@ describe('ChatArea input disabled state', () => {
     historyVersion: 0,
   }
 
-  it('disables textarea when no papers are selected', () => {
-    render(<ChatArea {...baseProps} selectedPapers={new Set()} />)
+  it('disables textarea when no papers are selected', async () => {
+    await act(async () => {
+      render(<ChatArea {...baseProps} selectedPapers={new Set()} />)
+    })
     const textarea = screen.getByPlaceholderText('Select papers in the sidebar first...')
     expect(textarea).toBeDisabled()
   })
 
-  it('enables textarea when papers are selected', () => {
-    render(<ChatArea {...baseProps} selectedPapers={new Set(['paper-1'])} />)
+  it('enables textarea when papers are selected', async () => {
+    await act(async () => {
+      render(<ChatArea {...baseProps} selectedPapers={new Set(['paper-1'])} />)
+    })
     const textarea = screen.getByPlaceholderText('Ask a question...')
     expect(textarea).not.toBeDisabled()
   })

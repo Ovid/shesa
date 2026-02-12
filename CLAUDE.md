@@ -54,7 +54,7 @@ make all                         # Format + lint + typecheck + test
 - Skipping red phase
 - More code than needed to pass
 - Untested code "because it's simple"
-- Tests which emit warnings
+- Tests which emit warnings — fix the root cause (e.g., wrap async state updates in `act()`). Only suppress if the warning originates outside this codebase and cannot be fixed here; add a comment explaining why.
 
 ## Code Style
 
