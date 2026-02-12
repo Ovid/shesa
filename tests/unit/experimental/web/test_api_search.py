@@ -149,3 +149,24 @@ def test_search_local_matches_arxiv_id(client: TestClient, mock_state: MagicMock
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 1
+
+
+def test_search_local_reports_all_topics(client: TestClient, mock_state: MagicMock) -> None:
+    """A paper in multiple topics should list all of them in in_topics."""
+    from shesha.experimental.arxiv.models import TopicInfo
+
+    mock_state.topic_mgr.list_topics.return_value = [
+        TopicInfo(name="Chess", created=datetime(2025, 1, 15), paper_count=1, size_bytes=1000, project_id="proj-chess"),
+        TopicInfo(name="AI", created=datetime(2025, 1, 15), paper_count=1, size_bytes=1000, project_id="proj-ai"),
+        TopicInfo(name="Games", created=datetime(2025, 1, 15), paper_count=1, size_bytes=1000, project_id="proj-games"),
+    ]
+    # Same paper in all three topics
+    mock_state.topic_mgr._storage.list_documents.return_value = ["2501.12345"]
+    meta = _make_meta("2501.12345", "Chess AI Paper")
+    mock_state.cache.get_meta.return_value = meta
+
+    resp = client.get("/api/papers/search?q=chess")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert sorted(data[0]["in_topics"]) == ["AI", "Chess", "Games"]
