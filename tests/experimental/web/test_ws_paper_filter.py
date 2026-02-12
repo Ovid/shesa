@@ -1,0 +1,209 @@
+"""Tests for paper_ids filtering in WebSocket query handler."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from shesha.exceptions import DocumentNotFoundError
+from shesha.experimental.web.ws import _handle_query
+from shesha.models import ParsedDocument
+
+
+def _make_doc(name: str) -> ParsedDocument:
+    """Create a minimal ParsedDocument for testing."""
+    return ParsedDocument(
+        name=name,
+        content=f"Content of {name}",
+        format="text",
+        metadata={},
+        char_count=len(f"Content of {name}"),
+    )
+
+
+@dataclass
+class FakeQueryResult:
+    """Minimal query result for testing."""
+
+    answer: str = "test answer"
+    execution_time: float = 1.0
+    token_usage: MagicMock = field(default_factory=lambda: MagicMock(
+        prompt_tokens=10, completion_tokens=5, total_tokens=15,
+    ))
+
+
+def _make_state(doc_names: list[str]) -> MagicMock:
+    """Create a mock AppState with storage containing the given doc names."""
+    state = MagicMock()
+    state.model = "test-model"
+
+    # topic_mgr.resolve returns a project_id
+    state.topic_mgr.resolve.return_value = "proj-123"
+
+    # Storage mock
+    storage = state.topic_mgr._storage
+    storage.list_documents.return_value = doc_names
+    storage.load_all_documents.return_value = [_make_doc(n) for n in doc_names]
+    storage.get_document.side_effect = lambda pid, name: _make_doc(name)
+    storage.list_traces.return_value = []
+
+    # Project mock with RLM engine
+    project = MagicMock()
+    project.project_id = "proj-123"
+    project._storage = storage
+    project._rlm_engine.query.return_value = FakeQueryResult()
+    project.query.return_value = FakeQueryResult()
+    state.shesha.get_project.return_value = project
+
+    return state
+
+
+def _make_ws() -> AsyncMock:
+    """Create a mock WebSocket."""
+    ws = AsyncMock()
+    return ws
+
+
+class TestPaperIdsFilterLoadsSelectedDocs:
+    """When paper_ids is provided, only those docs should be loaded."""
+
+    @pytest.mark.asyncio
+    async def test_paper_ids_calls_get_document_for_each(self) -> None:
+        """When paper_ids is provided, get_document is called for each paper_id."""
+        state = _make_state(["paper-a", "paper-b", "paper-c"])
+        ws = _make_ws()
+
+        data: dict[str, object] = {
+            "topic": "chess",
+            "question": "What is chess?",
+            "paper_ids": ["paper-a", "paper-c"],
+        }
+
+        with patch(
+            "shesha.experimental.web.ws.WebConversationSession"
+        ) as mock_session_cls:
+            mock_session_cls.return_value.format_history_prefix.return_value = ""
+            await _handle_query(ws, state, data)
+
+        storage = state.topic_mgr._storage
+        # get_document should be called for each paper_id
+        storage.get_document.assert_any_call("proj-123", "paper-a")
+        storage.get_document.assert_any_call("proj-123", "paper-c")
+        assert storage.get_document.call_count == 2
+
+        # load_all_documents should NOT be called
+        storage.load_all_documents.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_paper_ids_passes_filtered_docs_to_engine(self) -> None:
+        """Filtered docs are passed to the RLM engine query."""
+        state = _make_state(["paper-a", "paper-b", "paper-c"])
+        ws = _make_ws()
+
+        data: dict[str, object] = {
+            "topic": "chess",
+            "question": "What is chess?",
+            "paper_ids": ["paper-b"],
+        }
+
+        with patch(
+            "shesha.experimental.web.ws.WebConversationSession"
+        ) as mock_session_cls:
+            mock_session_cls.return_value.format_history_prefix.return_value = ""
+            await _handle_query(ws, state, data)
+
+        project = state.shesha.get_project.return_value
+        engine = project._rlm_engine
+
+        # The engine should have been called with only the filtered doc
+        engine.query.assert_called_once()
+        call_kwargs = engine.query.call_args
+        assert call_kwargs.kwargs.get("documents") == ["Content of paper-b"] or \
+            call_kwargs[1].get("documents") == ["Content of paper-b"] or \
+            (len(call_kwargs.args) > 0 and call_kwargs.args[0] == ["Content of paper-b"])
+
+    @pytest.mark.asyncio
+    async def test_empty_paper_ids_loads_all(self) -> None:
+        """When paper_ids is an empty list, load all documents (same as absent)."""
+        state = _make_state(["paper-a", "paper-b"])
+        ws = _make_ws()
+
+        data: dict[str, object] = {
+            "topic": "chess",
+            "question": "What is chess?",
+            "paper_ids": [],
+        }
+
+        with patch(
+            "shesha.experimental.web.ws.WebConversationSession"
+        ) as mock_session_cls:
+            mock_session_cls.return_value.format_history_prefix.return_value = ""
+            await _handle_query(ws, state, data)
+
+        storage = state.topic_mgr._storage
+        # Empty paper_ids should fall through to load_all behavior
+        storage.load_all_documents.assert_called_once_with("proj-123")
+        storage.get_document.assert_not_called()
+
+
+class TestNoPaperIdsLoadsAll:
+    """When paper_ids is absent, all documents should be loaded."""
+
+    @pytest.mark.asyncio
+    async def test_no_paper_ids_calls_load_all_documents(self) -> None:
+        """When paper_ids is absent, load_all_documents is called."""
+        state = _make_state(["paper-a", "paper-b"])
+        ws = _make_ws()
+
+        data: dict[str, object] = {
+            "topic": "chess",
+            "question": "What is chess?",
+        }
+
+        with patch(
+            "shesha.experimental.web.ws.WebConversationSession"
+        ) as mock_session_cls:
+            mock_session_cls.return_value.format_history_prefix.return_value = ""
+            await _handle_query(ws, state, data)
+
+        storage = state.topic_mgr._storage
+        storage.load_all_documents.assert_called_once_with("proj-123")
+        # get_document should NOT be called individually
+        storage.get_document.assert_not_called()
+
+
+class TestPaperIdsAllInvalid:
+    """When paper_ids are provided but none are valid, send error."""
+
+    @pytest.mark.asyncio
+    async def test_all_invalid_paper_ids_sends_error(self) -> None:
+        """When all paper_ids refer to nonexistent docs, send an error."""
+        state = _make_state(["paper-a", "paper-b"])
+        ws = _make_ws()
+
+        # Make get_document raise for unknown docs
+        storage = state.topic_mgr._storage
+        storage.get_document.side_effect = DocumentNotFoundError("proj-123", "nonexistent")
+
+        data: dict[str, object] = {
+            "topic": "chess",
+            "question": "What is chess?",
+            "paper_ids": ["nonexistent"],
+        }
+
+        with patch(
+            "shesha.experimental.web.ws.WebConversationSession"
+        ) as mock_session_cls:
+            mock_session_cls.return_value.format_history_prefix.return_value = ""
+            await _handle_query(ws, state, data)
+
+        # Should have sent an error about no valid papers
+        error_calls = [
+            c for c in ws.send_json.call_args_list
+            if isinstance(c.args[0], dict) and c.args[0].get("type") == "error"
+        ]
+        assert len(error_calls) == 1
+        assert "no valid" in error_calls[0].args[0]["message"].lower() or \
+            "no papers" in error_calls[0].args[0]["message"].lower()

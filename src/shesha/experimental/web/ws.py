@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from shesha.exceptions import DocumentNotFoundError
 from shesha.experimental.web.dependencies import AppState
 from shesha.experimental.web.session import WebConversationSession
+from shesha.models import ParsedDocument
 from shesha.rlm.trace import StepType, TokenUsage
+
+logger = logging.getLogger(__name__)
 
 
 async def websocket_handler(ws: WebSocket, state: AppState) -> None:
@@ -49,13 +54,34 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
         await ws.send_json({"type": "error", "message": f"Topic '{topic}' not found"})
         return threading.Event()
 
-    docs = state.topic_mgr._storage.list_documents(project_id)
-    if not docs:
+    doc_names = state.topic_mgr._storage.list_documents(project_id)
+    if not doc_names:
         await ws.send_json({"type": "error", "message": "No papers in topic"})
         return threading.Event()
 
     project = state.shesha.get_project(project_id)
     cancel_event = threading.Event()
+
+    # Load documents -- optionally filtered by paper_ids
+    paper_ids = data.get("paper_ids")
+    loaded_docs: list[ParsedDocument]
+
+    if paper_ids and isinstance(paper_ids, list) and len(paper_ids) > 0:
+        # Load only the requested papers, skipping any that don't exist
+        loaded_docs = []
+        for pid in paper_ids:
+            try:
+                doc = state.topic_mgr._storage.get_document(project_id, str(pid))
+                loaded_docs.append(doc)
+            except DocumentNotFoundError:
+                logger.warning("Requested paper_id %r not found in project %s", pid, project_id)
+        if not loaded_docs:
+            await ws.send_json(
+                {"type": "error", "message": "No valid papers found for the given paper_ids"}
+            )
+            return threading.Event()
+    else:
+        loaded_docs = state.topic_mgr._storage.load_all_documents(project_id)
 
     # Load session for history prefix
     project_dir = state.topic_mgr._storage._project_path(project_id)
@@ -94,10 +120,28 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
 
     drain_task = asyncio.create_task(drain_queue())
 
-    # Run query in thread to avoid blocking the event loop
+    # Run query in thread to avoid blocking the event loop.
+    # Call the RLM engine directly so we can pass the (possibly filtered)
+    # document list instead of letting project.query() reload all docs.
+    rlm_engine = project._rlm_engine
+    if rlm_engine is None:
+        await ws.send_json({"type": "error", "message": "Query engine not configured"})
+        await message_queue.put(None)
+        await drain_task
+        return cancel_event
+
+    storage = state.topic_mgr._storage
     result = await loop.run_in_executor(
         None,
-        lambda: project.query(full_question, on_progress=on_progress, cancel_event=cancel_event),
+        lambda: rlm_engine.query(
+            documents=[d.content for d in loaded_docs],
+            question=full_question,
+            doc_names=[d.name for d in loaded_docs],
+            on_progress=on_progress,
+            storage=storage,
+            project_id=project_id,
+            cancel_event=cancel_event,
+        ),
     )
 
     # Signal the drain task to stop, then wait for it
