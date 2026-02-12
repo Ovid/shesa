@@ -4,7 +4,7 @@ install:
 	pip install -e ".[dev]"
 
 test:
-	pytest -v
+	pytest
 
 test-frontend:
 	cd src/shesha/experimental/web/frontend && npx vitest run
