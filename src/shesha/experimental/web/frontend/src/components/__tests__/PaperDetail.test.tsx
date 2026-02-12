@@ -41,6 +41,60 @@ describe('PaperDetail HTML sanitization', () => {
     expect(container.querySelector('img')).toBeNull()
   })
 
+  it('renders \\emph as italic', () => {
+    const paper: PaperInfo = {
+      ...PAPER,
+      abstract: 'Chess is the \\emph{Drosophila} of AI.',
+    }
+    const { container } = render(
+      <PaperDetail paper={paper} topicName="nlp" onRemove={() => {}} onClose={() => {}} />
+    )
+    const em = container.querySelector('em')
+    expect(em).not.toBeNull()
+    expect(em!.textContent).toBe('Drosophila')
+    // The raw \emph command should not appear
+    expect(container.textContent).not.toContain('\\emph')
+  })
+
+  it('renders \\textbf as bold', () => {
+    const paper: PaperInfo = {
+      ...PAPER,
+      abstract: 'This is \\textbf{important} stuff.',
+    }
+    const { container } = render(
+      <PaperDetail paper={paper} topicName="nlp" onRemove={() => {}} onClose={() => {}} />
+    )
+    const strong = container.querySelector('strong')
+    expect(strong).not.toBeNull()
+    expect(strong!.textContent).toBe('important')
+  })
+
+  it('renders \\textit as italic', () => {
+    const paper: PaperInfo = {
+      ...PAPER,
+      abstract: 'See \\textit{figure 1} for details.',
+    }
+    const { container } = render(
+      <PaperDetail paper={paper} topicName="nlp" onRemove={() => {}} onClose={() => {}} />
+    )
+    const em = container.querySelector('em')
+    expect(em).not.toBeNull()
+    expect(em!.textContent).toBe('figure 1')
+  })
+
+  it('renders \\texttt as code', () => {
+    const paper: PaperInfo = {
+      ...PAPER,
+      abstract: 'Use the \\texttt{FictPlay} algorithm.',
+    }
+    const { container } = render(
+      <PaperDetail paper={paper} topicName="nlp" onRemove={() => {}} onClose={() => {}} />
+    )
+    const code = container.querySelector('code')
+    expect(code).not.toBeNull()
+    expect(code!.textContent).toBe('FictPlay')
+  })
+
   it('still renders LaTeX math after escaping HTML', () => {
     const paper: PaperInfo = {
       ...PAPER,

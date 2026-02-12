@@ -13,9 +13,17 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#039;')
 }
 
+function renderTextCommands(html: string): string {
+  return html
+    .replace(/\\emph\{([^}]+)\}/g, '<em>$1</em>')
+    .replace(/\\textit\{([^}]+)\}/g, '<em>$1</em>')
+    .replace(/\\textbf\{([^}]+)\}/g, '<strong>$1</strong>')
+    .replace(/\\texttt\{([^}]+)\}/g, '<code>$1</code>')
+}
+
 function renderLatex(text: string): string {
-  // Escape HTML first, then replace $$...$$ (display math) then $...$ (inline math)
-  return escapeHtml(text)
+  // Escape HTML first, then convert LaTeX text commands and math
+  return renderTextCommands(escapeHtml(text))
     .replace(/\$\$([^$]+)\$\$/g, (_, tex) => {
       try {
         return katex.renderToString(tex, { displayMode: true, throwOnError: false })
