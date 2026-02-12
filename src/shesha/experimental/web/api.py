@@ -7,12 +7,17 @@ import threading
 import uuid
 from pathlib import Path
 
+import litellm
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from shesha.experimental.arxiv.download import to_parsed_document
 from shesha.experimental.web.dependencies import AppState
 from shesha.experimental.web.schemas import (
+    ConversationHistory,
+    ContextBudget,
+    ModelInfo,
+    ModelUpdate,
     PaperAdd,
     PaperInfo,
     SearchResult,
@@ -23,6 +28,7 @@ from shesha.experimental.web.schemas import (
     TraceListItem,
     TraceStepSchema,
 )
+from shesha.experimental.web.session import WebConversationSession
 
 
 def _resolve_topic_or_404(state: AppState, name: str) -> str:
@@ -320,5 +326,102 @@ def create_api(state: AppState) -> FastAPI:
                     status=str(summary.get("status", "unknown")),
                 )
         raise HTTPException(404, f"Trace '{trace_id}' not found")
+
+    # --- History & Export ---
+
+    @app.get(
+        "/api/topics/{name}/history", response_model=ConversationHistory
+    )
+    def get_history(name: str) -> ConversationHistory:
+        _resolve_topic_or_404(state, name)
+        project_dir = state.topic_mgr._storage.project_dir(name)
+        session = WebConversationSession(project_dir)
+        return ConversationHistory(exchanges=session.list_exchanges())
+
+    @app.delete("/api/topics/{name}/history")
+    def clear_history(name: str) -> dict[str, str]:
+        _resolve_topic_or_404(state, name)
+        project_dir = state.topic_mgr._storage.project_dir(name)
+        session = WebConversationSession(project_dir)
+        session.clear()
+        return {"status": "cleared"}
+
+    @app.get("/api/topics/{name}/export", response_class=PlainTextResponse)
+    def export_transcript(name: str) -> PlainTextResponse:
+        _resolve_topic_or_404(state, name)
+        project_dir = state.topic_mgr._storage.project_dir(name)
+        session = WebConversationSession(project_dir)
+        content = session.format_transcript()
+        return PlainTextResponse(
+            content=content, media_type="text/markdown"
+        )
+
+    # --- Model ---
+
+    @app.get("/api/model", response_model=ModelInfo)
+    def get_model() -> ModelInfo:
+        max_input: int | None = None
+        try:
+            info = litellm.get_model_info(state.model)
+            max_input = info.get("max_input_tokens")
+        except Exception:
+            pass  # Model may not be in litellm's registry
+        return ModelInfo(model=state.model, max_input_tokens=max_input)
+
+    @app.put("/api/model", response_model=ModelInfo)
+    def update_model(body: ModelUpdate) -> ModelInfo:
+        state.model = body.model
+        max_input: int | None = None
+        try:
+            info = litellm.get_model_info(body.model)
+            max_input = info.get("max_input_tokens")
+        except Exception:
+            pass  # Model may not be in litellm's registry
+        return ModelInfo(model=body.model, max_input_tokens=max_input)
+
+    # --- Context Budget ---
+
+    @app.get(
+        "/api/topics/{name}/context-budget", response_model=ContextBudget
+    )
+    def get_context_budget(name: str) -> ContextBudget:
+        project_id = _resolve_topic_or_404(state, name)
+        project_dir = state.topic_mgr._storage.project_dir(name)
+
+        # Estimate document chars
+        docs = state.topic_mgr._storage.load_all_documents(project_id)
+        doc_chars = sum(len(d.content) for d in docs)
+
+        # Estimate history chars
+        session = WebConversationSession(project_dir)
+        history_chars = session.context_chars()
+
+        # ~4 chars per token heuristic
+        used_tokens = (doc_chars + history_chars) // 4
+
+        # Get max tokens from litellm
+        max_tokens = 128000  # reasonable default
+        try:
+            info = litellm.get_model_info(state.model)
+            max_input = info.get("max_input_tokens")
+            if max_input is not None:
+                max_tokens = max_input
+        except Exception:
+            pass  # Fall back to default
+
+        percentage = min((used_tokens / max_tokens) * 100, 100.0)
+        if percentage < 50:
+            level = "green"
+        elif percentage < 80:
+            level = "amber"
+        else:
+            level = "red"
+
+        return ContextBudget(
+            used_tokens=used_tokens,
+            max_tokens=max_tokens,
+            percentage=round(percentage, 1),
+            level=level,
+        )
 
     return app
