@@ -41,6 +41,38 @@ class TestArxivVerifier:
         result = verifier.verify(cite)
         assert result.status == VerificationStatus.VERIFIED
 
+    def test_verified_when_title_has_bibtex_linebreaks(self) -> None:
+        from shesha.experimental.arxiv.citations import ArxivVerifier
+        from shesha.experimental.arxiv.models import (
+            ExtractedCitation,
+            PaperMeta,
+            VerificationStatus,
+        )
+
+        mock_searcher = MagicMock()
+        mock_searcher.get_by_id.return_value = PaperMeta(
+            arxiv_id="1811.06031",
+            title="A Hierarchical Multi-task Approach for Learning Embeddings from Semantic Tasks",
+            authors=["Sanh, V."],
+            abstract="",
+            published=datetime(2018, 11, 1, tzinfo=UTC),
+            updated=datetime(2018, 11, 1, tzinfo=UTC),
+            categories=["cs.CL"],
+            primary_category="cs.CL",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/1811.06031v2",
+        )
+        verifier = ArxivVerifier(searcher=mock_searcher)
+        cite = ExtractedCitation(
+            key="DBLP:journals/corr/abs-1811-06031",
+            title="A Hierarchical Multi-task Approach for Learning Embeddings from Semantic\n               Tasks",
+            authors=["Sanh, V."],
+            year="2018",
+            arxiv_id="1811.06031",
+        )
+        result = verifier.verify(cite)
+        assert result.status == VerificationStatus.VERIFIED
+
     def test_mismatch_when_title_differs(self) -> None:
         from shesha.experimental.arxiv.citations import ArxivVerifier
         from shesha.experimental.arxiv.models import (

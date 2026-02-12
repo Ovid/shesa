@@ -200,7 +200,8 @@ def _titles_match(cited: str, actual: str) -> bool:
     """Fuzzy title comparison -- normalize and check containment."""
 
     def normalize(t: str) -> str:
-        return re.sub(r"[^\w\s]", "", t.lower()).strip()
+        t = re.sub(r"[^\w\s]", "", t.lower())
+        return re.sub(r"\s+", " ", t).strip()
 
     c, a = normalize(cited), normalize(actual)
     # Exact match or one contains the other (handles truncated titles)
