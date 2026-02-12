@@ -39,9 +39,7 @@ async def websocket_handler(ws: WebSocket, state: AppState) -> None:
             cancel_event.set()
 
 
-async def _handle_query(
-    ws: WebSocket, state: AppState, data: dict[str, object]
-) -> threading.Event:
+async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object]) -> threading.Event:
     """Execute a query and stream progress. Returns the cancel_event."""
     topic = str(data.get("topic", ""))
     question = str(data.get("question", ""))
@@ -60,7 +58,7 @@ async def _handle_query(
     cancel_event = threading.Event()
 
     # Load session for history prefix
-    project_dir = state.topic_mgr._storage.project_dir(project_id)
+    project_dir = state.topic_mgr._storage._project_path(project_id)
     session = WebConversationSession(project_dir)
     history_prefix = session.format_history_prefix()
     full_question = history_prefix + question if history_prefix else question
@@ -99,9 +97,7 @@ async def _handle_query(
     # Run query in thread to avoid blocking the event loop
     result = await loop.run_in_executor(
         None,
-        lambda: project.query(
-            full_question, on_progress=on_progress, cancel_event=cancel_event
-        ),
+        lambda: project.query(full_question, on_progress=on_progress, cancel_event=cancel_event),
     )
 
     # Signal the drain task to stop, then wait for it
@@ -127,16 +123,18 @@ async def _handle_query(
         model=state.model,
     )
 
-    await ws.send_json({
-        "type": "complete",
-        "answer": result.answer,
-        "trace_id": trace_id,
-        "tokens": {
-            "prompt": result.token_usage.prompt_tokens,
-            "completion": result.token_usage.completion_tokens,
-            "total": result.token_usage.total_tokens,
-        },
-        "duration_ms": int(result.execution_time * 1000),
-    })
+    await ws.send_json(
+        {
+            "type": "complete",
+            "answer": result.answer,
+            "trace_id": trace_id,
+            "tokens": {
+                "prompt": result.token_usage.prompt_tokens,
+                "completion": result.token_usage.completion_tokens,
+                "total": result.token_usage.total_tokens,
+            },
+            "duration_ms": int(result.execution_time * 1000),
+        }
+    )
 
     return cancel_event

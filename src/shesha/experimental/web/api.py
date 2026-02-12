@@ -15,8 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from shesha.experimental.arxiv.download import to_parsed_document
 from shesha.experimental.web.dependencies import AppState
 from shesha.experimental.web.schemas import (
-    ConversationHistory,
     ContextBudget,
+    ConversationHistory,
     ModelInfo,
     ModelUpdate,
     PaperAdd,
@@ -258,9 +258,7 @@ def create_api(state: AppState) -> FastAPI:
                 summary = record
         return {"header": header, "steps": steps, "summary": summary}
 
-    @app.get(
-        "/api/topics/{name}/traces", response_model=list[TraceListItem]
-    )
+    @app.get("/api/topics/{name}/traces", response_model=list[TraceListItem])
     def list_traces(name: str) -> list[TraceListItem]:
         _resolve_topic_or_404(state, name)
         trace_files = state.topic_mgr._storage.list_traces(name)
@@ -286,9 +284,7 @@ def create_api(state: AppState) -> FastAPI:
             )
         return items
 
-    @app.get(
-        "/api/topics/{name}/traces/{trace_id}", response_model=TraceFull
-    )
+    @app.get("/api/topics/{name}/traces/{trace_id}", response_model=TraceFull)
     def get_trace(name: str, trace_id: str) -> TraceFull:
         _resolve_topic_or_404(state, name)
         trace_files = state.topic_mgr._storage.list_traces(name)
@@ -321,9 +317,7 @@ def create_api(state: AppState) -> FastAPI:
                     timestamp=str(header.get("timestamp", "")),
                     steps=steps,
                     total_tokens=total_tokens_raw,
-                    total_iterations=int(
-                        summary.get("total_iterations", 0)
-                    ),
+                    total_iterations=int(summary.get("total_iterations", 0)),
                     duration_ms=int(summary.get("total_duration_ms", 0)),
                     status=str(summary.get("status", "unknown")),
                 )
@@ -331,32 +325,28 @@ def create_api(state: AppState) -> FastAPI:
 
     # --- History & Export ---
 
-    @app.get(
-        "/api/topics/{name}/history", response_model=ConversationHistory
-    )
+    @app.get("/api/topics/{name}/history", response_model=ConversationHistory)
     def get_history(name: str) -> ConversationHistory:
-        _resolve_topic_or_404(state, name)
-        project_dir = state.topic_mgr._storage.project_dir(name)
+        project_id = _resolve_topic_or_404(state, name)
+        project_dir = state.topic_mgr._storage._project_path(project_id)
         session = WebConversationSession(project_dir)
-        return ConversationHistory(exchanges=session.list_exchanges())
+        return ConversationHistory(exchanges=session.list_exchanges())  # type: ignore[arg-type]
 
     @app.delete("/api/topics/{name}/history")
     def clear_history(name: str) -> dict[str, str]:
-        _resolve_topic_or_404(state, name)
-        project_dir = state.topic_mgr._storage.project_dir(name)
+        project_id = _resolve_topic_or_404(state, name)
+        project_dir = state.topic_mgr._storage._project_path(project_id)
         session = WebConversationSession(project_dir)
         session.clear()
         return {"status": "cleared"}
 
     @app.get("/api/topics/{name}/export", response_class=PlainTextResponse)
     def export_transcript(name: str) -> PlainTextResponse:
-        _resolve_topic_or_404(state, name)
-        project_dir = state.topic_mgr._storage.project_dir(name)
+        project_id = _resolve_topic_or_404(state, name)
+        project_dir = state.topic_mgr._storage._project_path(project_id)
         session = WebConversationSession(project_dir)
         content = session.format_transcript()
-        return PlainTextResponse(
-            content=content, media_type="text/markdown"
-        )
+        return PlainTextResponse(content=content, media_type="text/markdown")
 
     # --- Model ---
 
@@ -383,12 +373,10 @@ def create_api(state: AppState) -> FastAPI:
 
     # --- Context Budget ---
 
-    @app.get(
-        "/api/topics/{name}/context-budget", response_model=ContextBudget
-    )
+    @app.get("/api/topics/{name}/context-budget", response_model=ContextBudget)
     def get_context_budget(name: str) -> ContextBudget:
         project_id = _resolve_topic_or_404(state, name)
-        project_dir = state.topic_mgr._storage.project_dir(name)
+        project_dir = state.topic_mgr._storage._project_path(project_id)
 
         # Estimate document chars
         docs = state.topic_mgr._storage.load_all_documents(project_id)

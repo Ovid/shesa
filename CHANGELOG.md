@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Experimental web interface** for arXiv Explorer (`shesha-web` command)
+  - React frontend with dark/light theme
+  - FastAPI backend with REST API and WebSocket
+  - Topic management (create, rename, delete, switch)
+  - arXiv search with multi-topic paper picker
+  - Local paper search across all topics
+  - Query execution with live progress streaming
+  - Trace viewer with expandable step timeline
+  - Citation checking with streamed progress
+  - Context budget indicator (warns at 50% and 80%)
+  - Conversation history persisted per topic
+  - Markdown transcript export
+  - In-app help system
+- Real query cancellation via `threading.Event` in RLM engine
+- `ARXIV.md` setup guide for researchers
+
+### Changed
+
+- TUI cancellation now uses real `cancel_event` instead of cosmetic query-ID bump
+
+### Added
+
 - arXiv Explorer example (`examples/arxiv_explorer.py`) — interactive CLI for searching arXiv,
   loading papers into topics, and querying them with Shesha. Features:
   - `/search` with author, category, and keyword filtering
