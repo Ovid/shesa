@@ -35,6 +35,7 @@ class WebConversationSession:
         tokens: dict[str, int],
         execution_time: float,
         model: str,
+        paper_ids: list[str] | None = None,
     ) -> dict[str, object]:
         exchange: dict[str, object] = {
             "exchange_id": str(uuid.uuid4()),
@@ -45,6 +46,7 @@ class WebConversationSession:
             "tokens": tokens,
             "execution_time": execution_time,
             "model": model,
+            "paper_ids": paper_ids,
         }
         self._exchanges.append(exchange)
         self._save()

@@ -62,26 +62,29 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
     project = state.shesha.get_project(project_id)
     cancel_event = threading.Event()
 
-    # Load documents -- optionally filtered by paper_ids
+    # Load documents filtered by paper_ids (required)
     paper_ids = data.get("paper_ids")
     loaded_docs: list[ParsedDocument]
 
-    if paper_ids and isinstance(paper_ids, list) and len(paper_ids) > 0:
-        # Load only the requested papers, skipping any that don't exist
-        loaded_docs = []
-        for pid in paper_ids:
-            try:
-                doc = state.topic_mgr._storage.get_document(project_id, str(pid))
-                loaded_docs.append(doc)
-            except DocumentNotFoundError:
-                logger.warning("Requested paper_id %r not found in project %s", pid, project_id)
-        if not loaded_docs:
-            await ws.send_json(
-                {"type": "error", "message": "No valid papers found for the given paper_ids"}
-            )
-            return threading.Event()
-    else:
-        loaded_docs = state.topic_mgr._storage.load_all_documents(project_id)
+    if not paper_ids or not isinstance(paper_ids, list) or len(paper_ids) == 0:
+        await ws.send_json(
+            {"type": "error", "message": "Please select one or more papers before querying"}
+        )
+        return threading.Event()
+
+    # Load only the requested papers, skipping any that don't exist
+    loaded_docs = []
+    for pid in paper_ids:
+        try:
+            doc = state.topic_mgr._storage.get_document(project_id, str(pid))
+            loaded_docs.append(doc)
+        except DocumentNotFoundError:
+            logger.warning("Requested paper_id %r not found in project %s", pid, project_id)
+    if not loaded_docs:
+        await ws.send_json(
+            {"type": "error", "message": "No valid papers found for the given paper_ids"}
+        )
+        return threading.Event()
 
     # Load session for history prefix
     project_dir = state.topic_mgr._storage._project_path(project_id)
@@ -154,6 +157,8 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
     if traces:
         trace_id = traces[-1].stem
 
+    consulted_paper_ids = [d.name for d in loaded_docs]
+
     session.add_exchange(
         question=question,
         answer=result.answer,
@@ -165,6 +170,7 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
         },
         execution_time=result.execution_time,
         model=state.model,
+        paper_ids=consulted_paper_ids,
     )
 
     await ws.send_json(
@@ -178,6 +184,7 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
                 "total": result.token_usage.total_tokens,
             },
             "duration_ms": int(result.execution_time * 1000),
+            "paper_ids": consulted_paper_ids,
         }
     )
 

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Consulted papers display** — query answers now show which papers were used, with clickable links to paper detail view
+- **Document-only constraint** — system prompt now explicitly forbids the LLM from using training data, requiring answers based solely on provided documents
+- **Trace document IDs** — trace viewer summary shows which documents were included in each query
 - **Experimental web interface** for arXiv Explorer (`shesha-web` command)
   - React frontend with dark/light theme
   - FastAPI backend with REST API and WebSocket

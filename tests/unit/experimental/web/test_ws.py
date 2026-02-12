@@ -6,7 +6,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 from shesha.experimental.web.api import create_api
+from shesha.models import ParsedDocument
 from shesha.rlm.trace import TokenUsage, Trace
+
+
+def _make_doc(name: str) -> ParsedDocument:
+    """Create a minimal ParsedDocument for testing."""
+    return ParsedDocument(
+        name=name,
+        content=f"Content of {name}",
+        format="text",
+        metadata={},
+        char_count=len(f"Content of {name}"),
+    )
 
 
 @pytest.fixture
@@ -37,6 +49,7 @@ def test_ws_query_returns_complete(client: TestClient, mock_state: MagicMock) ->
     mock_state.topic_mgr.resolve.return_value = "proj-id"
     mock_state.shesha.get_project.return_value = mock_project
     mock_state.topic_mgr._storage.list_documents.return_value = ["doc1"]
+    mock_state.topic_mgr._storage.get_document.side_effect = lambda pid, name: _make_doc(name)
     mock_state.topic_mgr._storage.list_traces.return_value = []
 
     with patch("shesha.experimental.web.ws.WebConversationSession") as mock_sess_cls:
@@ -45,7 +58,8 @@ def test_ws_query_returns_complete(client: TestClient, mock_state: MagicMock) ->
         mock_sess_cls.return_value = mock_session
 
         with client.websocket_connect("/api/ws") as ws:
-            ws.send_json({"type": "query", "topic": "test", "question": "What?"})
+            msg = {"type": "query", "topic": "test", "question": "What?", "paper_ids": ["doc1"]}
+            ws.send_json(msg)
             messages = []
             while True:
                 msg = ws.receive_json()
@@ -56,6 +70,7 @@ def test_ws_query_returns_complete(client: TestClient, mock_state: MagicMock) ->
     complete = [m for m in messages if m["type"] == "complete"]
     assert len(complete) == 1
     assert complete[0]["answer"] == "The answer is 42."
+    assert complete[0]["paper_ids"] == ["doc1"]
 
 
 def test_ws_query_no_topic(client: TestClient, mock_state: MagicMock) -> None:

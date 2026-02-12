@@ -26,7 +26,7 @@ export default function App() {
   const [phase, setPhase] = useState('Ready')
   const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set())
   const [viewingPaper, setViewingPaper] = useState<PaperInfo | null>(null)
-  const [_topicPapersList, setTopicPapersList] = useState<PaperInfo[]>([])
+  const [topicPapersList, setTopicPapersList] = useState<PaperInfo[]>([])
   const [sidebarWidth, setSidebarWidth] = useState(224)
   const dragging = useRef(false)
 
@@ -256,6 +256,8 @@ export default function App() {
               onClearHistory={handleClearHistory}
               historyVersion={historyVersion}
               selectedPapers={selectedPapers}
+              topicPapers={topicPapersList}
+              onPaperClick={handlePaperClick}
             />
           )}
         </div>

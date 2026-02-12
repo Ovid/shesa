@@ -78,6 +78,14 @@ export default function TraceViewer({ topicName, traceId, onClose }: TraceViewer
               <span>Duration: {(trace.duration_ms / 1000).toFixed(1)}s</span>
               <span>Tokens: {Object.values(trace.total_tokens).reduce((a, b) => a + b, 0)}</span>
             </div>
+            {trace.document_ids && trace.document_ids.length > 0 && (
+              <div className="text-text-dim font-mono">
+                <span>Documents: </span>
+                {trace.document_ids.map((id, i) => (
+                  <span key={id}>{i > 0 ? ', ' : ''}{id}</span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Controls */}

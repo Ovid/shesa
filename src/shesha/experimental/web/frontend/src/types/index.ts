@@ -55,6 +55,7 @@ export interface TraceFull {
   total_iterations: number
   duration_ms: number
   status: string
+  document_ids?: string[]
 }
 
 export interface Exchange {
@@ -66,6 +67,7 @@ export interface Exchange {
   tokens: { prompt: number; completion: number; total: number }
   execution_time: number
   model: string
+  paper_ids?: string[]
 }
 
 export interface ContextBudget {
@@ -84,6 +86,6 @@ export interface ModelInfo {
 export type WSMessage =
   | { type: 'status'; phase: string; iteration: number }
   | { type: 'step'; step_type: string; iteration: number; content: string; prompt_tokens?: number; completion_tokens?: number }
-  | { type: 'complete'; answer: string; trace_id: string | null; tokens: { prompt: number; completion: number; total: number }; duration_ms: number }
+  | { type: 'complete'; answer: string; trace_id: string | null; tokens: { prompt: number; completion: number; total: number }; duration_ms: number; paper_ids?: string[] }
   | { type: 'error'; message: string }
   | { type: 'cancelled' }

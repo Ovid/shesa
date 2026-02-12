@@ -115,3 +115,34 @@ def test_context_chars(session: WebConversationSession) -> None:
         model="test",
     )
     assert session.context_chars() > 0
+
+
+def test_add_exchange_stores_paper_ids(session: WebConversationSession) -> None:
+    """add_exchange stores paper_ids in the exchange when provided."""
+    exchange = session.add_exchange(
+        question="What?",
+        answer="Something.",
+        trace_id="t1",
+        tokens={"prompt": 10, "completion": 5, "total": 15},
+        execution_time=0.5,
+        model="test",
+        paper_ids=["paper-a", "paper-c"],
+    )
+    assert exchange["paper_ids"] == ["paper-a", "paper-c"]
+
+    # Verify persistence
+    reloaded = WebConversationSession(session._file.parent)
+    assert reloaded.list_exchanges()[0]["paper_ids"] == ["paper-a", "paper-c"]
+
+
+def test_add_exchange_paper_ids_defaults_to_none(session: WebConversationSession) -> None:
+    """add_exchange works without paper_ids for backward compatibility."""
+    exchange = session.add_exchange(
+        question="What?",
+        answer="Something.",
+        trace_id="t1",
+        tokens={"prompt": 10, "completion": 5, "total": 15},
+        execution_time=0.5,
+        model="test",
+    )
+    assert exchange.get("paper_ids") is None

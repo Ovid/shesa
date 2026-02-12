@@ -75,6 +75,7 @@ class TraceFull(BaseModel):
     total_iterations: int
     duration_ms: int
     status: str
+    document_ids: list[str] = []
 
 
 class ExchangeSchema(BaseModel):
@@ -86,6 +87,7 @@ class ExchangeSchema(BaseModel):
     tokens: dict[str, int]
     execution_time: float
     model: str
+    paper_ids: list[str] | None = None
 
 
 class ConversationHistory(BaseModel):

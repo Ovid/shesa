@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '../api/client'
 import { showToast } from './Toast'
 import ChatMessage from './ChatMessage'
-import type { Exchange, WSMessage } from '../types'
+import type { Exchange, PaperInfo, WSMessage } from '../types'
 
 interface ChatAreaProps {
   topicName: string | null
@@ -13,9 +13,11 @@ interface ChatAreaProps {
   onClearHistory: () => void
   historyVersion: number
   selectedPapers?: Set<string>
+  topicPapers?: PaperInfo[]
+  onPaperClick?: (paper: PaperInfo) => void
 }
 
-export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, onViewTrace, onClearHistory, historyVersion, selectedPapers }: ChatAreaProps) {
+export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, onViewTrace, onClearHistory, historyVersion, selectedPapers, topicPapers, onPaperClick }: ChatAreaProps) {
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
@@ -75,20 +77,20 @@ export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, on
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [exchanges, thinking])
 
+  const hasPapers = selectedPapers != null && selectedPapers.size > 0
+  const canSend = !!input.trim() && !!topicName && !thinking && connected && hasPapers
+
   const handleSend = useCallback(() => {
-    if (!input.trim() || !topicName || thinking || !connected) return
+    if (!canSend || !selectedPapers) return
     const question = input.trim()
-    const msg: Record<string, unknown> = { type: 'query', topic: topicName, question }
-    if (selectedPapers && selectedPapers.size > 0) {
-      msg.paper_ids = Array.from(selectedPapers)
-    }
+    const msg: Record<string, unknown> = { type: 'query', topic: topicName, question, paper_ids: Array.from(selectedPapers) }
     wsSend(msg)
     setInput('')
     setPendingQuestion(question)
     setPendingSentAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
     setThinking(true)
     setPhase('Starting')
-  }, [input, topicName, thinking, connected, wsSend, selectedPapers])
+  }, [canSend, input, topicName, wsSend, selectedPapers])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -134,7 +136,7 @@ export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, on
           </div>
         )}
         {exchanges.map(ex => (
-          <ChatMessage key={ex.exchange_id} exchange={ex} onViewTrace={onViewTrace} />
+          <ChatMessage key={ex.exchange_id} exchange={ex} onViewTrace={onViewTrace} topicPapers={topicPapers} onPaperClick={onPaperClick} />
         ))}
 
         {/* Pending question (shown immediately before answer arrives) */}
@@ -174,6 +176,7 @@ export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, on
             disabled={!connected}
             placeholder={
               !connected ? 'Reconnecting...'
+              : !hasPapers ? 'Select papers in the sidebar first...'
               : 'Ask a question...'
             }
             rows={1}
@@ -189,7 +192,7 @@ export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, on
           ) : (
             <button
               onClick={handleSend}
-              disabled={!input.trim() || !connected}
+              disabled={!canSend}
               className="px-4 py-2 bg-accent text-surface-0 rounded text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Send

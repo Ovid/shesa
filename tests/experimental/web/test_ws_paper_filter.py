@@ -127,8 +127,8 @@ class TestPaperIdsFilterLoadsSelectedDocs:
         )
 
     @pytest.mark.asyncio
-    async def test_empty_paper_ids_loads_all(self) -> None:
-        """When paper_ids is an empty list, load all documents (same as absent)."""
+    async def test_empty_paper_ids_sends_error(self) -> None:
+        """When paper_ids is an empty list, send an error — no implicit 'all'."""
         state = _make_state(["paper-a", "paper-b"])
         ws = _make_ws()
 
@@ -138,22 +138,27 @@ class TestPaperIdsFilterLoadsSelectedDocs:
             "paper_ids": [],
         }
 
-        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
-            mock_session_cls.return_value.format_history_prefix.return_value = ""
-            await _handle_query(ws, state, data)
+        await _handle_query(ws, state, data)
 
         storage = state.topic_mgr._storage
-        # Empty paper_ids should fall through to load_all behavior
-        storage.load_all_documents.assert_called_once_with("proj-123")
+        storage.load_all_documents.assert_not_called()
         storage.get_document.assert_not_called()
 
+        error_calls = [
+            c
+            for c in ws.send_json.call_args_list
+            if isinstance(c.args[0], dict) and c.args[0].get("type") == "error"
+        ]
+        assert len(error_calls) == 1
+        assert "select" in error_calls[0].args[0]["message"].lower()
 
-class TestNoPaperIdsLoadsAll:
-    """When paper_ids is absent, all documents should be loaded."""
+
+class TestNoPaperIdsSendsError:
+    """When paper_ids is absent, send error instead of querying all."""
 
     @pytest.mark.asyncio
-    async def test_no_paper_ids_calls_load_all_documents(self) -> None:
-        """When paper_ids is absent, load_all_documents is called."""
+    async def test_no_paper_ids_sends_error(self) -> None:
+        """When paper_ids is absent, send an error — no implicit 'all'."""
         state = _make_state(["paper-a", "paper-b"])
         ws = _make_ws()
 
@@ -162,14 +167,69 @@ class TestNoPaperIdsLoadsAll:
             "question": "What is chess?",
         }
 
+        await _handle_query(ws, state, data)
+
+        storage = state.topic_mgr._storage
+        storage.load_all_documents.assert_not_called()
+        storage.get_document.assert_not_called()
+
+        error_calls = [
+            c
+            for c in ws.send_json.call_args_list
+            if isinstance(c.args[0], dict) and c.args[0].get("type") == "error"
+        ]
+        assert len(error_calls) == 1
+        assert "select" in error_calls[0].args[0]["message"].lower()
+
+
+class TestCompleteMessageIncludesPaperIds:
+    """The complete WS message should include paper_ids."""
+
+    @pytest.mark.asyncio
+    async def test_complete_message_contains_paper_ids(self) -> None:
+        """Complete message includes paper_ids list from loaded docs."""
+        state = _make_state(["paper-a", "paper-b", "paper-c"])
+        ws = _make_ws()
+
+        data: dict[str, object] = {
+            "topic": "chess",
+            "question": "What is chess?",
+            "paper_ids": ["paper-a", "paper-c"],
+        }
+
         with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
             mock_session_cls.return_value.format_history_prefix.return_value = ""
             await _handle_query(ws, state, data)
 
-        storage = state.topic_mgr._storage
-        storage.load_all_documents.assert_called_once_with("proj-123")
-        # get_document should NOT be called individually
-        storage.get_document.assert_not_called()
+        complete_calls = [
+            c
+            for c in ws.send_json.call_args_list
+            if isinstance(c.args[0], dict) and c.args[0].get("type") == "complete"
+        ]
+        assert len(complete_calls) == 1
+        complete_msg = complete_calls[0].args[0]
+        assert complete_msg["paper_ids"] == ["paper-a", "paper-c"]
+
+    @pytest.mark.asyncio
+    async def test_session_add_exchange_receives_paper_ids(self) -> None:
+        """session.add_exchange is called with paper_ids."""
+        state = _make_state(["paper-a", "paper-b"])
+        ws = _make_ws()
+
+        data: dict[str, object] = {
+            "topic": "chess",
+            "question": "What is chess?",
+            "paper_ids": ["paper-a"],
+        }
+
+        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            mock_session.format_history_prefix.return_value = ""
+            await _handle_query(ws, state, data)
+
+        mock_session.add_exchange.assert_called_once()
+        call_kwargs = mock_session.add_exchange.call_args.kwargs
+        assert call_kwargs["paper_ids"] == ["paper-a"]
 
 
 class TestPaperIdsAllInvalid:

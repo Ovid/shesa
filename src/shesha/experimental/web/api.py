@@ -321,6 +321,8 @@ def create_api(state: AppState) -> FastAPI:
                     )
                     for s in steps_raw
                 ]
+                doc_ids_raw = header.get("document_ids", [])
+                doc_ids = list(doc_ids_raw) if isinstance(doc_ids_raw, list) else []
                 return TraceFull(
                     trace_id=trace_id,
                     question=str(header.get("question", "")),
@@ -331,6 +333,7 @@ def create_api(state: AppState) -> FastAPI:
                     total_iterations=int(summary.get("total_iterations", 0)),
                     duration_ms=int(summary.get("total_duration_ms", 0)),
                     status=str(summary.get("status", "unknown")),
+                    document_ids=doc_ids,
                 )
         raise HTTPException(404, f"Trace '{trace_id}' not found")
 
