@@ -24,7 +24,9 @@ def client(mock_state: MagicMock) -> TestClient:
     return TestClient(app)
 
 
-def _make_trace_file(tmp_path: Path, filename: str = "2025-01-15T10-30-00-123_abc12345.jsonl") -> Path:
+def _make_trace_file(
+    tmp_path: Path, filename: str = "2025-01-15T10-30-00-123_abc12345.jsonl"
+) -> Path:
     """Create a minimal trace JSONL file."""
     trace_file = tmp_path / filename
     header = {
@@ -69,6 +71,7 @@ def test_list_traces(client: TestClient, mock_state: MagicMock, tmp_path: Path) 
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 1
+    assert data[0]["trace_id"] == "2025-01-15T10-30-00-123_abc12345"
     assert data[0]["question"] == "What is abiogenesis?"
     assert data[0]["status"] == "success"
     assert data[0]["total_tokens"] == 150
@@ -85,10 +88,11 @@ def test_get_trace_full(client: TestClient, mock_state: MagicMock, tmp_path: Pat
     trace_file = _make_trace_file(tmp_path)
     mock_state.topic_mgr._storage.list_traces.return_value = [trace_file]
 
-    resp = client.get("/api/topics/test-topic/traces/abc12345")
+    # Fetch by filename stem (what ws.py stores and frontend sends)
+    resp = client.get("/api/topics/test-topic/traces/2025-01-15T10-30-00-123_abc12345")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["trace_id"] == "abc12345"
+    assert data["trace_id"] == "2025-01-15T10-30-00-123_abc12345"
     assert data["question"] == "What is abiogenesis?"
     assert len(data["steps"]) == 1
     assert data["steps"][0]["step_type"] == "code_generated"

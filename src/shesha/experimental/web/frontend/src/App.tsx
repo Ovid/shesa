@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import Header from './components/Header'
 import StatusBar from './components/StatusBar'
 import ToastContainer, { showToast } from './components/Toast'
@@ -20,10 +20,44 @@ export default function App() {
   const { connected, send, onMessage } = useWebSocket()
 
   const [activeTopic, setActiveTopic] = useState<string | null>(null)
-  const [modelName] = useState('gpt-5-mini')
-  const [tokens] = useState({ prompt: 0, completion: 0, total: 0 })
+  const [modelName, setModelName] = useState('—')
+  const [tokens, setTokens] = useState({ prompt: 0, completion: 0, total: 0 })
   const [budget, setBudget] = useState<ContextBudget | null>(null)
-  const [phase] = useState('Ready')
+  const [phase, setPhase] = useState('Ready')
+
+  // Load model name from API on mount
+  useEffect(() => {
+    api.model.get().then(info => setModelName(info.model)).catch(() => {})
+  }, [])
+
+  // Listen for WebSocket messages to update status bar
+  useEffect(() => {
+    return onMessage((msg) => {
+      if (msg.type === 'status') {
+        setPhase(msg.phase)
+      } else if (msg.type === 'step') {
+        setPhase(`${msg.step_type} (iter ${msg.iteration})`)
+        if (msg.prompt_tokens !== undefined) {
+          setTokens({
+            prompt: msg.prompt_tokens,
+            completion: msg.completion_tokens ?? 0,
+            total: (msg.prompt_tokens) + (msg.completion_tokens ?? 0),
+          })
+        }
+      } else if (msg.type === 'complete') {
+        setPhase('Ready')
+        setTokens(msg.tokens)
+        // Refresh context budget after query completes
+        if (activeTopic) {
+          api.contextBudget(activeTopic).then(setBudget).catch(() => {})
+        }
+      } else if (msg.type === 'error') {
+        setPhase('Error')
+      } else if (msg.type === 'cancelled') {
+        setPhase('Ready')
+      }
+    })
+  }, [onMessage, activeTopic])
 
   const [searchOpen, setSearchOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -42,6 +76,25 @@ export default function App() {
     // Load context budget
     api.contextBudget(name).then(setBudget).catch(() => {})
   }, [])
+
+  // Bumped to signal ChatArea to reload history
+  const [historyVersion, setHistoryVersion] = useState(0)
+
+  const handleClearHistory = useCallback(async () => {
+    if (!activeTopic) {
+      showToast('Select a topic first', 'warning')
+      return
+    }
+    try {
+      await api.history.clear(activeTopic)
+      setHistoryVersion(v => v + 1)
+      setTokens({ prompt: 0, completion: 0, total: 0 })
+      api.contextBudget(activeTopic).then(setBudget).catch(() => {})
+      showToast('Conversation cleared', 'success')
+    } catch {
+      showToast('Failed to clear conversation', 'error')
+    }
+  }, [activeTopic])
 
   const handleExport = useCallback(async () => {
     if (!activeTopic) {
@@ -90,6 +143,7 @@ export default function App() {
         onSearchToggle={() => setSearchOpen(s => !s)}
         onCheckCitations={handleCheckCitations}
         onExport={handleExport}
+        onClearHistory={handleClearHistory}
         onHelpToggle={() => setHelpOpen(h => !h)}
         dark={dark}
         onThemeToggle={toggleTheme}
@@ -111,7 +165,7 @@ export default function App() {
         />
 
         {/* Center column */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
           <PaperBar topicName={activeTopic} />
           <ChatArea
             topicName={activeTopic}
@@ -119,6 +173,7 @@ export default function App() {
             wsSend={send}
             wsOnMessage={onMessage}
             onViewTrace={handleViewTrace}
+            historyVersion={historyVersion}
           />
         </div>
 

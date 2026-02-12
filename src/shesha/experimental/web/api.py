@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import threading
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import litellm
@@ -43,7 +45,13 @@ def _resolve_topic_or_404(state: AppState, name: str) -> str:
 
 def create_api(state: AppState) -> FastAPI:
     """Create and configure the FastAPI app."""
-    app = FastAPI(title="Shesha arXiv Explorer", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        yield
+        state.searcher.close()
+
+    app = FastAPI(title="Shesha arXiv Explorer", version="0.1.0", lifespan=lifespan)
 
     # --- Topics ---
 
@@ -260,8 +268,8 @@ def create_api(state: AppState) -> FastAPI:
 
     @app.get("/api/topics/{name}/traces", response_model=list[TraceListItem])
     def list_traces(name: str) -> list[TraceListItem]:
-        _resolve_topic_or_404(state, name)
-        trace_files = state.topic_mgr._storage.list_traces(name)
+        project_id = _resolve_topic_or_404(state, name)
+        trace_files = state.topic_mgr._storage.list_traces(project_id)
         items: list[TraceListItem] = []
         for tf in trace_files:
             parsed = _parse_trace_file(tf)
@@ -272,9 +280,10 @@ def create_api(state: AppState) -> FastAPI:
             total_tokens_raw = summary.get("total_tokens", {})
             assert isinstance(total_tokens_raw, dict)
             total_tokens = sum(total_tokens_raw.values())
+            # Use filename stem as trace_id — matches what ws.py stores
             items.append(
                 TraceListItem(
-                    trace_id=str(header.get("trace_id", "")),
+                    trace_id=tf.stem,
                     question=str(header.get("question", "")),
                     timestamp=str(header.get("timestamp", "")),
                     status=str(summary.get("status", "unknown")),
@@ -284,15 +293,16 @@ def create_api(state: AppState) -> FastAPI:
             )
         return items
 
-    @app.get("/api/topics/{name}/traces/{trace_id}", response_model=TraceFull)
+    @app.get("/api/topics/{name}/traces/{trace_id:path}", response_model=TraceFull)
     def get_trace(name: str, trace_id: str) -> TraceFull:
-        _resolve_topic_or_404(state, name)
-        trace_files = state.topic_mgr._storage.list_traces(name)
+        project_id = _resolve_topic_or_404(state, name)
+        trace_files = state.topic_mgr._storage.list_traces(project_id)
         for tf in trace_files:
+            # Match on filename stem (what ws.py stores) or header UUID
             parsed = _parse_trace_file(tf)
             header = parsed["header"]
             assert isinstance(header, dict)
-            if header.get("trace_id") == trace_id:
+            if tf.stem == trace_id or header.get("trace_id") == trace_id:
                 summary = parsed["summary"]
                 steps_raw = parsed["steps"]
                 assert isinstance(summary, dict)
@@ -378,16 +388,17 @@ def create_api(state: AppState) -> FastAPI:
         project_id = _resolve_topic_or_404(state, name)
         project_dir = state.topic_mgr._storage._project_path(project_id)
 
-        # Estimate document chars
-        docs = state.topic_mgr._storage.load_all_documents(project_id)
-        doc_chars = sum(len(d.content) for d in docs)
+        # Documents go to the Docker sandbox, not the LLM context.
+        # The LLM context contains: system prompt (~2k tokens) +
+        # conversation history prefix + iterative code/output messages.
+        # We estimate: base overhead + history chars.
+        base_prompt_tokens = 2000  # system prompt + context metadata
 
-        # Estimate history chars
         session = WebConversationSession(project_dir)
         history_chars = session.context_chars()
 
         # ~4 chars per token heuristic
-        used_tokens = (doc_chars + history_chars) // 4
+        used_tokens = base_prompt_tokens + (history_chars // 4)
 
         # Get max tokens from litellm
         max_tokens = 128000  # reasonable default
@@ -399,7 +410,7 @@ def create_api(state: AppState) -> FastAPI:
         except Exception:
             pass  # Fall back to default
 
-        percentage = min((used_tokens / max_tokens) * 100, 100.0)
+        percentage = (used_tokens / max_tokens) * 100
         if percentage < 50:
             level = "green"
         elif percentage < 80:
@@ -414,6 +425,11 @@ def create_api(state: AppState) -> FastAPI:
             level=level,
         )
 
+    # Suppress Chrome DevTools probing
+    @app.get("/.well-known/{path:path}", include_in_schema=False)
+    def well_known(path: str) -> JSONResponse:
+        return JSONResponse(status_code=204, content=None)
+
     # --- WebSocket ---
 
     @app.websocket("/api/ws")
@@ -422,7 +438,7 @@ def create_api(state: AppState) -> FastAPI:
 
     # --- Static files ---
     # Serve logo from images directory
-    images_dir = Path(__file__).parent.parent.parent.parent / "images"
+    images_dir = Path(__file__).parent.parent.parent.parent.parent / "images"
     if images_dir.exists():
         app.mount("/static", StaticFiles(directory=str(images_dir)))
 

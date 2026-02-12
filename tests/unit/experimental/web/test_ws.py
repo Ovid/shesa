@@ -23,9 +23,7 @@ def client(mock_state: MagicMock) -> TestClient:
     return TestClient(app)
 
 
-def test_ws_query_returns_complete(
-    client: TestClient, mock_state: MagicMock
-) -> None:
+def test_ws_query_returns_complete(client: TestClient, mock_state: MagicMock) -> None:
     """WebSocket query returns a complete message with answer."""
     mock_project = MagicMock()
     mock_result = MagicMock()

@@ -27,9 +27,7 @@ def main() -> None:
     app = create_api(state)
 
     if not args.no_browser:
-        threading.Timer(
-            1.5, lambda: webbrowser.open(f"http://localhost:{args.port}")
-        ).start()
+        threading.Timer(1.5, lambda: webbrowser.open(f"http://localhost:{args.port}")).start()
 
     uvicorn.run(app, host="0.0.0.0", port=args.port)
 

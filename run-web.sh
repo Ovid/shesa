@@ -99,4 +99,4 @@ fi
 
 # --- Launch ---
 info "Starting Shesha arXiv Web Explorer..."
-exec shesha-web "${SHESHA_ARGS[@]}"
+exec shesha-web ${SHESHA_ARGS[@]+"${SHESHA_ARGS[@]}"}

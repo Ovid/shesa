@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 CONVERSATION_FILE = "_conversation.json"
 
@@ -25,9 +24,7 @@ class WebConversationSession:
             self._exchanges = data.get("exchanges", [])
 
     def _save(self) -> None:
-        self._file.write_text(
-            json.dumps({"exchanges": self._exchanges}, indent=2)
-        )
+        self._file.write_text(json.dumps({"exchanges": self._exchanges}, indent=2))
 
     def add_exchange(
         self,
@@ -44,7 +41,7 @@ class WebConversationSession:
             "question": question,
             "answer": answer,
             "trace_id": trace_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "tokens": tokens,
             "execution_time": execution_time,
             "model": model,
@@ -73,9 +70,7 @@ class WebConversationSession:
 
     def format_transcript(self) -> str:
         lines = ["# Conversation Transcript\n"]
-        lines.append(
-            f"Exported: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n"
-        )
+        lines.append(f"Exported: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}\n")
         for ex in self._exchanges:
             lines.append(f"**Q:** {ex['question']}\n")
             lines.append(f"**A:** {ex['answer']}\n")

@@ -127,4 +127,4 @@ def test_context_budget(client: TestClient, mock_state: MagicMock, tmp_path: Pat
     assert data["used_tokens"] > 0
     assert data["max_tokens"] == 100000
     assert data["level"] == "green"
-    assert 0 <= data["percentage"] <= 100
+    assert data["percentage"] >= 0

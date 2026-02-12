@@ -62,9 +62,7 @@ def test_search_arxiv_with_filters(client: TestClient, mock_state: MagicMock) ->
     assert call_kwargs["start"] == 10
 
 
-def test_search_arxiv_marks_existing_papers(
-    client: TestClient, mock_state: MagicMock
-) -> None:
+def test_search_arxiv_marks_existing_papers(client: TestClient, mock_state: MagicMock) -> None:
     from shesha.experimental.arxiv.models import TopicInfo
 
     mock_state.searcher.search.return_value = [_make_meta("2501.08753")]
@@ -131,9 +129,7 @@ def test_search_local_matches_author(client: TestClient, mock_state: MagicMock) 
     assert len(data) == 1
 
 
-def test_search_local_matches_arxiv_id(
-    client: TestClient, mock_state: MagicMock
-) -> None:
+def test_search_local_matches_arxiv_id(client: TestClient, mock_state: MagicMock) -> None:
     from shesha.experimental.arxiv.models import TopicInfo
 
     mock_state.topic_mgr.list_topics.return_value = [

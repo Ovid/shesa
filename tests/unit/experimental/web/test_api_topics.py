@@ -6,7 +6,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from shesha.experimental.web.api import create_api
-from shesha.experimental.web.dependencies import AppState
 
 
 @pytest.fixture
