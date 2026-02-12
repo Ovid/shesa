@@ -8,6 +8,9 @@ export function useWebSocket() {
   const listenersRef = useRef<((msg: WSMessage) => void)[]>([])
 
   useEffect(() => {
+    let unmounted = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
     function connect() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`)
@@ -15,8 +18,9 @@ export function useWebSocket() {
       ws.onopen = () => setConnected(true)
       ws.onclose = () => {
         setConnected(false)
-        // Auto-reconnect after 2 seconds
-        setTimeout(connect, 2000)
+        if (!unmounted) {
+          reconnectTimer = setTimeout(connect, 2000)
+        }
       }
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data) as WSMessage
@@ -30,6 +34,10 @@ export function useWebSocket() {
     connect()
 
     return () => {
+      unmounted = true
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer)
+      }
       wsRef.current?.close()
     }
   }, [])
