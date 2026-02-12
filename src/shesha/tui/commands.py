@@ -50,7 +50,7 @@ class CommandRegistry:
     def set_group_help_handler(self, name: str, handler: Callable[[str], object]) -> None:
         """Set a custom help handler for a group (replaces auto-generated one)."""
         if name not in self._groups:
-            return
+            raise ValueError(f"Unknown group: {name}")
         desc, _old_handler, subcommands = self._groups[name]
         self._groups[name] = (desc, handler, subcommands)
 

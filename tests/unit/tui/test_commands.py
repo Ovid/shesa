@@ -2,6 +2,8 @@
 
 import re
 
+import pytest
+
 from shesha.tui.commands import CommandRegistry
 from shesha.tui.widgets.completion_popup import CompletionPopup
 
@@ -217,6 +219,11 @@ class TestCommandGroupRegistration:
         reg = CommandRegistry()
         assert reg.list_subcommands("/bogus") == []
 
+    def test_set_group_help_handler_raises_for_unknown_group(self) -> None:
+        reg = CommandRegistry()
+        with pytest.raises(ValueError, match="Unknown group"):
+            reg.set_group_help_handler("/nonexistent", lambda a: None)
+
 
 class TestCommandGroupCompletions:
     """Tests for two-level autocomplete with command groups."""
@@ -418,3 +425,4 @@ class TestCommandUsageHints:
         assert quit_entry == ("/quit", "", "Exit")
         topic_entry = next(e for e in result if e[0] == "/topic")
         assert topic_entry == ("/topic", "<subcommand>", "Topic management")
+
