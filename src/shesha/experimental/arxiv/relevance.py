@@ -54,6 +54,7 @@ Citations:
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
+            drop_params=True,
         )
         content = response.choices[0].message.content
         if not content:

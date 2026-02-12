@@ -344,6 +344,7 @@ def _llm_title_judgment(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
+            drop_params=True,
         )
         content = (response.choices[0].message.content or "").strip().upper()
         return content.startswith("YES")
