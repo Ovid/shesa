@@ -10,6 +10,7 @@ from pathlib import Path
 import litellm
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 from shesha.experimental.arxiv.download import to_parsed_document
 from shesha.experimental.web.dependencies import AppState
@@ -430,5 +431,16 @@ def create_api(state: AppState) -> FastAPI:
     @app.websocket("/api/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
         await websocket_handler(ws, state)
+
+    # --- Static files ---
+    # Serve logo from images directory
+    images_dir = Path(__file__).parent.parent.parent.parent / "images"
+    if images_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(images_dir)))
+
+    # Serve built frontend (must be last — catches all unmatched routes)
+    frontend_dist = Path(__file__).parent / "frontend" / "dist"
+    if frontend_dist.exists():
+        app.mount("/", StaticFiles(directory=str(frontend_dist), html=True))
 
     return app

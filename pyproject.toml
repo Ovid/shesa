@@ -55,6 +55,9 @@ web = [
     "websockets>=12.0",
 ]
 
+[project.scripts]
+shesha-web = "shesha.experimental.web.__main__:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/shesha"]
 
