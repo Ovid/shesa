@@ -475,6 +475,51 @@ class TestTUICommands:
             assert any("already exists" in t for t in texts)
 
 
+class TestThreadedGuard:
+    """Tests for the one-at-a-time threaded command guard."""
+
+    async def test_second_command_rejected_while_first_is_running(self) -> None:
+        """A threaded command started while another is running shows rejection."""
+        import threading
+
+        from arxiv_explorer import create_app
+
+        state = _make_state()
+        block = threading.Event()
+
+        def blocking_search(*a: object, **kw: object) -> list[object]:
+            block.wait()
+            return []
+
+        state.searcher.search.side_effect = blocking_search
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            # Start first search — it will block on the Event
+            resolved = pilot.app._command_registry.resolve("/search quantum")
+            assert resolved is not None
+            handler, args, threaded = resolved
+            worker1 = pilot.app.run_worker(lambda: handler(args), thread=True)
+            await pilot.pause()
+
+            # Try second search while first is blocked
+            resolved2 = pilot.app._command_registry.resolve("/search test")
+            assert resolved2 is not None
+            handler2, args2, _threaded2 = resolved2
+            worker2 = pilot.app.run_worker(lambda: handler2(args2), thread=True)
+            await worker2.wait()
+            await pilot.pause()
+
+            # Release first worker
+            block.set()
+            await worker1.wait()
+            await pilot.pause()
+
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("Command in progress" in t for t in texts)
+
+
 class TestTUISearchCommands:
     """Tests for threaded /search and /more TUI commands."""
 

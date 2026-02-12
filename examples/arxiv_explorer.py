@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -306,21 +307,19 @@ def create_app(
     # --- Threaded commands (use call_from_thread for UI updates) ---
 
     # Guard: only one threaded command at a time
-    _threaded_busy = False
+    _threaded_lock = threading.Lock()
 
     def _threaded_guard(handler_name: str, handler, args: str) -> None:  # type: ignore[type-arg]
         """Wrapper that enforces one-at-a-time for threaded commands."""
-        nonlocal _threaded_busy
-        if _threaded_busy:
+        if not _threaded_lock.acquire(blocking=False):
             tui.call_from_thread(
                 tui.query_one(OutputArea).add_system_message, "Command in progress."
             )
             return
-        _threaded_busy = True
         try:
             handler(args)
         finally:
-            _threaded_busy = False
+            _threaded_lock.release()
 
     def _cmd_search(args: str) -> None:
         args = args.strip()
