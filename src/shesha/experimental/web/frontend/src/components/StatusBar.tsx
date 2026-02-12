@@ -50,7 +50,7 @@ export default function StatusBar({
       </span>
       <span className="mr-4">
         Tokens: <span className="text-text-secondary">{tokens.total}</span>{' '}
-        (prompt: {tokens.prompt}, comp: {tokens.completion})
+        (prompt: {tokens.prompt}, completion: {tokens.completion})
       </span>
       {budget && (
         <span className={`mr-4 ${budgetColor}`}>

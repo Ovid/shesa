@@ -13,6 +13,7 @@ import litellm
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 
 from shesha.experimental.arxiv.download import to_parsed_document
 from shesha.experimental.web.dependencies import AppState
@@ -427,8 +428,8 @@ def create_api(state: AppState) -> FastAPI:
 
     # Suppress Chrome DevTools probing
     @app.get("/.well-known/{path:path}", include_in_schema=False)
-    def well_known(path: str) -> JSONResponse:
-        return JSONResponse(status_code=204, content=None)
+    def well_known(path: str) -> Response:
+        return Response(status_code=204)
 
     # --- WebSocket ---
 
