@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -108,6 +109,7 @@ class SheshaTUI(App[None]):
         self._baseline_completion_tokens = 0
         self._timer_handle: Timer | None = None
         self._worker_handle: Worker[object] | None = None
+        self._cancel_event: threading.Event | None = None
         self._register_builtin_commands()
 
     def _register_builtin_commands(self) -> None:
@@ -249,12 +251,13 @@ class SheshaTUI(App[None]):
     def on_input_area_query_cancelled(self, event: InputArea.QueryCancelled) -> None:
         """Handle query cancellation from double-escape.
 
-        Note: Worker.cancel() cannot interrupt a blocking thread — the
-        underlying project.query() call keeps running to completion.
-        We bump _query_id so that _on_query_complete, _on_query_error,
-        and _on_progress silently discard any results whose captured
-        query_id no longer matches the current one.
+        Sets the cancel_event so the RLM engine exits after the current
+        step. Also bumps _query_id so that _on_query_complete,
+        _on_query_error, and _on_progress silently discard any results
+        whose captured query_id no longer matches the current one.
         """
+        if self._cancel_event is not None:
+            self._cancel_event.set()
         self._query_id += 1
         if self._worker_handle is not None:
             self._worker_handle.cancel()
@@ -327,6 +330,7 @@ class SheshaTUI(App[None]):
     def _run_query(self, question: str) -> None:
         """Execute a query in a worker thread."""
         self._query_id += 1
+        self._cancel_event = threading.Event()
         self._query_in_progress = True
         self.query_one(InputArea).query_in_progress = True
         self._query_start_time = time.time()
@@ -404,6 +408,7 @@ class SheshaTUI(App[None]):
                 result = self._project.query(
                     full_question,
                     on_progress=on_progress,
+                    cancel_event=self._cancel_event,
                 )
                 if self._query_id == my_query_id:
                     self.call_from_thread(
