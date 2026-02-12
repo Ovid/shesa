@@ -205,15 +205,32 @@ class ArxivVerifier:
         )
 
 
+def _normalize_title(t: str) -> str:
+    """Normalize a title for comparison."""
+    t = re.sub(r"\\[a-zA-Z]+", "", t)  # Strip LaTeX commands
+    t = re.sub(r"[^\w\s]", "", t.lower())
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def title_similarity(cited: str, actual: str) -> float:
+    """Compute Jaccard similarity between two titles (word-set overlap).
+
+    Returns a float between 0.0 and 1.0.
+    """
+    c_words = set(_normalize_title(cited).split())
+    a_words = set(_normalize_title(actual).split())
+    if not c_words and not a_words:
+        return 0.0
+    if not c_words or not a_words:
+        return 0.0
+    intersection = c_words & a_words
+    union = c_words | a_words
+    return len(intersection) / len(union)
+
+
 def _titles_match(cited: str, actual: str) -> bool:
     """Fuzzy title comparison -- normalize and check containment."""
-
-    def normalize(t: str) -> str:
-        t = re.sub(r"\\[a-zA-Z]+", "", t)  # Strip LaTeX commands (\emph, \textbf, etc.)
-        t = re.sub(r"[^\w\s]", "", t.lower())
-        return re.sub(r"\s+", " ", t).strip()
-
-    c, a = normalize(cited), normalize(actual)
+    c, a = _normalize_title(cited), _normalize_title(actual)
     # Exact match or one contains the other (handles truncated titles)
     return c == a or c in a or a in c
 

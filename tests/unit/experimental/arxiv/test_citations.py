@@ -403,3 +403,60 @@ class TestCheckReportVerifiedExternal:
             llm_phrases=[],
         )
         assert report.verified_count == 2
+
+
+class TestFuzzyTitleMatch:
+    """Tests for Jaccard-based fuzzy title matching."""
+
+    def test_exact_match_returns_high_score(self) -> None:
+        from shesha.experimental.arxiv.citations import title_similarity
+
+        assert title_similarity("Quantum Error Correction", "Quantum Error Correction") == 1.0
+
+    def test_contained_title_returns_high_score(self) -> None:
+        from shesha.experimental.arxiv.citations import title_similarity
+
+        score = title_similarity("Chess Strategies", "Chess Strategies: A Survey")
+        assert score >= 0.5
+
+    def test_reordered_words_returns_high_score(self) -> None:
+        from shesha.experimental.arxiv.citations import title_similarity
+
+        score = title_similarity(
+            "Learning to Play Chess from Textbooks",
+            "From Textbooks Learning to Play Chess",
+        )
+        assert score >= 0.85
+
+    def test_completely_different_returns_low_score(self) -> None:
+        from shesha.experimental.arxiv.citations import title_similarity
+
+        score = title_similarity(
+            "Quantum Error Correction Survey",
+            "Sentiment Analysis of Victorian Novels",
+        )
+        assert score < 0.5
+
+    def test_acronym_expansion_moderate_score(self) -> None:
+        from shesha.experimental.arxiv.citations import title_similarity
+
+        score = title_similarity(
+            "Learning Chess from Text",
+            "LEAP: Learning to Play Chess from Textbooks",
+        )
+        # Should be in ambiguous range (0.5-0.85) — LLM would decide
+        assert 0.3 < score < 1.0
+
+    def test_empty_titles(self) -> None:
+        from shesha.experimental.arxiv.citations import title_similarity
+
+        assert title_similarity("", "") == 0.0
+
+    def test_latex_commands_stripped(self) -> None:
+        from shesha.experimental.arxiv.citations import title_similarity
+
+        score = title_similarity(
+            r"\emph{Quantum} Error \textbf{Correction}",
+            "Quantum Error Correction",
+        )
+        assert score == 1.0
