@@ -59,12 +59,7 @@ def test_prompt_schemas_defined():
 
 def test_validate_prompt_passes_valid():
     """validate_prompt passes when all required placeholders present."""
-    content = (
-        "Hello {instruction}\n"
-        "<untrusted_document_content>\n"
-        "{content}\n"
-        "</untrusted_document_content>\n"
-    )
+    content = "Hello {instruction}\n\n{content}\n"
     # Should not raise
     validate_prompt("subcall.md", content)
 
@@ -85,24 +80,6 @@ def test_validate_prompt_fails_unknown():
         validate_prompt("subcall.md", content)
     assert "unknown placeholder" in str(exc_info.value).lower()
     assert "typo" in str(exc_info.value)
-
-
-def test_validate_subcall_missing_untrusted_tags_fails():
-    """validate_prompt rejects subcall.md without untrusted_document_content tags."""
-    # Template with placeholders but no security tags
-    content = "{instruction}\n\n{content}\n"
-    with pytest.raises(PromptValidationError) as exc_info:
-        validate_prompt("subcall.md", content)
-    assert "untrusted_document_content" in str(exc_info.value)
-
-
-def test_validate_subcall_with_untrusted_tags_passes():
-    """validate_prompt accepts subcall.md with untrusted_document_content tags."""
-    content = (
-        "{instruction}\n\n<untrusted_document_content>\n{content}\n</untrusted_document_content>\n"
-    )
-    # Should not raise
-    validate_prompt("subcall.md", content)
 
 
 def test_verify_adversarial_schema_defined():

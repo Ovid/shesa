@@ -20,16 +20,14 @@ def test_system_prompt_explains_final():
     assert "FINAL" in prompt
 
 
-def test_subcall_prompt_wraps_content():
-    """Subcall prompt wraps content in untrusted tags."""
+def test_subcall_prompt_contains_content():
+    """Subcall prompt contains instruction and content."""
     loader = PromptLoader()
 
     prompt = loader.render_subcall_prompt(
         instruction="Summarize this",
         content="Document content here",
     )
-    assert "<untrusted_document_content>" in prompt
-    assert "</untrusted_document_content>" in prompt
     assert "Document content here" in prompt
     assert "Summarize this" in prompt
 
@@ -61,7 +59,6 @@ def test_subcall_prompt_no_size_limit():
 
     # Content should be passed through completely
     assert large_content in prompt
-    assert "<untrusted_document_content>" in prompt
 
 
 def test_context_metadata_prompt_exists():
@@ -130,29 +127,6 @@ def test_truncate_code_output_exact_limit():
     result = truncate_code_output(output, max_chars=20_000)
 
     assert result == output
-
-
-def test_wrap_subcall_content_basic():
-    """wrap_subcall_content wraps content in untrusted tags."""
-    from shesha.rlm.prompts import wrap_subcall_content
-
-    content = "Document text here"
-    wrapped = wrap_subcall_content(content)
-
-    assert "<untrusted_document_content>" in wrapped
-    assert "</untrusted_document_content>" in wrapped
-    assert "Document text here" in wrapped
-
-
-def test_wrap_subcall_content_preserves_full_content():
-    """wrap_subcall_content does not truncate content."""
-    from shesha.rlm.prompts import wrap_subcall_content
-
-    large_content = "x" * 600_000
-    wrapped = wrap_subcall_content(large_content)
-
-    assert large_content in wrapped
-    assert "truncated" not in wrapped.lower()
 
 
 def test_iteration_zero_prompt_exists():
@@ -298,3 +272,42 @@ def test_iteration_zero_prompt_includes_step_by_step():
     result = loader.render_iteration_zero(question="What color is the sky?")
     assert "step-by-step" in result.lower()
     assert "What color is the sky?" in result
+
+
+def test_format_code_echo_wraps_output_with_boundary():
+    """Code echo wraps REPL output when boundary is provided."""
+    from shesha.rlm.prompts import format_code_echo
+
+    result = format_code_echo("x = 1", "1", boundary="UNTRUSTED_CONTENT_abc123")
+    assert "UNTRUSTED_CONTENT_abc123_BEGIN" in result
+    assert "UNTRUSTED_CONTENT_abc123_END" in result
+    assert "1" in result
+
+
+def test_format_code_echo_no_wrapping_without_boundary():
+    """Code echo does not wrap when boundary is None."""
+    from shesha.rlm.prompts import format_code_echo
+
+    result = format_code_echo("x = 1", "1")
+    assert "_BEGIN" not in result
+    assert "_END" not in result
+    assert "REPL output:" in result
+
+
+def test_system_prompt_contains_boundary_section():
+    """System prompt includes security section when boundary is provided."""
+    loader = PromptLoader()
+    boundary = "UNTRUSTED_CONTENT_abc123"
+    prompt = loader.render_system_prompt(boundary=boundary)
+    assert "UNTRUSTED_CONTENT_abc123_BEGIN" in prompt
+    assert "UNTRUSTED_CONTENT_abc123_END" in prompt
+    assert "UNTRUSTED" in prompt
+    assert "raw document data" in prompt.lower()
+
+
+def test_system_prompt_no_boundary_section_by_default():
+    """System prompt has no boundary section when no boundary is provided."""
+    loader = PromptLoader()
+    prompt = loader.render_system_prompt()
+    assert "_BEGIN" not in prompt
+    assert "_END" not in prompt

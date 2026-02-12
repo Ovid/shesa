@@ -35,6 +35,12 @@ dev = [
     "tqdm",
     "matplotlib",
     "python-dateutil",
+    "arxiv>=2.0",
+    "bibtexparser>=2.0.0b7",
+]
+arxiv = [
+    "arxiv>=2.0",
+    "bibtexparser>=2.0.0b7",
 ]
 tui = [
     "textual>=1.0",
@@ -68,6 +74,10 @@ python_version = "3.11"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = "arxiv"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

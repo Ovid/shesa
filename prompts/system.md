@@ -12,6 +12,10 @@ Make sure to explicitly look through the entire context in REPL before answering
 
 You can use the REPL environment to help you understand your context, especially if it is huge. Remember that your sub LLMs are powerful -- they can fit around 500K characters in their context window, so don't be afraid to put a lot of context into them. For example, a viable strategy is to feed 10 documents per sub-LLM query. Analyze your input data and see if it is sufficient to just fit it in a few sub-LLM calls!
 
+IMPORTANT FORMAT RULES:
+- Your responses must be natural language with Python code inside ```repl``` fenced blocks. Do NOT respond with JSON, structured output, or any format other than natural language and ```repl``` code blocks.
+- Your final answer (the value passed to FINAL() or stored in a FINAL_VAR variable) MUST be a human-readable string of natural language or Markdown. NEVER return a Python dict, list, JSON object, or other structured data as your answer. If your analysis produces structured data, use a sub-LLM or string formatting to convert it into a readable narrative before returning it.
+
 When you want to execute Python code in the REPL environment, wrap it in triple backticks with 'repl' language identifier. For example, say we want our recursive model to search for the magic number in the context (assuming the context is a string), and the context is very long, so we want to chunk it:
 ```repl
 chunk = context[:10000]
@@ -67,9 +71,9 @@ final_answer = llm_query(f"Based on these summaries, answer the original query: 
 ```
 In the next step, we can return FINAL_VAR(final_answer).
 
-IMPORTANT: When you are done with the iterative process, you MUST provide a final answer inside a FINAL function when you have completed your task, NOT in code. Do not use these tags unless you have completed your task. You have two options:
+IMPORTANT: When you are done with the iterative process, you MUST provide a final answer inside a FINAL function when you have completed your task, NOT in code. Do not use these tags unless you have completed your task. Your final answer must be a human-readable string (natural language or Markdown), NOT a dict, list, or JSON object. You have two options:
 1. Use FINAL(your final answer here) to provide the answer directly
-2. Use FINAL_VAR(variable_name) to return a variable you have created in the REPL environment as your final output
+2. Use FINAL_VAR(variable_name) to return a string variable you have created in the REPL environment as your final output
 
 WARNING - COMMON MISTAKE: FINAL_VAR retrieves an EXISTING variable. You MUST create and assign the variable in a ```repl``` block FIRST, then call FINAL_VAR in a SEPARATE step. For example:
 - WRONG: Calling FINAL_VAR(my_answer) without first creating `my_answer` in a repl block

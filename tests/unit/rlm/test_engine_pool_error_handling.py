@@ -250,8 +250,13 @@ class TestDeadExecutorRecovery:
         # Handler should have been set (first set is callable, last is None from cleanup)
         assert len(handler_values) >= 1
         assert callable(handler_values[0])
-        # Fresh executor should have had setup_context called
-        fresh_executor.setup_context.assert_called_once_with(["doc"])
+        # Fresh executor should have had setup_context called with wrapped documents
+        fresh_executor.setup_context.assert_called_once()
+        call_args = fresh_executor.setup_context.call_args[0][0]
+        assert len(call_args) == 1
+        assert "doc" in call_args[0]
+        assert "_BEGIN" in call_args[0]
+        assert "_END" in call_args[0]
 
 
 class TestPoolDiscard:

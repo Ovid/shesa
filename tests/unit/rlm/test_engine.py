@@ -496,6 +496,7 @@ class TestRLMEngine:
                 trace=trace,
                 token_usage=token_usage,
                 iteration=0,
+                boundary="test",
             )
 
         error_msg = str(exc_info.value)
@@ -534,6 +535,7 @@ class TestRLMEngine:
             trace=trace,
             token_usage=token_usage,
             iteration=0,
+            boundary="test",
         )
 
         # Should return LLM response
@@ -560,6 +562,7 @@ class TestRLMEngine:
                 trace=trace,
                 token_usage=token_usage,
                 iteration=0,
+                boundary="test",
             )
 
         mock_llm_cls.assert_not_called()
@@ -589,13 +592,14 @@ class TestRLMEngine:
             trace=trace,
             token_usage=token_usage,
             iteration=0,
+            boundary="test",
         )
 
         # Verify the prompt sent does NOT contain untrusted wrapping tags
         call_args = mock_sub_llm.complete.call_args
         messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
         prompt_text = messages[0]["content"]
-        assert "<untrusted_document_content>" not in prompt_text
+        assert "_BEGIN" not in prompt_text
         assert "What is 2+2?" in prompt_text
 
     @patch("shesha.rlm.engine.LLMClient")
@@ -623,14 +627,15 @@ class TestRLMEngine:
             trace=trace,
             token_usage=token_usage,
             iteration=0,
+            boundary="test",
         )
 
         # Verify the prompt sent to LLM contains the wrapping tags
         call_args = mock_sub_llm.complete.call_args
         messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
         prompt_text = messages[0]["content"]
-        assert "<untrusted_document_content>" in prompt_text
-        assert "</untrusted_document_content>" in prompt_text
+        assert "_BEGIN" in prompt_text
+        assert "_END" in prompt_text
         assert "Untrusted document data" in prompt_text
 
     @patch("shesha.rlm.engine.LLMClient")
@@ -873,8 +878,8 @@ class TestRLMEngine:
         # Layer 1 verification is the 2nd LLM call (index 1)
         layer1_call = mock_llm.complete.call_args_list[1]
         layer1_prompt = layer1_call.kwargs["messages"][0]["content"]
-        assert "<untrusted_document_content>" in layer1_prompt
-        assert "</untrusted_document_content>" in layer1_prompt
+        assert "_BEGIN" in layer1_prompt
+        assert "_END" in layer1_prompt
 
     @patch("shesha.rlm.engine.LLMClient")
     @patch("shesha.rlm.engine.ContainerExecutor")
@@ -1953,6 +1958,7 @@ class TestHandleLlmQueryThreadSafety:
                     trace=trace,
                     token_usage=token_usage,
                     iteration=0,
+                    boundary="test",
                 )
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
@@ -1964,6 +1970,80 @@ class TestHandleLlmQueryThreadSafety:
         # Token counts should reflect all calls
         assert token_usage.prompt_tokens == n_calls * 10
         assert token_usage.completion_tokens == n_calls * 5
+
+
+class TestBoundaryNotSharedState:
+    """Boundary must be per-query, not stored on the engine instance."""
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_handle_llm_query_uses_boundary_parameter(
+        self,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """_handle_llm_query wraps content using the boundary argument, not self._boundary."""
+        mock_sub_llm = MagicMock()
+        mock_sub_llm.complete.return_value = MagicMock(
+            content="result",
+            prompt_tokens=10,
+            completion_tokens=5,
+            total_tokens=15,
+        )
+        mock_llm_cls.return_value = mock_sub_llm
+
+        engine = RLMEngine(model="test-model")
+        trace = Trace()
+        token_usage = TokenUsage()
+
+        # Pass an explicit boundary that differs from any engine default
+        explicit_boundary = "EXPLICIT_TEST_BOUNDARY_12345"
+        engine._handle_llm_query(
+            instruction="Summarize",
+            content="Some document",
+            trace=trace,
+            token_usage=token_usage,
+            iteration=0,
+            boundary=explicit_boundary,
+        )
+
+        call_args = mock_sub_llm.complete.call_args
+        messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
+        prompt_text = messages[0]["content"]
+        assert explicit_boundary in prompt_text
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_semantic_verification_uses_boundary_parameter(
+        self,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """_run_semantic_verification wraps docs using the boundary argument."""
+        mock_sub_llm = MagicMock()
+        mock_sub_llm.complete.return_value = MagicMock(
+            content='{"findings": []}',
+            prompt_tokens=10,
+            completion_tokens=5,
+            total_tokens=15,
+        )
+        mock_llm_cls.return_value = mock_sub_llm
+
+        engine = RLMEngine(model="test-model")
+        trace = Trace()
+        token_usage = TokenUsage()
+
+        explicit_boundary = "SEMANTIC_BOUNDARY_99999"
+        engine._run_semantic_verification(
+            final_answer="The code uses pattern X in context[0]",
+            documents=["def foo(): pass"],
+            doc_names=["module.py"],
+            trace=trace,
+            token_usage=token_usage,
+            iteration=0,
+            boundary=explicit_boundary,
+        )
+
+        call_args = mock_sub_llm.complete.call_args
+        messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
+        prompt_text = messages[0]["content"]
+        assert explicit_boundary in prompt_text
 
 
 class TestFindFinalAnswerInText:
@@ -2217,23 +2297,30 @@ class TestFindFinalAnswerInText:
 
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")
-    def test_engine_falls_back_to_literal_when_var_undefined(
+    def test_engine_retries_when_bare_final_var_lookup_fails_no_code_blocks(
         self,
         mock_llm_cls: MagicMock,
         mock_executor_cls: MagicMock,
     ):
-        """Engine falls back to literal identifier when sandbox lookup fails.
+        """Engine retries when bare FINAL(var) lookup fails (no code blocks).
 
-        If the LLM writes FINAL(some_var) but the variable was never defined
-        in the sandbox, the retrieval via print() yields an error with empty
-        stdout. Rather than returning an empty answer, fall back to the
-        identifier itself as a literal.
+        If the LLM writes bare FINAL(undefined_var) with no code blocks and
+        the sandbox lookup fails, the engine should NOT return the variable
+        name as the answer. Instead it should continue iterating with a
+        helpful message so the LLM can fix its mistake.
         """
         mock_llm = MagicMock()
         mock_llm.complete.side_effect = [
             # Iteration 0: bare FINAL(undefined_var) — variable never defined
             MagicMock(
                 content="FINAL(undefined_var)",
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Iteration 1: LLM provides a proper literal answer
+            MagicMock(
+                content='FINAL("The real answer")',
                 prompt_tokens=100,
                 completion_tokens=50,
                 total_tokens=150,
@@ -2263,8 +2350,89 @@ class TestFindFinalAnswerInText:
             question="What is the answer?",
         )
 
-        # Should fall back to the literal identifier, not return ""
-        assert result.answer == "undefined_var"
+        assert result.answer == '"The real answer"'
+        assert mock_llm.complete.call_count == 2
+
+    @patch("shesha.rlm.engine.ContainerExecutor")
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_engine_retries_when_bare_final_var_lookup_fails_after_code(
+        self,
+        mock_llm_cls: MagicMock,
+        mock_executor_cls: MagicMock,
+    ):
+        """Engine retries when bare FINAL(var) lookup fails after code execution.
+
+        If the LLM writes a code block + bare FINAL(my_report) in the same
+        response, the code block executes but doesn't define the variable
+        (e.g., code bug). The sandbox lookup for my_report then fails.
+        The engine should continue iterating, not return the variable name.
+        """
+        mock_llm = MagicMock()
+        mock_llm.complete.side_effect = [
+            # Iteration 0: code block + bare FINAL(my_report)
+            MagicMock(
+                content=(
+                    "Let me analyze the document.\n\n"
+                    "```repl\n"
+                    'print("analyzing...")\n'
+                    "```\n\n"
+                    "FINAL(my_report)"
+                ),
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+            # Iteration 1: LLM provides proper answer
+            MagicMock(
+                content='FINAL("Actual report content")',
+                prompt_tokens=100,
+                completion_tokens=50,
+                total_tokens=150,
+            ),
+        ]
+        mock_llm_cls.return_value = mock_llm
+
+        mock_executor = MagicMock()
+        mock_executor.is_alive = True
+
+        call_count = [0]
+
+        def execute_side_effect(code, timeout=30):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call: execute the code block (doesn't define my_report)
+                return MagicMock(
+                    status="ok",
+                    stdout="analyzing...",
+                    stderr="",
+                    error=None,
+                    final_answer=None,
+                    final_var=None,
+                    vars={},
+                )
+            else:
+                # Second call: print(my_report) — variable not defined
+                return MagicMock(
+                    status="error",
+                    stdout="",
+                    stderr="NameError: name 'my_report' is not defined",
+                    error=None,
+                    final_answer=None,
+                    final_var=None,
+                    vars=None,
+                )
+
+        mock_executor.execute.side_effect = execute_side_effect
+        mock_executor_cls.return_value = mock_executor
+
+        engine = RLMEngine(model="test-model", max_iterations=5)
+        result = engine.query(
+            documents=["Doc content"],
+            question="What is the report?",
+        )
+
+        assert result.answer == '"Actual report content"'
+        assert mock_llm.complete.call_count == 2
 
     @patch("shesha.rlm.engine.ContainerExecutor")
     @patch("shesha.rlm.engine.LLMClient")

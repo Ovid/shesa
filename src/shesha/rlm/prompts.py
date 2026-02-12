@@ -20,24 +20,25 @@ def truncate_code_output(output: str, max_chars: int = 20_000) -> str:
     )
 
 
-def format_code_echo(code: str, output: str, vars: dict[str, str] | None = None) -> str:
+def format_code_echo(
+    code: str,
+    output: str,
+    vars: dict[str, str] | None = None,
+    boundary: str | None = None,
+) -> str:
     """Format a code block and its output as a code echo message.
 
     Matches the reference RLM's per-block feedback format
     (rlm/rlm/utils/parsing.py:93-96).
+
+    When ``boundary`` is provided, the REPL output is wrapped in
+    randomized untrusted content markers.
     """
+    from shesha.rlm.boundary import wrap_untrusted  # Local import to avoid circular dependency
+
+    if boundary is not None:
+        output = wrap_untrusted(output, boundary)
     parts = [f"Code executed:\n```python\n{code}\n```\n\nREPL output:\n{output}"]
     if vars:
         parts.append(f"\nREPL variables: {list(vars.keys())}")
     return "\n".join(parts)
-
-
-def wrap_subcall_content(content: str) -> str:
-    """Wrap sub-LLM content in untrusted document tags.
-
-    This is a code-level security boundary that ensures untrusted document
-    content is always marked, regardless of prompt template contents.
-    """
-    return f"""<untrusted_document_content>
-{content}
-</untrusted_document_content>"""

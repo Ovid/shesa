@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- arXiv Explorer example (`examples/arxiv_explorer.py`) — interactive CLI for searching arXiv,
+  loading papers into topics, and querying them with Shesha. Features:
+  - `/search` with author, category, and keyword filtering
+  - `/load` papers by search result number or arXiv ID (source first, PDF fallback)
+  - `/check-citations` for automated citation verification against arXiv API with
+    LLM-tell phrase detection (always shown with AI disclaimer)
+  - `/history` for persistent topic management with creation dates and size on disk
+  - Central paper cache to avoid redundant downloads
+
+### Security
+
+- Replace static `<untrusted_document_content>` XML tags with per-query randomized boundary tokens (128-bit entropy) to prevent tag-escape prompt injection attacks
+- Restore REPL output wrapping removed in 937c183
+- Add wrapping to initial document context shown to the LLM
+- All five document-to-LLM paths now have untrusted content boundaries
+
+### Changed
+
+- arXiv Explorer now uses a Textual TUI instead of a readline-based REPL. All
+  commands (`/search`, `/load`, `/papers`, `/topic`, `/history`, `/check-citations`,
+  `/more`) are registered as TUI commands with auto-complete, markdown rendering,
+  and threaded execution for network operations. Topic management updates the
+  InfoBar in real time. Conversational queries are guarded against missing
+  topic/papers.
+
 ## [0.9.0] - 2026-02-10
 
 ### Changed

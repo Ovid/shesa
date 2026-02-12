@@ -52,6 +52,20 @@ class TestSheshaTUIComposition:
             names = [name for name, _desc in commands]
             assert "/custom" in names
 
+    async def test_set_group_help_handler(self) -> None:
+        """set_group_help_handler is a public method that delegates to CommandRegistry."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        app.register_group("/grp", "A group")
+        captured: list[str] = []
+        app.set_group_help_handler("/grp", lambda args: captured.append(args))
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/grp")
+            assert resolved is not None
+            handler, args, _threaded = resolved
+            handler(args)
+            assert captured == [""]
+
     async def test_help_command_shows_output(self) -> None:
         """The /help command adds a message to the output area."""
         project = MagicMock()
@@ -506,7 +520,7 @@ class TestAnalysisShortcutTokenDisplay:
         async with app.run_test() as pilot:
             pilot.app._analysis_context = "Analysis: A web framework."
 
-            def mock_shortcut(question, analysis_context, model, api_key):
+            def mock_shortcut(question, analysis_context, model, api_key, **kwargs):
                 return ("Shortcut answer", 200, 50)
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
@@ -536,7 +550,7 @@ class TestAnalysisShortcutTokenDisplay:
         async with app.run_test() as pilot:
             pilot.app._analysis_context = "Analysis: A web framework."
 
-            def mock_shortcut(question, analysis_context, model, api_key):
+            def mock_shortcut(question, analysis_context, model, api_key, **kwargs):
                 return ("Shortcut answer", 200, 50)
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
@@ -562,7 +576,7 @@ class TestAnalysisShortcutTokenDisplay:
         async with app.run_test() as pilot:
             pilot.app._analysis_context = "Analysis: A web framework."
 
-            def mock_shortcut(question, analysis_context, model, api_key):
+            def mock_shortcut(question, analysis_context, model, api_key, **kwargs):
                 return ("Shortcut answer", 200, 50)
 
             with patch("shesha.tui.app.try_answer_from_analysis", mock_shortcut):
@@ -605,7 +619,7 @@ class TestAnalysisShortcutHistoryContext:
 
             captured_questions: list[str] = []
 
-            def mock_shortcut(question, analysis_context, model, api_key):
+            def mock_shortcut(question, analysis_context, model, api_key, **kwargs):
                 captured_questions.append(question)
                 return ("Shortcut answer", 100, 25)
 

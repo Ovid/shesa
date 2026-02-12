@@ -14,10 +14,10 @@ from pathlib import Path
 from shesha.llm.client import LLMClient
 from shesha.models import QueryContext
 from shesha.prompts import PromptLoader
+from shesha.rlm.boundary import generate_boundary, wrap_untrusted
 from shesha.rlm.prompts import (
     format_code_echo,
     truncate_code_output,
-    wrap_subcall_content,
 )
 from shesha.rlm.semantic_verification import (
     SemanticVerificationReport,
@@ -181,6 +181,8 @@ class RLMEngine:
         iteration: int,
         on_progress: ProgressCallback | None = None,
         on_step: Callable[[TraceStep], None] | None = None,
+        *,
+        boundary: str,
     ) -> str:
         """Handle a sub-LLM query from the sandbox.
 
@@ -229,7 +231,7 @@ class RLMEngine:
         # Build prompt: when content is empty (single-arg llm_query), send
         # instruction directly. When content is provided, wrap in untrusted tags.
         if content:
-            wrapped_content = wrap_subcall_content(content)
+            wrapped_content = wrap_untrusted(content, boundary)
             prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
         else:
             prompt = instruction
@@ -268,6 +270,8 @@ class RLMEngine:
         iteration: int,
         on_progress: ProgressCallback | None = None,
         on_step: Callable[[TraceStep], None] | None = None,
+        *,
+        boundary: str,
     ) -> SemanticVerificationReport | None:
         """Run semantic verification on the final answer.
 
@@ -293,7 +297,7 @@ class RLMEngine:
             return None
 
         # Wrap cited docs in untrusted content tags (security boundary)
-        wrapped_docs = wrap_subcall_content(cited_docs_text)
+        wrapped_docs = wrap_untrusted(cited_docs_text, boundary)
 
         # Layer 1: Adversarial verification
         prompt = self.prompt_loader.render_verify_adversarial_prompt(
@@ -421,6 +425,7 @@ class RLMEngine:
         start_time = time.time()
         trace = Trace()
         token_usage = TokenUsage()
+        boundary = generate_boundary()
 
         if doc_names is None:
             doc_names = [f"doc_{i}" for i in range(len(documents))]
@@ -429,7 +434,7 @@ class RLMEngine:
         doc_sizes = [len(d) for d in documents]
         total_chars = sum(doc_sizes)
 
-        system_prompt = self.prompt_loader.render_system_prompt()
+        system_prompt = self.prompt_loader.render_system_prompt(boundary=boundary)
 
         # Context metadata as assistant message: primes the model to
         # continue working rather than start fresh. Matches reference
@@ -506,6 +511,7 @@ class RLMEngine:
                     frozen_iteration,
                     on_progress,
                     on_step=_write_step,
+                    boundary=boundary,
                 )
 
             return llm_query_callback
@@ -522,7 +528,8 @@ class RLMEngine:
 
         try:
             # Set up context in sandbox
-            executor.setup_context(documents)
+            wrapped_documents = [wrap_untrusted(doc, boundary) for doc in documents]
+            executor.setup_context(wrapped_documents)
 
             for iteration in range(self.max_iterations):
                 executor.llm_query_handler = _make_llm_callback(iteration)
@@ -567,11 +574,22 @@ class RLMEngine:
                             retrieve_result = executor.execute(
                                 f"print({final_value})", timeout=self.execution_timeout
                             )
-                            bare_answer = (
-                                retrieve_result.stdout.strip()
-                                if retrieve_result.status == "ok"
-                                else final_value  # fallback to literal if var undefined
-                            )
+                            if retrieve_result.status != "ok":
+                                # Variable not found — retry instead of
+                                # returning the variable name as the answer
+                                messages.append({"role": "assistant", "content": response.content})
+                                messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            f"Variable '{final_value}' was not found in the "
+                                            "REPL environment. Define it in a ```repl``` block "
+                                            "first, then use FINAL_VAR(variable_name) to return it."
+                                        ),
+                                    }
+                                )
+                                continue
+                            bare_answer = retrieve_result.stdout.strip()
                         else:
                             bare_answer = final_value
 
@@ -688,33 +706,36 @@ class RLMEngine:
                 # If code blocks didn't produce a final answer, check for
                 # bare FINAL in the same response. Now that code blocks have
                 # executed, any variables they defined exist in the sandbox.
+                var_lookup_failed: str | None = None
                 if final_answer is None and bare_final is not None:
                     final_type, final_value = bare_final
                     if final_type == "final_var":
                         retrieve_result = executor.execute(
                             f"print({final_value})", timeout=self.execution_timeout
                         )
-                        final_answer = (
-                            retrieve_result.stdout.strip()
-                            if retrieve_result.status == "ok"
-                            else final_value
-                        )
+                        if retrieve_result.status == "ok":
+                            final_answer = retrieve_result.stdout.strip()
+                        else:
+                            # Variable not found — record name so a helpful
+                            # message is appended after the code-echo messages
+                            var_lookup_failed = final_value
                     else:
                         final_answer = final_value
 
-                    step = trace.add_step(
-                        type=StepType.FINAL_ANSWER,
-                        content=final_answer,
-                        iteration=iteration,
-                    )
-                    _write_step(step)
-                    if on_progress:
-                        on_progress(
-                            StepType.FINAL_ANSWER,
-                            iteration,
-                            final_answer,
-                            copy.copy(token_usage),
+                    if final_answer is not None:
+                        step = trace.add_step(
+                            type=StepType.FINAL_ANSWER,
+                            content=final_answer,
+                            iteration=iteration,
                         )
+                        _write_step(step)
+                        if on_progress:
+                            on_progress(
+                                StepType.FINAL_ANSWER,
+                                iteration,
+                                final_answer,
+                                copy.copy(token_usage),
+                            )
 
                 if final_answer is not None:
                     verification = None
@@ -766,6 +787,7 @@ class RLMEngine:
                                 iteration=iteration,
                                 on_progress=on_progress,
                                 on_step=_write_step,
+                                boundary=boundary,
                             )
                         except Exception as exc:
                             step = trace.add_step(
@@ -799,7 +821,7 @@ class RLMEngine:
                     self._pool.discard(executor)
                     executor = self._pool.acquire()
                     executor.llm_query_handler = _make_llm_callback(iteration)
-                    executor.setup_context(documents)
+                    executor.setup_context(wrapped_documents)
                 elif not executor.is_alive:
                     answer = "[Executor died — cannot continue]"
                     query_result = QueryResult(
@@ -817,7 +839,9 @@ class RLMEngine:
                     messages.append(
                         {
                             "role": "user",
-                            "content": format_code_echo(code_block, output, exec_result.vars),
+                            "content": format_code_echo(
+                                code_block, output, exec_result.vars, boundary=boundary
+                            ),
                         }
                     )
 
@@ -830,6 +854,18 @@ class RLMEngine:
                         ),
                     }
                 )
+
+                if var_lookup_failed is not None:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Variable '{var_lookup_failed}' was not found in the "
+                                "REPL environment. Define it in a ```repl``` block "
+                                "first, then use FINAL_VAR(variable_name) to return it."
+                            ),
+                        }
+                    )
 
             # Max iterations reached — ask LLM for one last answer
             fallback_messages = messages + [

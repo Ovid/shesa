@@ -229,7 +229,7 @@ def score_oolong(pred: str, gold_str: str) -> float:
     if len(golds) == 1:
         try:
             gold_num = int(golds[0])
-            pred_num = int(cand)
+            pred_num = int(float(cand))
             return 0.75 ** abs(gold_num - pred_num)
         except ValueError:
             pass  # Not numeric — fall through to token-set and final 0.0
@@ -256,6 +256,7 @@ def score_oolong(pred: str, gold_str: str) -> float:
 def parse_pairs_from_text(text: str) -> set[tuple[int, int]]:
     pairs: set[tuple[int, int]] = set()
     for line in text.splitlines():
+        line = re.sub(r"^\s*\d+[.)]\s+", "", line)  # strip list prefixes
         nums = re.findall(r"\d+", line)
         if len(nums) >= 2:
             a, b = int(nums[0]), int(nums[1])
@@ -314,6 +315,11 @@ def _parse_labeled_context(text: str) -> list[_Entry]:
                 date=dt,
                 label=_normalize_ws(m.group(3)).lower(),
             )
+        )
+    if not entries and len(text.strip()) > 0:
+        raise ValueError(
+            "Parsed 0 entries from non-empty labeled context — "
+            "dataset format may have changed"
         )
     return entries
 

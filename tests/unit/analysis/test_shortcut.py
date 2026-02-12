@@ -107,14 +107,15 @@ class TestTryAnswerFromAnalysis:
                 analysis_context="Overview: A web framework...",
                 model="test-model",
                 api_key="test-key",
+                boundary="UNTRUSTED_CONTENT_testboundary12345678",
             )
 
         # Check the user message sent to complete()
         call_args = mock_client.complete.call_args
         messages = call_args[0][0]
         user_content = messages[0]["content"]
-        assert "<untrusted_document_content>" in user_content
-        assert "</untrusted_document_content>" in user_content
+        assert "_BEGIN" in user_content
+        assert "_END" in user_content
         assert "Overview: A web framework..." in user_content
 
     def test_returns_stripped_answer(self):
