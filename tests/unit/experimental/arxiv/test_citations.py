@@ -335,3 +335,71 @@ class TestArxivIdPattern:
         # Should not extract arXiv IDs from DOI strings
         text = "doi:10.1111/1467-9876.00159"
         assert ARXIV_ID_PATTERN.search(text) is None
+
+
+class TestVerificationStatusExtended:
+    """Tests for new verification statuses."""
+
+    def test_verified_external_status_exists(self) -> None:
+        from shesha.experimental.arxiv.models import VerificationStatus
+
+        assert VerificationStatus.VERIFIED_EXTERNAL.value == "verified_external"
+
+    def test_topically_unrelated_status_exists(self) -> None:
+        from shesha.experimental.arxiv.models import VerificationStatus
+
+        assert VerificationStatus.TOPICALLY_UNRELATED.value == "topically_unrelated"
+
+
+class TestVerificationResultSource:
+    """Tests for source field on VerificationResult."""
+
+    def test_source_defaults_to_none(self) -> None:
+        from shesha.experimental.arxiv.models import VerificationResult, VerificationStatus
+
+        result = VerificationResult(
+            citation_key="key1",
+            status=VerificationStatus.VERIFIED,
+        )
+        assert result.source is None
+
+    def test_source_can_be_set(self) -> None:
+        from shesha.experimental.arxiv.models import VerificationResult, VerificationStatus
+
+        result = VerificationResult(
+            citation_key="key1",
+            status=VerificationStatus.VERIFIED_EXTERNAL,
+            source="crossref",
+        )
+        assert result.source == "crossref"
+
+
+class TestCheckReportVerifiedExternal:
+    """Tests that VERIFIED_EXTERNAL counts as verified."""
+
+    def test_verified_external_counted_in_verified_count(self) -> None:
+        from shesha.experimental.arxiv.models import (
+            CheckReport,
+            ExtractedCitation,
+            VerificationResult,
+            VerificationStatus,
+        )
+
+        citations = [
+            ExtractedCitation(key="a", title="T1", authors=[], year=None),
+            ExtractedCitation(key="b", title="T2", authors=[], year=None),
+        ]
+        results = [
+            VerificationResult(citation_key="a", status=VerificationStatus.VERIFIED),
+            VerificationResult(
+                citation_key="b", status=VerificationStatus.VERIFIED_EXTERNAL, source="openalex"
+            ),
+        ]
+        report = CheckReport(
+            arxiv_id="2301.00001",
+            title="Test",
+            citations=citations,
+            verification_results=results,
+            llm_phrases=[],
+        )
+        assert report.verified_count == 2
