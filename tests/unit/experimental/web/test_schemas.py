@@ -51,9 +51,8 @@ def test_trace_step_schema():
         step_type="code_generated",
         iteration=1,
         content="print('hello')",
-        timestamp=1234567890.0,
-        prompt_tokens=100,
-        completion_tokens=50,
+        timestamp="2025-01-15T10:30:01Z",
+        tokens_used=150,
     )
     assert s.step_type == "code_generated"
 

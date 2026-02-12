@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -17,6 +19,9 @@ from shesha.experimental.web.schemas import (
     TopicCreate,
     TopicInfo,
     TopicRename,
+    TraceFull,
+    TraceListItem,
+    TraceStepSchema,
 )
 
 
@@ -226,5 +231,94 @@ def create_api(state: AppState) -> FastAPI:
                     )
 
         return results
+
+    # --- Traces ---
+
+    def _parse_trace_file(trace_file: Path) -> dict[str, object]:
+        """Parse a JSONL trace file into header, steps, and summary."""
+        header: dict[str, object] = {}
+        steps: list[dict[str, object]] = []
+        summary: dict[str, object] = {}
+        for line in trace_file.read_text().strip().splitlines():
+            record = json.loads(line)
+            rtype = record.get("type")
+            if rtype == "header":
+                header = record
+            elif rtype == "step":
+                steps.append(record)
+            elif rtype == "summary":
+                summary = record
+        return {"header": header, "steps": steps, "summary": summary}
+
+    @app.get(
+        "/api/topics/{name}/traces", response_model=list[TraceListItem]
+    )
+    def list_traces(name: str) -> list[TraceListItem]:
+        _resolve_topic_or_404(state, name)
+        trace_files = state.topic_mgr._storage.list_traces(name)
+        items: list[TraceListItem] = []
+        for tf in trace_files:
+            parsed = _parse_trace_file(tf)
+            header = parsed["header"]
+            summary = parsed["summary"]
+            assert isinstance(header, dict)
+            assert isinstance(summary, dict)
+            total_tokens_raw = summary.get("total_tokens", {})
+            assert isinstance(total_tokens_raw, dict)
+            total_tokens = sum(total_tokens_raw.values())
+            items.append(
+                TraceListItem(
+                    trace_id=str(header.get("trace_id", "")),
+                    question=str(header.get("question", "")),
+                    timestamp=str(header.get("timestamp", "")),
+                    status=str(summary.get("status", "unknown")),
+                    total_tokens=total_tokens,
+                    duration_ms=int(summary.get("total_duration_ms", 0)),
+                )
+            )
+        return items
+
+    @app.get(
+        "/api/topics/{name}/traces/{trace_id}", response_model=TraceFull
+    )
+    def get_trace(name: str, trace_id: str) -> TraceFull:
+        _resolve_topic_or_404(state, name)
+        trace_files = state.topic_mgr._storage.list_traces(name)
+        for tf in trace_files:
+            parsed = _parse_trace_file(tf)
+            header = parsed["header"]
+            assert isinstance(header, dict)
+            if header.get("trace_id") == trace_id:
+                summary = parsed["summary"]
+                steps_raw = parsed["steps"]
+                assert isinstance(summary, dict)
+                assert isinstance(steps_raw, list)
+                total_tokens_raw = summary.get("total_tokens", {})
+                assert isinstance(total_tokens_raw, dict)
+                steps = [
+                    TraceStepSchema(
+                        step_type=str(s.get("step_type", "")),
+                        iteration=int(s.get("iteration", 0)),
+                        content=str(s.get("content", "")),
+                        timestamp=str(s.get("timestamp", "")),
+                        tokens_used=s.get("tokens_used"),
+                        duration_ms=s.get("duration_ms"),
+                    )
+                    for s in steps_raw
+                ]
+                return TraceFull(
+                    trace_id=trace_id,
+                    question=str(header.get("question", "")),
+                    model=str(header.get("model", "")),
+                    timestamp=str(header.get("timestamp", "")),
+                    steps=steps,
+                    total_tokens=total_tokens_raw,
+                    total_iterations=int(
+                        summary.get("total_iterations", 0)
+                    ),
+                    duration_ms=int(summary.get("total_duration_ms", 0)),
+                    status=str(summary.get("status", "unknown")),
+                )
+        raise HTTPException(404, f"Trace '{trace_id}' not found")
 
     return app

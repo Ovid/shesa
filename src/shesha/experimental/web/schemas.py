@@ -51,9 +51,8 @@ class TraceStepSchema(BaseModel):
     step_type: str
     iteration: int
     content: str
-    timestamp: float
-    prompt_tokens: int | None = None
-    completion_tokens: int | None = None
+    timestamp: str
+    tokens_used: int | None = None
     duration_ms: int | None = None
 
 
