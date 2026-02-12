@@ -94,6 +94,12 @@ export interface LLMPhraseEntry {
   text: string
 }
 
+export interface TopicalIssueEntry {
+  key: string
+  message: string
+  severity: 'warning'
+}
+
 export interface PaperReport {
   arxiv_id: string
   title: string
@@ -106,6 +112,8 @@ export interface PaperReport {
   group: 'verified' | 'unverifiable' | 'issues'
   mismatches: MismatchEntry[]
   llm_phrases: LLMPhraseEntry[]
+  topical_issues: TopicalIssueEntry[]
+  sources: Record<string, string>
 }
 
 // WebSocket message types
@@ -115,5 +123,5 @@ export type WSMessage =
   | { type: 'complete'; answer: string; trace_id: string | null; tokens: { prompt: number; completion: number; total: number }; duration_ms: number; paper_ids?: string[] }
   | { type: 'error'; message: string }
   | { type: 'cancelled' }
-  | { type: 'citation_progress'; current: number; total: number }
+  | { type: 'citation_progress'; current: number; total: number; phase?: string }
   | { type: 'citation_report'; papers: PaperReport[] }
