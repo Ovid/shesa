@@ -1,0 +1,81 @@
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi } from 'vitest'
+import PaperDetail from '../PaperDetail'
+import type { PaperInfo } from '../../types'
+
+const PAPER: PaperInfo = {
+  arxiv_id: '2401.12345v1',
+  title: 'Attention Is All You Need',
+  authors: ['A. Vaswani', 'N. Shazeer'],
+  abstract: 'We propose a new architecture.',
+  category: 'cs.CL',
+  date: '2024-01-15',
+  arxiv_url: 'https://arxiv.org/abs/2401.12345v1',
+  source_type: null,
+}
+
+describe('PaperDetail remove confirmation', () => {
+  it('shows styled confirm dialog instead of native confirm', async () => {
+    render(
+      <PaperDetail
+        paper={PAPER}
+        topicName="nlp"
+        onRemove={() => {}}
+        onClose={() => {}}
+      />
+    )
+    await userEvent.click(screen.getByText('Remove from topic'))
+    // Should show a styled dialog, not a native confirm
+    expect(screen.getByText('Remove paper')).toBeInTheDocument()
+  })
+
+  it('shows paper title in confirmation message, not arxiv_id', async () => {
+    render(
+      <PaperDetail
+        paper={PAPER}
+        topicName="nlp"
+        onRemove={() => {}}
+        onClose={() => {}}
+      />
+    )
+    await userEvent.click(screen.getByText('Remove from topic'))
+    // The dialog message should reference the title and topic name
+    const dialogMessage = screen.getByText(/Remove "Attention Is All You Need" from "nlp"\?/)
+    expect(dialogMessage).toBeInTheDocument()
+    // Should NOT reference the arxiv_id in the dialog message
+    expect(dialogMessage.textContent).not.toContain('2401.12345v1')
+  })
+
+  it('calls onRemove when confirm is clicked', async () => {
+    const onRemove = vi.fn()
+    render(
+      <PaperDetail
+        paper={PAPER}
+        topicName="nlp"
+        onRemove={onRemove}
+        onClose={() => {}}
+      />
+    )
+    await userEvent.click(screen.getByText('Remove from topic'))
+    await userEvent.click(screen.getByText('Remove'))
+    expect(onRemove).toHaveBeenCalledWith('2401.12345v1')
+  })
+
+  it('does not call onRemove when cancel is clicked', async () => {
+    const onRemove = vi.fn()
+    render(
+      <PaperDetail
+        paper={PAPER}
+        topicName="nlp"
+        onRemove={onRemove}
+        onClose={() => {}}
+      />
+    )
+    await userEvent.click(screen.getByText('Remove from topic'))
+    await userEvent.click(screen.getByText('Cancel'))
+    expect(onRemove).not.toHaveBeenCalled()
+    // Dialog should be dismissed
+    expect(screen.queryByText('Remove paper')).not.toBeInTheDocument()
+  })
+})

@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import type { PaperInfo } from '../types'
+import ConfirmDialog from './ConfirmDialog'
 
 function renderLatex(text: string): string {
   // Replace $$...$$ (display math) then $...$ (inline math)
@@ -30,6 +31,8 @@ interface PaperDetailProps {
 }
 
 export default function PaperDetail({ paper, topicName, onRemove, onClose }: PaperDetailProps) {
+  const [confirmRemove, setConfirmRemove] = useState(false)
+
   const renderedAbstract = useMemo(
     () => paper ? renderLatex(paper.abstract) : '',
     [paper?.abstract],
@@ -83,17 +86,27 @@ export default function PaperDetail({ paper, topicName, onRemove, onClose }: Pap
         {/* Actions */}
         <div className="mt-8 flex gap-3">
           <button
-            onClick={() => {
-              if (confirm(`Remove paper ${paper.arxiv_id} from "${topicName}"?`)) {
-                onRemove(paper.arxiv_id)
-              }
-            }}
+            onClick={() => setConfirmRemove(true)}
             className="px-3 py-1.5 text-xs text-red border border-red/30 rounded hover:bg-red/10 transition-colors"
           >
             Remove from topic
           </button>
         </div>
       </div>
+
+      {confirmRemove && (
+        <ConfirmDialog
+          title="Remove paper"
+          message={`Remove "${paper.title}" from "${topicName}"?`}
+          confirmLabel="Remove"
+          destructive
+          onConfirm={() => {
+            setConfirmRemove(false)
+            onRemove(paper.arxiv_id)
+          }}
+          onCancel={() => setConfirmRemove(false)}
+        />
+      )}
     </div>
   )
 }

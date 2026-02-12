@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api/client'
 import { showToast } from './Toast'
+import ConfirmDialog from './ConfirmDialog'
 import type { TopicInfo, PaperInfo } from '../types'
 
 interface TopicSidebarProps {
@@ -25,6 +26,7 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
   const [expandedTopic, setExpandedTopic] = useState<string | null>(null)
   const [topicPapers, setTopicPapers] = useState<Record<string, PaperInfo[]>>({})
+  const [deletingTopic, setDeletingTopic] = useState<string | null>(null)
 
   const loadTopics = async () => {
     try {
@@ -89,9 +91,9 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
   }
 
   const handleDelete = async (name: string) => {
-    if (!confirm(`Delete topic "${name}" and all its papers?`)) return
     try {
       await api.topics.delete(name)
+      setDeletingTopic(null)
       setMenuOpen(null)
       await loadTopics()
       onTopicsChange()
@@ -203,7 +205,8 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
                     className="block w-full text-left px-3 py-1.5 hover:bg-surface-1 text-red"
                     onClick={e => {
                       e.stopPropagation()
-                      handleDelete(t.name)
+                      setDeletingTopic(t.name)
+                      setMenuOpen(null)
                     }}
                   >
                     Delete
@@ -274,6 +277,17 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
           </div>
         )}
       </div>
+
+      {deletingTopic && (
+        <ConfirmDialog
+          title="Delete topic"
+          message={`Delete "${deletingTopic}" and all its papers?`}
+          confirmLabel="Delete"
+          destructive
+          onConfirm={() => handleDelete(deletingTopic)}
+          onCancel={() => setDeletingTopic(null)}
+        />
+      )}
     </aside>
   )
 }
