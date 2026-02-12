@@ -281,12 +281,17 @@ def format_check_report_json(report: CheckReport) -> dict[str, object]:
         if r.status in (VerificationStatus.MISMATCH, VerificationStatus.NOT_FOUND)
     ]
 
+    topical_issues = [
+        r for r in report.verification_results if r.status == VerificationStatus.TOPICALLY_UNRELATED
+    ]
+
     has_mismatches = len(mismatches) > 0
     has_llm_phrases = len(report.llm_phrases) > 0
     has_unresolved = report.unresolved_count > 0
+    has_topical_issues = len(topical_issues) > 0
     zero_citations = len(report.citations) == 0
 
-    has_issues = has_mismatches or has_llm_phrases or zero_citations
+    has_issues = has_mismatches or has_llm_phrases or zero_citations or has_topical_issues
 
     if has_issues:
         group = "issues"
@@ -294,6 +299,12 @@ def format_check_report_json(report: CheckReport) -> dict[str, object]:
         group = "unverifiable"
     else:
         group = "verified"
+
+    # Build source map: citation_key -> source name
+    sources: dict[str, str] = {}
+    for r in report.verification_results:
+        if r.source:
+            sources[r.citation_key] = r.source
 
     # Strip version from arxiv_id for the URL (use base ID)
     base_id = report.arxiv_id.split("v")[0] if "v" in report.arxiv_id else report.arxiv_id
@@ -308,6 +319,7 @@ def format_check_report_json(report: CheckReport) -> dict[str, object]:
         "mismatch_count": report.mismatch_count,
         "has_issues": has_issues,
         "group": group,
+        "sources": sources,
         "mismatches": [
             {
                 "key": r.citation_key,
@@ -316,6 +328,14 @@ def format_check_report_json(report: CheckReport) -> dict[str, object]:
                 "arxiv_url": r.arxiv_url,
             }
             for r in mismatches
+        ],
+        "topical_issues": [
+            {
+                "key": r.citation_key,
+                "message": r.message,
+                "severity": "warning",
+            }
+            for r in topical_issues
         ],
         "llm_phrases": [
             {"line": line_num, "text": phrase} for line_num, phrase in report.llm_phrases

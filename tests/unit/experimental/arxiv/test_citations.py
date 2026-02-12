@@ -460,3 +460,115 @@ class TestFuzzyTitleMatch:
             "Quantum Error Correction",
         )
         assert score == 1.0
+
+
+class TestFormatCheckReportJsonExtended:
+    """Tests for JSON report with new statuses."""
+
+    def test_verified_external_grouped_as_verified(self) -> None:
+        from shesha.experimental.arxiv.citations import format_check_report_json
+        from shesha.experimental.arxiv.models import (
+            CheckReport,
+            ExtractedCitation,
+            VerificationResult,
+            VerificationStatus,
+        )
+
+        report = CheckReport(
+            arxiv_id="2301.00001",
+            title="Test",
+            citations=[ExtractedCitation(key="a", title="T", authors=[], year=None)],
+            verification_results=[
+                VerificationResult(
+                    citation_key="a",
+                    status=VerificationStatus.VERIFIED_EXTERNAL,
+                    source="crossref",
+                )
+            ],
+            llm_phrases=[],
+        )
+        result = format_check_report_json(report)
+        assert result["group"] == "verified"
+
+    def test_topically_unrelated_included_in_output(self) -> None:
+        from shesha.experimental.arxiv.citations import format_check_report_json
+        from shesha.experimental.arxiv.models import (
+            CheckReport,
+            ExtractedCitation,
+            VerificationResult,
+            VerificationStatus,
+        )
+
+        report = CheckReport(
+            arxiv_id="2301.00001",
+            title="Test",
+            citations=[
+                ExtractedCitation(key="a", title="Good", authors=[], year=None),
+                ExtractedCitation(key="b", title="Bad", authors=[], year=None),
+            ],
+            verification_results=[
+                VerificationResult(
+                    citation_key="a",
+                    status=VerificationStatus.VERIFIED,
+                ),
+                VerificationResult(
+                    citation_key="b",
+                    status=VerificationStatus.TOPICALLY_UNRELATED,
+                    message="Literary analysis unrelated",
+                    severity="warning",
+                ),
+            ],
+            llm_phrases=[],
+        )
+        result = format_check_report_json(report)
+        assert result["group"] == "issues"
+        assert result["has_issues"] is True
+        assert len(result["topical_issues"]) == 1
+        assert result["topical_issues"][0]["key"] == "b"
+
+    def test_source_badge_included_in_verified_entries(self) -> None:
+        from shesha.experimental.arxiv.citations import format_check_report_json
+        from shesha.experimental.arxiv.models import (
+            CheckReport,
+            ExtractedCitation,
+            VerificationResult,
+            VerificationStatus,
+        )
+
+        report = CheckReport(
+            arxiv_id="2301.00001",
+            title="Test",
+            citations=[ExtractedCitation(key="a", title="T", authors=[], year=None)],
+            verification_results=[
+                VerificationResult(
+                    citation_key="a",
+                    status=VerificationStatus.VERIFIED_EXTERNAL,
+                    source="openalex",
+                )
+            ],
+            llm_phrases=[],
+        )
+        result = format_check_report_json(report)
+        assert "sources" in result
+        assert result["sources"]["a"] == "openalex"
+
+    def test_unresolved_label_updated(self) -> None:
+        from shesha.experimental.arxiv.citations import format_check_report_json
+        from shesha.experimental.arxiv.models import (
+            CheckReport,
+            ExtractedCitation,
+            VerificationResult,
+            VerificationStatus,
+        )
+
+        report = CheckReport(
+            arxiv_id="2301.00001",
+            title="Test",
+            citations=[ExtractedCitation(key="a", title="T", authors=[], year=None)],
+            verification_results=[
+                VerificationResult(citation_key="a", status=VerificationStatus.UNRESOLVED)
+            ],
+            llm_phrases=[],
+        )
+        result = format_check_report_json(report)
+        assert result["group"] == "unverifiable"
