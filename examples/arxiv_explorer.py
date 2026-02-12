@@ -222,8 +222,10 @@ def create_app(
             state.current_topic = project_id
             docs = state.topic_mgr._storage.list_documents(project_id)
             tui._project = state.shesha.get_project(project_id)
-            tui.query_one(InfoBar).update_project_name(args)
-            output.add_system_message(f"Switched to topic: {args} ({len(docs)} papers)")
+            info = state.topic_mgr.get_topic_info_by_project_id(project_id)
+            display_name = info.name if info else args
+            tui.query_one(InfoBar).update_project_name(display_name)
+            output.add_system_message(f"Switched to topic: {display_name} ({len(docs)} papers)")
         else:
             output.add_system_message(
                 f"Topic '{args}' not found. Use /topic list to see topics, or /topic create <name>."

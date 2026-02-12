@@ -241,9 +241,18 @@ class TestTUICommands:
         """/topic switch <name> switches to existing topic and updates InfoBar."""
         from arxiv_explorer import create_app
 
+        from shesha.experimental.arxiv.models import TopicInfo
+
         state = _make_state()
         state.topic_mgr.resolve.return_value = "2025-01-15-quantum"
         state.topic_mgr._storage.list_documents.return_value = ["doc1", "doc2"]
+        state.topic_mgr.get_topic_info_by_project_id.return_value = TopicInfo(
+            name="quantum",
+            created=MagicMock(),
+            paper_count=2,
+            size_bytes=0,
+            project_id="2025-01-15-quantum",
+        )
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
             resolved = pilot.app._command_registry.resolve("/topic switch quantum")
@@ -255,6 +264,40 @@ class TestTUICommands:
             info_bar = pilot.app.query_one(InfoBar)
             line1, _ = info_bar._state.render_lines()
             assert "quantum" in line1
+
+    async def test_topic_switch_uses_canonical_name(self) -> None:
+        """/topic switch shows canonical slug name, not raw user input."""
+        from arxiv_explorer import create_app
+
+        from shesha.experimental.arxiv.models import TopicInfo
+
+        state = _make_state()
+        state.topic_mgr.resolve.return_value = "2025-01-15-quantum"
+        state.topic_mgr._storage.list_documents.return_value = ["doc1"]
+        state.topic_mgr.get_topic_info_by_project_id.return_value = TopicInfo(
+            name="quantum",
+            created=MagicMock(),
+            paper_count=1,
+            size_bytes=0,
+            project_id="2025-01-15-quantum",
+        )
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            # User types non-canonical casing
+            resolved = pilot.app._command_registry.resolve("/topic switch Quantum")
+            assert resolved is not None
+            handler, args, _threaded = resolved
+            handler(args)
+            await pilot.pause()
+            info_bar = pilot.app.query_one(InfoBar)
+            line1, _ = info_bar._state.render_lines()
+            # InfoBar should show canonical "quantum", not "Quantum"
+            assert "quantum" in line1
+            # System message should also use canonical name
+            output = pilot.app.query_one(OutputArea)
+            statics = output.query("Static")
+            texts = [str(s.render()) for s in statics]
+            assert any("quantum" in t and "Quantum" not in t for t in texts)
 
     async def test_topic_delete(self) -> None:
         """/topic delete <name> deletes the topic."""
