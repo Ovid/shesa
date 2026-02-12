@@ -2,7 +2,7 @@ import type { PaperReport } from '../types'
 
 interface CitationReportProps {
   checking: boolean
-  progress: { current: number; total: number } | null
+  progress: { current: number; total: number; phase?: string } | null
   report: PaperReport[] | null
   error: string | null
   onClose: () => void
@@ -14,6 +14,22 @@ const DISCLAIMER =
   'fraudulent \u2014 there may be legitimate explanations (metadata lag, preprint ' +
   'title changes, version differences). Always verify findings manually before ' +
   'drawing conclusions.'
+
+const SOURCE_LABELS: Record<string, string> = {
+  arxiv: 'arXiv',
+  crossref: 'CrossRef',
+  openalex: 'OpenAlex',
+  semantic_scholar: 'S2',
+}
+
+function SourceBadge({ source }: { source: string }) {
+  const label = SOURCE_LABELS[source] ?? source
+  return (
+    <span className="text-[10px] px-1 py-0.5 rounded bg-surface-2 text-text-dim border border-border">
+      {label}
+    </span>
+  )
+}
 
 export default function CitationReport({ checking, progress, report, error, onClose }: CitationReportProps) {
   if (!checking && !report && !error) return null
@@ -37,7 +53,7 @@ export default function CitationReport({ checking, progress, report, error, onCl
           {checking && progress && (
             <div className="text-center py-8">
               <div className="text-sm text-text-secondary mb-2">
-                Checking {progress.current}/{progress.total}...
+                {progress.current}/{progress.total} &mdash; {progress.phase ?? 'Checking...'}
               </div>
               <div className="w-full bg-surface-2 rounded-full h-2">
                 <div
@@ -73,23 +89,27 @@ export default function CitationReport({ checking, progress, report, error, onCl
                     All citations verified ({verified.length})
                   </h3>
                   <ul className="space-y-0.5">
-                    {verified.map(p => (
-                      <li key={p.arxiv_id} className="flex items-baseline gap-1.5 text-xs text-text-secondary">
-                        <span className="text-green shrink-0">&#10003;</span>
-                        <span className="truncate">{p.title}</span>
-                        <span className="text-text-dim shrink-0">
-                          ({p.verified_count}/{p.total_citations} verified)
-                        </span>
-                        <a
-                          href={p.arxiv_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-accent hover:underline shrink-0"
-                        >
-                          arXiv
-                        </a>
-                      </li>
-                    ))}
+                    {verified.map(p => {
+                      const uniqueSources = [...new Set(Object.values(p.sources ?? {}))]
+                      return (
+                        <li key={p.arxiv_id} className="flex items-baseline gap-1.5 text-xs text-text-secondary">
+                          <span className="text-green shrink-0">&#10003;</span>
+                          <span className="truncate">{p.title}</span>
+                          <span className="text-text-dim shrink-0">
+                            ({p.verified_count}/{p.total_citations} verified)
+                          </span>
+                          {uniqueSources.map(s => <SourceBadge key={s} source={s} />)}
+                          <a
+                            href={p.arxiv_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-accent hover:underline shrink-0"
+                          >
+                            arXiv
+                          </a>
+                        </li>
+                      )
+                    })}
                   </ul>
                 </section>
               )}
@@ -106,7 +126,7 @@ export default function CitationReport({ checking, progress, report, error, onCl
                         <span className="text-text-dim shrink-0">&#8212;</span>
                         <span className="truncate">{p.title}</span>
                         <span className="text-text-dim shrink-0">
-                          ({p.verified_count} verified, {p.unresolved_count} unresolved)
+                          ({p.verified_count} verified, {p.unresolved_count} not found in databases)
                         </span>
                         <a
                           href={p.arxiv_url}
@@ -152,7 +172,7 @@ export default function CitationReport({ checking, progress, report, error, onCl
                           <>
                             {p.total_citations} citations
                             {p.verified_count > 0 && <> &middot; {p.verified_count} OK</>}
-                            {p.unresolved_count > 0 && <> &middot; {p.unresolved_count} unresolved</>}
+                            {p.unresolved_count > 0 && <> &middot; {p.unresolved_count} not found in databases</>}
                             {p.mismatch_count > 0 && <> &middot; <span className="text-red">{p.mismatch_count} mismatches</span></>}
                           </>
                         )}
@@ -188,12 +208,24 @@ export default function CitationReport({ checking, progress, report, error, onCl
                         </div>
                       )}
 
+                      {/* Topical issues */}
+                      {(p.topical_issues ?? []).length > 0 && (
+                        <div className="space-y-1 mb-1.5">
+                          <div className="text-xs text-orange-400 font-medium">Topically unrelated:</div>
+                          {p.topical_issues.map((ti, i) => (
+                            <div key={i} className="text-xs pl-4 border-l-2 border-orange-400 text-orange-400">
+                              <span className="font-mono">[{ti.key}]</span>: {ti.message}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                       {/* LLM-tell phrases */}
                       {p.llm_phrases.length > 0 && (
                         <div className="text-xs">
-                          <div className="text-amber font-medium mb-0.5">LLM-tell phrases:</div>
+                          <div className="text-purple-400 font-medium mb-0.5">LLM-tell phrases:</div>
                           {p.llm_phrases.map((lp, i) => (
-                            <div key={i} className="text-text-dim pl-4">
+                            <div key={i} className="text-purple-400/70 pl-4">
                               Line {lp.line}: &ldquo;{lp.text}&rdquo;
                             </div>
                           ))}

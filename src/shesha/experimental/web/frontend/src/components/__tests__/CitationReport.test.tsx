@@ -24,6 +24,8 @@ const verifiedPaper: PaperReport = {
   group: 'verified',
   mismatches: [],
   llm_phrases: [],
+  topical_issues: [],
+  sources: {},
 }
 
 const unverifiablePaper: PaperReport = {
@@ -38,6 +40,8 @@ const unverifiablePaper: PaperReport = {
   group: 'unverifiable',
   mismatches: [],
   llm_phrases: [],
+  topical_issues: [],
+  sources: {},
 }
 
 const issuePaper: PaperReport = {
@@ -65,6 +69,8 @@ const issuePaper: PaperReport = {
     },
   ],
   llm_phrases: [],
+  topical_issues: [],
+  sources: {},
 }
 
 describe('CitationReport', () => {
@@ -82,7 +88,7 @@ describe('CitationReport', () => {
     render(
       <CitationReport {...defaultProps} checking={true} progress={{ current: 3, total: 10 }} />
     )
-    expect(screen.getByText('Checking 3/10...')).toBeInTheDocument()
+    expect(screen.getByText(/3\/10/)).toBeInTheDocument()
   })
 
   it('shows error message when error is set', () => {
