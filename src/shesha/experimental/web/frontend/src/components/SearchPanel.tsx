@@ -7,11 +7,12 @@ interface SearchPanelProps {
   activeTopic: string | null
   onClose: () => void
   onPapersChanged: () => void
+  onDownloadStarted?: (taskId: string) => void
 }
 
 type Tab = 'arxiv' | 'local'
 
-export default function SearchPanel({ activeTopic, onClose, onPapersChanged }: SearchPanelProps) {
+export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onDownloadStarted }: SearchPanelProps) {
   const [tab, setTab] = useState<Tab>('arxiv')
   const [query, setQuery] = useState('')
   const [author, setAuthor] = useState('')
@@ -78,7 +79,10 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged }: S
     for (const arxivId of selected) {
       const topics = [activeTopic]
       try {
-        await api.papers.add(arxivId, topics)
+        const result = await api.papers.add(arxivId, topics)
+        if (result.task_id && onDownloadStarted) {
+          onDownloadStarted(result.task_id)
+        }
         showToast(`Added ${arxivId}`, 'success')
       } catch (e) {
         showToast(e instanceof Error ? e.message : `Failed to add ${arxivId}`, 'error')

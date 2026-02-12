@@ -184,9 +184,14 @@ export default function App() {
     }
   }, [activeTopic])
 
+  const handleDownloadStarted = useCallback((taskId: string) => {
+    setDownloadTaskIds(prev => [...prev, taskId])
+  }, [])
+
   const handleDownloadComplete = useCallback((taskId: string) => {
     setDownloadTaskIds(prev => prev.filter(id => id !== taskId))
-  }, [])
+    handlePapersChanged()
+  }, [handlePapersChanged])
 
   const handleSidebarDrag = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -277,7 +282,7 @@ export default function App() {
 
         {/* Right panels */}
         {searchOpen && (
-          <SearchPanel activeTopic={activeTopic} onClose={() => setSearchOpen(false)} onPapersChanged={handlePapersChanged} />
+          <SearchPanel activeTopic={activeTopic} onClose={() => setSearchOpen(false)} onPapersChanged={handlePapersChanged} onDownloadStarted={handleDownloadStarted} />
         )}
       </div>
 
