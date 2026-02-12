@@ -25,13 +25,14 @@ def client(mock_state: MagicMock) -> TestClient:
 
 def test_ws_query_returns_complete(client: TestClient, mock_state: MagicMock) -> None:
     """WebSocket query returns a complete message with answer."""
-    mock_project = MagicMock()
     mock_result = MagicMock()
     mock_result.answer = "The answer is 42."
     mock_result.token_usage = TokenUsage(prompt_tokens=100, completion_tokens=50)
     mock_result.execution_time = 1.5
     mock_result.trace = Trace(steps=[])
-    mock_project.query.return_value = mock_result
+
+    mock_project = MagicMock()
+    mock_project._rlm_engine.query.return_value = mock_result
 
     mock_state.topic_mgr.resolve.return_value = "proj-id"
     mock_state.shesha.get_project.return_value = mock_project
