@@ -8,7 +8,7 @@ import tarfile
 import time
 import urllib.request
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import URLError
 
 from shesha.experimental.arxiv.cache import PaperCache
 from shesha.experimental.arxiv.models import PaperMeta
@@ -19,6 +19,9 @@ TEXT_EXTENSIONS = {".tex", ".bib", ".bbl", ".bst", ".sty", ".cls", ".txt", ".md"
 
 # Delay between downloads to respect arXiv rate limits
 DOWNLOAD_DELAY_SECONDS = 3.0
+
+# Timeout for HTTP requests to arXiv (seconds)
+REQUEST_TIMEOUT_SECONDS = 30
 
 
 def extract_source_files(data: bytes) -> dict[str, str]:
@@ -113,7 +116,7 @@ def download_paper(meta: PaperMeta, cache: PaperCache) -> PaperMeta:
     # Try source first
     source_url = f"https://export.arxiv.org/e-print/{meta.arxiv_id}"
     try:
-        with urllib.request.urlopen(source_url) as response:
+        with urllib.request.urlopen(source_url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             data = response.read()
         files = extract_source_files(data)
         if files:
@@ -121,20 +124,20 @@ def download_paper(meta: PaperMeta, cache: PaperCache) -> PaperMeta:
             cache.store_meta(meta)
             cache.store_source_files(meta.arxiv_id, files)
             return meta
-    except HTTPError:
-        pass  # Source not available, fall back to PDF
+    except (URLError, TimeoutError):
+        pass  # Source not available or timed out, fall back to PDF
 
     time.sleep(DOWNLOAD_DELAY_SECONDS)
 
     # Fall back to PDF
     pdf_url = f"https://export.arxiv.org/pdf/{meta.arxiv_id}"
     try:
-        with urllib.request.urlopen(pdf_url) as response:
+        with urllib.request.urlopen(pdf_url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             pdf_data = response.read()
         meta.source_type = "pdf"
         cache.store_meta(meta)
         cache.store_pdf(meta.arxiv_id, pdf_data)
-    except HTTPError:
+    except (URLError, TimeoutError):
         # Neither available -- store meta only
         meta.source_type = None
         cache.store_meta(meta)

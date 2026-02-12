@@ -188,6 +188,47 @@ class TestDownloadPaper:
         assert result_meta.source_type == "pdf"
         assert cache.get_pdf_path("2501.12345") is not None
 
+    @patch("shesha.experimental.arxiv.download.urllib.request.urlopen")
+    def test_download_handles_timeout(self, mock_urlopen: MagicMock, tmp_path: Path) -> None:
+        from urllib.error import URLError
+
+        from shesha.experimental.arxiv.cache import PaperCache
+        from shesha.experimental.arxiv.download import download_paper
+
+        cache = PaperCache(tmp_path / "cache")
+        meta = _make_meta()
+
+        # Both source and PDF requests time out
+        mock_urlopen.side_effect = URLError("timed out")
+
+        result_meta = download_paper(meta, cache)
+        # Should store meta with no source_type rather than hang or crash
+        assert result_meta.source_type is None
+        assert cache.has("2501.12345")
+
+    @patch("shesha.experimental.arxiv.download.urllib.request.urlopen")
+    def test_urlopen_called_with_timeout(self, mock_urlopen: MagicMock, tmp_path: Path) -> None:
+        from shesha.experimental.arxiv.cache import PaperCache
+        from shesha.experimental.arxiv.download import (
+            REQUEST_TIMEOUT_SECONDS,
+            download_paper,
+        )
+
+        cache = PaperCache(tmp_path / "cache")
+        meta = _make_meta()
+
+        tarball = _make_tarball({"main.tex": "\\documentclass{article}"})
+        mock_response = MagicMock()
+        mock_response.read.return_value = tarball
+        mock_response.__enter__ = lambda s: s
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_response
+
+        download_paper(meta, cache)
+        # Verify timeout was passed
+        _args, kwargs = mock_urlopen.call_args
+        assert kwargs.get("timeout") == REQUEST_TIMEOUT_SECONDS
+
     def test_skip_download_if_cached(self, tmp_path: Path) -> None:
         from shesha.experimental.arxiv.cache import PaperCache
         from shesha.experimental.arxiv.download import download_paper
