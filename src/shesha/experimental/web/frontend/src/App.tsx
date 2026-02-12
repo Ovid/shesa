@@ -9,6 +9,7 @@ import TraceViewer from './components/TraceViewer'
 import HelpPanel from './components/HelpPanel'
 import DownloadProgress from './components/DownloadProgress'
 import CitationReport from './components/CitationReport'
+import EmailModal, { getStoredEmail, hasEmailDecision } from './components/EmailModal'
 import PaperDetail from './components/PaperDetail'
 import { useTheme } from './hooks/useTheme'
 import { useWebSocket } from './hooks/useWebSocket'
@@ -63,7 +64,7 @@ export default function App() {
       } else if (msg.type === 'cancelled') {
         setPhase('Ready')
       } else if (msg.type === 'citation_progress') {
-        setCitationProgress({ current: msg.current, total: msg.total })
+        setCitationProgress({ current: msg.current, total: msg.total, phase: msg.phase })
       } else if (msg.type === 'citation_report') {
         setCitationChecking(false)
         setCitationReport(msg.papers)
@@ -77,9 +78,11 @@ export default function App() {
 
   // Citation check state
   const [citationChecking, setCitationChecking] = useState(false)
-  const [citationProgress, setCitationProgress] = useState<{ current: number; total: number } | null>(null)
+  const [citationProgress, setCitationProgress] = useState<{ current: number; total: number; phase?: string } | null>(null)
   const [citationReport, setCitationReport] = useState<PaperReport[] | null>(null)
   const [citationError, setCitationError] = useState<string | null>(null)
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [pendingCitationCheck, setPendingCitationCheck] = useState(false)
 
   // Download tasks
   const [downloadTaskIds, setDownloadTaskIds] = useState<string[]>([])
@@ -171,12 +174,60 @@ export default function App() {
       showToast('Select papers to check', 'warning')
       return
     }
+
+    // Show email modal if no decision yet
+    if (!hasEmailDecision()) {
+      setPendingCitationCheck(true)
+      setShowEmailModal(true)
+      return
+    }
+
+    // Proceed with check
     setCitationChecking(true)
     setCitationProgress(null)
     setCitationReport(null)
     setCitationError(null)
-    send({ type: 'check_citations', topic: activeTopic, paper_ids: Array.from(selectedPapers) })
+    const email = getStoredEmail()
+    send({
+      type: 'check_citations',
+      topic: activeTopic,
+      paper_ids: Array.from(selectedPapers),
+      ...(email ? { polite_email: email } : {}),
+    })
   }, [activeTopic, selectedPapers, send])
+
+  const handleEmailSubmit = useCallback((email: string) => {
+    setShowEmailModal(false)
+    if (pendingCitationCheck) {
+      setPendingCitationCheck(false)
+      setCitationChecking(true)
+      setCitationProgress(null)
+      setCitationReport(null)
+      setCitationError(null)
+      send({
+        type: 'check_citations',
+        topic: activeTopic!,
+        paper_ids: Array.from(selectedPapers),
+        polite_email: email,
+      })
+    }
+  }, [activeTopic, selectedPapers, send, pendingCitationCheck])
+
+  const handleEmailSkip = useCallback(() => {
+    setShowEmailModal(false)
+    if (pendingCitationCheck) {
+      setPendingCitationCheck(false)
+      setCitationChecking(true)
+      setCitationProgress(null)
+      setCitationReport(null)
+      setCitationError(null)
+      send({
+        type: 'check_citations',
+        topic: activeTopic!,
+        paper_ids: Array.from(selectedPapers),
+      })
+    }
+  }, [activeTopic, selectedPapers, send, pendingCitationCheck])
 
   const handleViewTrace = useCallback((traceId: string) => {
     if (activeTopic) {
@@ -317,6 +368,10 @@ export default function App() {
           setCitationError(null)
         }}
       />
+
+      {showEmailModal && (
+        <EmailModal onSubmit={handleEmailSubmit} onSkip={handleEmailSkip} />
+      )}
 
       <DownloadProgress
         taskIds={downloadTaskIds}
