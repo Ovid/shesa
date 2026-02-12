@@ -10,14 +10,17 @@ interface ChatAreaProps {
   wsSend: (data: object) => void
   wsOnMessage: (fn: (msg: WSMessage) => void) => () => void
   onViewTrace: (traceId: string) => void
+  onClearHistory: () => void
   historyVersion: number
+  selectedPapers?: Set<string>
 }
 
-export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, onViewTrace, historyVersion }: ChatAreaProps) {
+export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, onViewTrace, onClearHistory, historyVersion, selectedPapers }: ChatAreaProps) {
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null)
+  const [pendingSentAt, setPendingSentAt] = useState<string>('')
   const [phase, setPhase] = useState('')
   const [showBanner, setShowBanner] = useState(() => {
     return localStorage.getItem('shesha-welcome-dismissed') !== 'true'
@@ -75,12 +78,17 @@ export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, on
   const handleSend = useCallback(() => {
     if (!input.trim() || !topicName || thinking || !connected) return
     const question = input.trim()
-    wsSend({ type: 'query', topic: topicName, question })
+    const msg: Record<string, unknown> = { type: 'query', topic: topicName, question }
+    if (selectedPapers && selectedPapers.size > 0) {
+      msg.paper_ids = Array.from(selectedPapers)
+    }
+    wsSend(msg)
     setInput('')
     setPendingQuestion(question)
+    setPendingSentAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
     setThinking(true)
     setPhase('Starting')
-  }, [input, topicName, thinking, connected, wsSend])
+  }, [input, topicName, thinking, connected, wsSend, selectedPapers])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -132,10 +140,11 @@ export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, on
         {/* Pending question (shown immediately before answer arrives) */}
         {pendingQuestion && (
           <div className="flex flex-col gap-3 py-3">
-            <div className="flex justify-end">
+            <div className="flex flex-col items-end gap-0.5">
               <div className="max-w-[70%] bg-accent/10 border border-accent/20 rounded-lg px-3 py-2 text-sm text-text-primary">
                 {pendingQuestion}
               </div>
+              <span className="text-[10px] text-text-dim mr-1">{pendingSentAt}</span>
             </div>
           </div>
         )}
@@ -186,6 +195,16 @@ export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, on
               Send
             </button>
           )}
+          <button
+            onClick={onClearHistory}
+            disabled={thinking}
+            className="p-2 text-text-dim hover:text-red transition-colors disabled:opacity-30"
+            title="Clear conversation"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
         </div>
       </div>
     </div>

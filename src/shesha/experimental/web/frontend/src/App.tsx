@@ -3,17 +3,17 @@ import Header from './components/Header'
 import StatusBar from './components/StatusBar'
 import ToastContainer, { showToast } from './components/Toast'
 import TopicSidebar from './components/TopicSidebar'
-import PaperBar from './components/PaperBar'
 import ChatArea from './components/ChatArea'
 import SearchPanel from './components/SearchPanel'
 import TraceViewer from './components/TraceViewer'
 import HelpPanel from './components/HelpPanel'
 import DownloadProgress from './components/DownloadProgress'
 import CitationReport from './components/CitationReport'
+import PaperDetail from './components/PaperDetail'
 import { useTheme } from './hooks/useTheme'
 import { useWebSocket } from './hooks/useWebSocket'
 import { api } from './api/client'
-import type { ContextBudget } from './types'
+import type { ContextBudget, PaperInfo } from './types'
 
 export default function App() {
   const { dark, toggle: toggleTheme } = useTheme()
@@ -24,6 +24,9 @@ export default function App() {
   const [tokens, setTokens] = useState({ prompt: 0, completion: 0, total: 0 })
   const [budget, setBudget] = useState<ContextBudget | null>(null)
   const [phase, setPhase] = useState('Ready')
+  const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set())
+  const [viewingPaper, setViewingPaper] = useState<PaperInfo | null>(null)
+  const [_topicPapersList, setTopicPapersList] = useState<PaperInfo[]>([])
 
   // Load model name from API on mount
   useEffect(() => {
@@ -73,12 +76,45 @@ export default function App() {
 
   const handleTopicSelect = useCallback((name: string) => {
     setActiveTopic(name)
-    // Load context budget
+    setViewingPaper(null)
+    setSelectedPapers(new Set())
+    setTopicPapersList([])
     api.contextBudget(name).then(setBudget).catch(() => {})
   }, [])
 
-  // Bumped to signal ChatArea to reload history
+  // Bumped to signal components to reload data
   const [historyVersion, setHistoryVersion] = useState(0)
+  const [papersVersion, setPapersVersion] = useState(0)
+
+  const handlePapersChanged = useCallback(() => {
+    setPapersVersion(v => v + 1)
+  }, [])
+
+  const handlePapersLoaded = useCallback((papers: PaperInfo[]) => {
+    setTopicPapersList(papers)
+    setSelectedPapers(new Set(papers.map(p => p.arxiv_id)))
+  }, [])
+
+  const handlePaperClick = useCallback((paper: PaperInfo) => {
+    setViewingPaper(paper)
+  }, [])
+
+  const handlePaperRemove = useCallback(async (arxivId: string) => {
+    if (!activeTopic) return
+    try {
+      await api.papers.remove(activeTopic, arxivId)
+      setPapersVersion(v => v + 1)
+      setViewingPaper(null)
+      setSelectedPapers(prev => {
+        const next = new Set(prev)
+        next.delete(arxivId)
+        return next
+      })
+      showToast('Paper removed', 'success')
+    } catch {
+      showToast('Failed to remove paper', 'error')
+    }
+  }, [activeTopic])
 
   const handleClearHistory = useCallback(async () => {
     if (!activeTopic) {
@@ -143,7 +179,6 @@ export default function App() {
         onSearchToggle={() => setSearchOpen(s => !s)}
         onCheckCitations={handleCheckCitations}
         onExport={handleExport}
-        onClearHistory={handleClearHistory}
         onHelpToggle={() => setHelpOpen(h => !h)}
         dark={dark}
         onThemeToggle={toggleTheme}
@@ -162,24 +197,39 @@ export default function App() {
           activeTopic={activeTopic}
           onSelectTopic={handleTopicSelect}
           onTopicsChange={() => {}}
+          refreshKey={papersVersion}
+          selectedPapers={selectedPapers}
+          onSelectionChange={setSelectedPapers}
+          onPaperClick={handlePaperClick}
+          onPapersLoaded={handlePapersLoaded}
         />
 
         {/* Center column */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          <PaperBar topicName={activeTopic} />
-          <ChatArea
-            topicName={activeTopic}
-            connected={connected}
-            wsSend={send}
-            wsOnMessage={onMessage}
-            onViewTrace={handleViewTrace}
-            historyVersion={historyVersion}
-          />
+          {viewingPaper ? (
+            <PaperDetail
+              paper={viewingPaper}
+              topicName={activeTopic ?? ''}
+              onRemove={handlePaperRemove}
+              onClose={() => setViewingPaper(null)}
+            />
+          ) : (
+            <ChatArea
+              topicName={activeTopic}
+              connected={connected}
+              wsSend={send}
+              wsOnMessage={onMessage}
+              onViewTrace={handleViewTrace}
+              onClearHistory={handleClearHistory}
+              historyVersion={historyVersion}
+              selectedPapers={selectedPapers}
+            />
+          )}
         </div>
 
         {/* Right panels */}
         {searchOpen && (
-          <SearchPanel activeTopic={activeTopic} onClose={() => setSearchOpen(false)} />
+          <SearchPanel activeTopic={activeTopic} onClose={() => setSearchOpen(false)} onPapersChanged={handlePapersChanged} />
         )}
       </div>
 
