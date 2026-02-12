@@ -40,6 +40,20 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
   useEffect(() => { loadTopics() }, [refreshKey])
   useEffect(() => { setTopicPapers({}) }, [refreshKey])
 
+  // Auto-expand and load papers when active topic changes
+  useEffect(() => {
+    if (!activeTopic) return
+    setExpandedTopic(activeTopic)
+    if (!topicPapers[activeTopic]) {
+      api.papers.list(activeTopic).then(papers => {
+        setTopicPapers(prev => ({ ...prev, [activeTopic]: papers }))
+        onPapersLoaded(papers)
+      }).catch(() => {})
+    } else {
+      onPapersLoaded(topicPapers[activeTopic])
+    }
+  }, [activeTopic])  // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleTogglePapers = async (topicName: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (expandedTopic === topicName) {
