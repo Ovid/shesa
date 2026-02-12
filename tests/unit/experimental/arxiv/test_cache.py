@@ -109,3 +109,45 @@ class TestPaperCache:
         assert not cache_dir.exists()
         cache.store_meta(_make_meta())
         assert cache_dir.exists()
+
+    def test_store_source_files_rejects_dotdot_traversal(self, tmp_path: Path) -> None:
+        from shesha.experimental.arxiv.cache import PaperCache
+
+        cache = PaperCache(tmp_path / "cache")
+        cache.store_meta(_make_meta())
+        # A malicious tar member with ../escape should be silently skipped
+        files = {"../escape.tex": "malicious", "main.tex": "safe"}
+        cache.store_source_files("2501.12345", files)
+        # Only the safe file should be written
+        retrieved = cache.get_source_files("2501.12345")
+        assert retrieved is not None
+        assert "main.tex" in retrieved
+        assert "../escape.tex" not in retrieved
+        # Nothing should exist outside the source dir
+        assert not (tmp_path / "escape.tex").exists()
+
+    def test_store_source_files_rejects_absolute_path(self, tmp_path: Path) -> None:
+        from shesha.experimental.arxiv.cache import PaperCache
+
+        cache = PaperCache(tmp_path / "cache")
+        cache.store_meta(_make_meta())
+        files = {"/etc/evil.tex": "malicious", "main.tex": "safe"}
+        cache.store_source_files("2501.12345", files)
+        retrieved = cache.get_source_files("2501.12345")
+        assert retrieved is not None
+        assert "main.tex" in retrieved
+        assert "/etc/evil.tex" not in retrieved
+
+    def test_store_source_files_rejects_nested_traversal(self, tmp_path: Path) -> None:
+        from shesha.experimental.arxiv.cache import PaperCache
+
+        cache = PaperCache(tmp_path / "cache")
+        cache.store_meta(_make_meta())
+        # Nested traversal: subdir/../../escape.tex
+        files = {"subdir/../../escape.tex": "malicious", "main.tex": "safe"}
+        cache.store_source_files("2501.12345", files)
+        retrieved = cache.get_source_files("2501.12345")
+        assert retrieved is not None
+        assert "main.tex" in retrieved
+        # The traversal path should not appear in retrieved files
+        assert not any(".." in k for k in retrieved)

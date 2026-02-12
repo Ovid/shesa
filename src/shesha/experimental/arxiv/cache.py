@@ -35,11 +35,19 @@ class PaperCache:
         return PaperMeta.from_dict(data)
 
     def store_source_files(self, arxiv_id: str, files: dict[str, str]) -> None:
-        """Store extracted LaTeX source files."""
+        """Store extracted LaTeX source files.
+
+        Filenames are validated to prevent directory traversal: absolute paths
+        and ``..`` components are silently skipped since they may appear in
+        malicious tar archives.
+        """
         source_dir = self._paper_dir(arxiv_id) / "source"
         source_dir.mkdir(parents=True, exist_ok=True)
+        resolved_source = source_dir.resolve()
         for filename, content in files.items():
-            file_path = source_dir / filename
+            file_path = (source_dir / filename).resolve()
+            if not file_path.is_relative_to(resolved_source):
+                continue
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content)
 
