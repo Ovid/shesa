@@ -29,9 +29,13 @@ class FakeQueryResult:
 
     answer: str = "test answer"
     execution_time: float = 1.0
-    token_usage: MagicMock = field(default_factory=lambda: MagicMock(
-        prompt_tokens=10, completion_tokens=5, total_tokens=15,
-    ))
+    token_usage: MagicMock = field(
+        default_factory=lambda: MagicMock(
+            prompt_tokens=10,
+            completion_tokens=5,
+            total_tokens=15,
+        )
+    )
 
 
 def _make_state(doc_names: list[str]) -> MagicMock:
@@ -81,9 +85,7 @@ class TestPaperIdsFilterLoadsSelectedDocs:
             "paper_ids": ["paper-a", "paper-c"],
         }
 
-        with patch(
-            "shesha.experimental.web.ws.WebConversationSession"
-        ) as mock_session_cls:
+        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
             mock_session_cls.return_value.format_history_prefix.return_value = ""
             await _handle_query(ws, state, data)
 
@@ -108,9 +110,7 @@ class TestPaperIdsFilterLoadsSelectedDocs:
             "paper_ids": ["paper-b"],
         }
 
-        with patch(
-            "shesha.experimental.web.ws.WebConversationSession"
-        ) as mock_session_cls:
+        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
             mock_session_cls.return_value.format_history_prefix.return_value = ""
             await _handle_query(ws, state, data)
 
@@ -120,9 +120,11 @@ class TestPaperIdsFilterLoadsSelectedDocs:
         # The engine should have been called with only the filtered doc
         engine.query.assert_called_once()
         call_kwargs = engine.query.call_args
-        assert call_kwargs.kwargs.get("documents") == ["Content of paper-b"] or \
-            call_kwargs[1].get("documents") == ["Content of paper-b"] or \
-            (len(call_kwargs.args) > 0 and call_kwargs.args[0] == ["Content of paper-b"])
+        assert (
+            call_kwargs.kwargs.get("documents") == ["Content of paper-b"]
+            or call_kwargs[1].get("documents") == ["Content of paper-b"]
+            or (len(call_kwargs.args) > 0 and call_kwargs.args[0] == ["Content of paper-b"])
+        )
 
     @pytest.mark.asyncio
     async def test_empty_paper_ids_loads_all(self) -> None:
@@ -136,9 +138,7 @@ class TestPaperIdsFilterLoadsSelectedDocs:
             "paper_ids": [],
         }
 
-        with patch(
-            "shesha.experimental.web.ws.WebConversationSession"
-        ) as mock_session_cls:
+        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
             mock_session_cls.return_value.format_history_prefix.return_value = ""
             await _handle_query(ws, state, data)
 
@@ -162,9 +162,7 @@ class TestNoPaperIdsLoadsAll:
             "question": "What is chess?",
         }
 
-        with patch(
-            "shesha.experimental.web.ws.WebConversationSession"
-        ) as mock_session_cls:
+        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
             mock_session_cls.return_value.format_history_prefix.return_value = ""
             await _handle_query(ws, state, data)
 
@@ -193,17 +191,18 @@ class TestPaperIdsAllInvalid:
             "paper_ids": ["nonexistent"],
         }
 
-        with patch(
-            "shesha.experimental.web.ws.WebConversationSession"
-        ) as mock_session_cls:
+        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
             mock_session_cls.return_value.format_history_prefix.return_value = ""
             await _handle_query(ws, state, data)
 
         # Should have sent an error about no valid papers
         error_calls = [
-            c for c in ws.send_json.call_args_list
+            c
+            for c in ws.send_json.call_args_list
             if isinstance(c.args[0], dict) and c.args[0].get("type") == "error"
         ]
         assert len(error_calls) == 1
-        assert "no valid" in error_calls[0].args[0]["message"].lower() or \
-            "no papers" in error_calls[0].args[0]["message"].lower()
+        assert (
+            "no valid" in error_calls[0].args[0]["message"].lower()
+            or "no papers" in error_calls[0].args[0]["message"].lower()
+        )

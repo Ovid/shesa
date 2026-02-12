@@ -6,11 +6,12 @@ import type { SearchResult } from '../types'
 interface SearchPanelProps {
   activeTopic: string | null
   onClose: () => void
+  onPapersChanged: () => void
 }
 
 type Tab = 'arxiv' | 'local'
 
-export default function SearchPanel({ activeTopic, onClose }: SearchPanelProps) {
+export default function SearchPanel({ activeTopic, onClose, onPapersChanged }: SearchPanelProps) {
   const [tab, setTab] = useState<Tab>('arxiv')
   const [query, setQuery] = useState('')
   const [author, setAuthor] = useState('')
@@ -84,6 +85,7 @@ export default function SearchPanel({ activeTopic, onClose }: SearchPanelProps) 
       }
     }
     setSelected(new Set())
+    onPapersChanged()
   }
 
   return (
