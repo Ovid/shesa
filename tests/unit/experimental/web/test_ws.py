@@ -90,9 +90,7 @@ def test_ws_cancel(client: TestClient, mock_state: MagicMock) -> None:
     assert msg["type"] == "cancelled"
 
 
-def test_ws_query_engine_exception_sends_error(
-    client: TestClient, mock_state: MagicMock
-) -> None:
+def test_ws_query_engine_exception_sends_error(client: TestClient, mock_state: MagicMock) -> None:
     """If the RLM engine raises, drain_task is cleaned up and error is sent."""
     mock_project = MagicMock()
     mock_project._rlm_engine.query.side_effect = RuntimeError("engine exploded")
