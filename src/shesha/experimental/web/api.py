@@ -13,6 +13,7 @@ from shesha.experimental.web.dependencies import AppState
 from shesha.experimental.web.schemas import (
     PaperAdd,
     PaperInfo,
+    SearchResult,
     TopicCreate,
     TopicInfo,
     TopicRename,
@@ -154,5 +155,76 @@ def create_api(state: AppState) -> FastAPI:
             raise HTTPException(404, "Task not found")
         task = state.download_tasks[task_id]
         return {"task_id": task_id, "papers": task["papers"]}
+
+    # --- Search ---
+
+    @app.get("/api/search", response_model=list[SearchResult])
+    def search_arxiv(
+        q: str,
+        author: str | None = None,
+        category: str | None = None,
+        sort_by: str = "relevance",
+        start: int = 0,
+    ) -> list[SearchResult]:
+        results = state.searcher.search(
+            q, author=author, category=category, sort_by=sort_by, start=start
+        )
+        # Build a mapping of arxiv_id -> list of topic names
+        topic_docs: dict[str, list[str]] = {}
+        for topic in state.topic_mgr.list_topics():
+            docs = state.topic_mgr._storage.list_documents(topic.project_id)
+            for doc_name in docs:
+                topic_docs.setdefault(doc_name, []).append(topic.name)
+
+        return [
+            SearchResult(
+                arxiv_id=r.arxiv_id,
+                title=r.title,
+                authors=r.authors,
+                abstract=r.abstract,
+                category=r.primary_category,
+                date=r.published.strftime("%Y-%m-%d"),
+                arxiv_url=r.arxiv_url,
+                in_topics=topic_docs.get(r.arxiv_id, []),
+            )
+            for r in results
+        ]
+
+    @app.get("/api/papers/search", response_model=list[SearchResult])
+    def search_local(q: str) -> list[SearchResult]:
+        q_lower = q.lower()
+        results: list[SearchResult] = []
+        seen: set[str] = set()
+
+        for topic in state.topic_mgr.list_topics():
+            docs = state.topic_mgr._storage.list_documents(topic.project_id)
+            for doc_name in docs:
+                if doc_name in seen:
+                    continue
+                meta = state.cache.get_meta(doc_name)
+                if meta is None:
+                    continue
+                # Match against title, authors, arxiv_id
+                title_match = q_lower in meta.title.lower()
+                author_match = any(q_lower in a.lower() for a in meta.authors)
+                id_match = q_lower in meta.arxiv_id.lower()
+                if title_match or author_match or id_match:
+                    seen.add(doc_name)
+                    # Find all topics containing this paper
+                    in_topics = [topic.name]
+                    results.append(
+                        SearchResult(
+                            arxiv_id=meta.arxiv_id,
+                            title=meta.title,
+                            authors=meta.authors,
+                            abstract=meta.abstract,
+                            category=meta.primary_category,
+                            date=meta.published.strftime("%Y-%m-%d"),
+                            arxiv_url=meta.arxiv_url,
+                            in_topics=in_topics,
+                        )
+                    )
+
+        return results
 
     return app
