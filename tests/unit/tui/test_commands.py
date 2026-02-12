@@ -425,4 +425,3 @@ class TestCommandUsageHints:
         assert quit_entry == ("/quit", "", "Exit")
         topic_entry = next(e for e in result if e[0] == "/topic")
         assert topic_entry == ("/topic", "<subcommand>", "Topic management")
-
