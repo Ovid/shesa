@@ -38,7 +38,7 @@ describe('SearchPanel', () => {
 
       // Pre-populate search results so we have something to select
       vi.mocked(api.search).mockResolvedValue([
-        { arxiv_id: '2501.00001', title: 'Test Paper', authors: ['Author'], category: 'cs.AI', date: '2025-01-01', in_topics: [] },
+        { arxiv_id: '2501.00001', title: 'Test Paper', authors: ['Author'], abstract: 'Abstract', category: 'cs.AI', date: '2025-01-01', arxiv_url: 'https://arxiv.org/abs/2501.00001', in_topics: [] },
       ])
 
       vi.mocked(api.papers.add).mockResolvedValue({ task_id: 'task-abc-123' })
@@ -70,7 +70,7 @@ describe('SearchPanel', () => {
       const user = userEvent.setup()
 
       vi.mocked(api.search).mockResolvedValue([
-        { arxiv_id: '2501.00002', title: 'Cached Paper', authors: ['Author'], category: 'cs.AI', date: '2025-01-01', in_topics: [] },
+        { arxiv_id: '2501.00002', title: 'Cached Paper', authors: ['Author'], abstract: 'Abstract', category: 'cs.AI', date: '2025-01-01', arxiv_url: 'https://arxiv.org/abs/2501.00002', in_topics: [] },
       ])
 
       // Paper already cached — no task_id in response
