@@ -1,4 +1,26 @@
+import { useMemo } from 'react'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
 import type { PaperInfo } from '../types'
+
+function renderLatex(text: string): string {
+  // Replace $$...$$ (display math) then $...$ (inline math)
+  return text
+    .replace(/\$\$([^$]+)\$\$/g, (_, tex) => {
+      try {
+        return katex.renderToString(tex, { displayMode: true, throwOnError: false })
+      } catch {
+        return `$$${tex}$$`
+      }
+    })
+    .replace(/\$([^$]+)\$/g, (_, tex) => {
+      try {
+        return katex.renderToString(tex, { displayMode: false, throwOnError: false })
+      } catch {
+        return `$${tex}$`
+      }
+    })
+}
 
 interface PaperDetailProps {
   paper: PaperInfo | null
@@ -8,6 +30,15 @@ interface PaperDetailProps {
 }
 
 export default function PaperDetail({ paper, topicName, onRemove, onClose }: PaperDetailProps) {
+  const renderedAbstract = useMemo(
+    () => paper ? renderLatex(paper.abstract) : '',
+    [paper?.abstract],
+  )
+  const renderedTitle = useMemo(
+    () => paper ? renderLatex(paper.title) : '',
+    [paper?.title],
+  )
+
   if (!paper) return null
 
   return (
@@ -25,9 +56,10 @@ export default function PaperDetail({ paper, topicName, onRemove, onClose }: Pap
 
       {/* Paper content */}
       <div className="flex-1 overflow-y-auto px-6 py-6 max-w-3xl">
-        <h1 className="text-xl font-semibold text-text-primary leading-tight">
-          {paper.title}
-        </h1>
+        <h1
+          className="text-xl font-semibold text-text-primary leading-tight"
+          dangerouslySetInnerHTML={{ __html: renderedTitle }}
+        />
         <p className="text-sm text-text-secondary mt-2">
           {paper.authors.join(', ')}
         </p>
@@ -43,9 +75,10 @@ export default function PaperDetail({ paper, topicName, onRemove, onClose }: Pap
             View on arXiv
           </a>
         </div>
-        <div className="mt-6 text-sm text-text-secondary leading-relaxed">
-          {paper.abstract}
-        </div>
+        <div
+          className="mt-6 text-sm text-text-secondary leading-relaxed"
+          dangerouslySetInnerHTML={{ __html: renderedAbstract }}
+        />
 
         {/* Actions */}
         <div className="mt-8 flex gap-3">

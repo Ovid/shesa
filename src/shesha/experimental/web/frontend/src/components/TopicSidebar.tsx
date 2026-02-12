@@ -12,10 +12,11 @@ interface TopicSidebarProps {
   onSelectionChange: (selected: Set<string>) => void
   onPaperClick: (paper: PaperInfo) => void
   onPapersLoaded: (papers: PaperInfo[]) => void
+  viewingPaperId?: string | null
   style?: React.CSSProperties
 }
 
-export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChange, refreshKey, selectedPapers, onSelectionChange, onPaperClick, onPapersLoaded, style }: TopicSidebarProps) {
+export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChange, refreshKey, selectedPapers, onSelectionChange, onPaperClick, onPapersLoaded, viewingPaperId, style }: TopicSidebarProps) {
   const [topics, setTopics] = useState<TopicInfo[]>([])
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -231,7 +232,11 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
                 {topicPapers[t.name].map(p => (
                   <div
                     key={p.arxiv_id}
-                    className="flex items-center gap-1 px-3 pl-7 py-1 text-xs text-text-secondary hover:bg-surface-2 cursor-pointer"
+                    className={`flex items-center gap-1 px-3 pl-7 py-1 text-xs cursor-pointer ${
+                      viewingPaperId === p.arxiv_id
+                        ? 'bg-accent-dim text-accent'
+                        : 'text-text-secondary hover:bg-surface-2'
+                    }`}
                   >
                     <input
                       type="checkbox"

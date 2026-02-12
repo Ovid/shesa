@@ -227,6 +227,7 @@ export default function App() {
           onSelectionChange={setSelectedPapers}
           onPaperClick={handlePaperClick}
           onPapersLoaded={handlePapersLoaded}
+          viewingPaperId={viewingPaper?.arxiv_id}
           style={{ width: sidebarWidth }}
         />
 
