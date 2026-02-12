@@ -200,6 +200,7 @@ def _titles_match(cited: str, actual: str) -> bool:
     """Fuzzy title comparison -- normalize and check containment."""
 
     def normalize(t: str) -> str:
+        t = re.sub(r"\\[a-zA-Z]+", "", t)  # Strip LaTeX commands (\emph, \textbf, etc.)
         t = re.sub(r"[^\w\s]", "", t.lower())
         return re.sub(r"\s+", " ", t).strip()
 
@@ -234,7 +235,7 @@ def format_check_report(report: CheckReport) -> str:
     # Show LLM-tell phrases
     lines.append("")
     if report.llm_phrases:
-        lines.append("LLM-tell phrases found:")
+        lines.append("Potential LLM-tell phrases found:")
         for line_num, phrase in report.llm_phrases:
             lines.append(f'  Line {line_num}: "{phrase}"')
     else:

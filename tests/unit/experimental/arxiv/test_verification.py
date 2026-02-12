@@ -73,6 +73,38 @@ class TestArxivVerifier:
         result = verifier.verify(cite)
         assert result.status == VerificationStatus.VERIFIED
 
+    def test_verified_when_title_has_latex_commands(self) -> None:
+        from shesha.experimental.arxiv.citations import ArxivVerifier
+        from shesha.experimental.arxiv.models import (
+            ExtractedCitation,
+            PaperMeta,
+            VerificationStatus,
+        )
+
+        mock_searcher = MagicMock()
+        mock_searcher.get_by_id.return_value = PaperMeta(
+            arxiv_id="1911.04090",
+            title="A post hoc test on the Sharpe ratio",
+            authors=["Pav, S."],
+            abstract="",
+            published=datetime(2019, 11, 1, tzinfo=UTC),
+            updated=datetime(2019, 11, 1, tzinfo=UTC),
+            categories=["stat.ME"],
+            primary_category="stat.ME",
+            pdf_url="",
+            arxiv_url="https://arxiv.org/abs/1911.04090v1",
+        )
+        verifier = ArxivVerifier(searcher=mock_searcher)
+        cite = ExtractedCitation(
+            key="pav2019posthoc",
+            title=r"A \emph{post hoc} test on the {S}harpe ratio",
+            authors=["Pav, S."],
+            year="2019",
+            arxiv_id="1911.04090",
+        )
+        result = verifier.verify(cite)
+        assert result.status == VerificationStatus.VERIFIED
+
     def test_mismatch_when_title_differs(self) -> None:
         from shesha.experimental.arxiv.citations import ArxivVerifier
         from shesha.experimental.arxiv.models import (
@@ -193,7 +225,7 @@ class TestFormatCheckReport:
         assert "Fluid Dynamics" in output
         assert "2301.04567" in output
 
-    def test_format_shows_llm_phrases(self) -> None:
+    def test_format_shows_llm_phrases_with_potential_label(self) -> None:
         from shesha.experimental.arxiv.citations import format_check_report
         from shesha.experimental.arxiv.models import CheckReport
 
@@ -207,3 +239,4 @@ class TestFormatCheckReport:
         output = format_check_report(report)
         assert "42" in output
         assert "knowledge update" in output.lower()
+        assert "Potential LLM-tell phrases found:" in output
