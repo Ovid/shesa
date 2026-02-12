@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Multi-source citation verification** — citations are now verified against CrossRef, OpenAlex, and Semantic Scholar in addition to arXiv, dramatically reducing false "unresolved" results for non-arXiv sources
+- **Fuzzy title matching** — Jaccard similarity with LLM fallback for ambiguous cases (0.50-0.85 range) reduces false positives from title changes between paper versions
+- **Topical relevance checking** — LLM-based batch check flags citations that exist but are clearly unrelated to the citing paper
+- **Source badges** — citation report shows where each citation was verified (arXiv, CrossRef, OpenAlex, S2)
+- **Email modal for polite-pool access** — optional email stored in browser localStorage gives faster API access to CrossRef and OpenAlex
+
+### Changed
+
+- "unresolved" citations now labeled "not found in databases" to clarify external sources were tried
+- LLM-tell phrases displayed in purple (was amber) for better visual distinction
+- Papers default to selected when clicking a topic name
+
+### Fixed
+
+- Papers not auto-selected when clicking a topic (required expanding the paper list first)
+
+---
+
+_Previous entries:_
+
+### Added
+
 - **Web citation checking** — citation verification now works in the web interface (Check Citations toolbar button), reusing the same extraction and arXiv verification logic as the TUI `/check` command
 - **Consulted papers display** — query answers now show which papers were used, with clickable links to paper detail view
 - **Document-only constraint** — system prompt now explicitly forbids the LLM from using training data, requiring answers based solely on provided documents
