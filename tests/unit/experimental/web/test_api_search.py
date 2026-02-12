@@ -156,9 +156,27 @@ def test_search_local_reports_all_topics(client: TestClient, mock_state: MagicMo
     from shesha.experimental.arxiv.models import TopicInfo
 
     mock_state.topic_mgr.list_topics.return_value = [
-        TopicInfo(name="Chess", created=datetime(2025, 1, 15), paper_count=1, size_bytes=1000, project_id="proj-chess"),
-        TopicInfo(name="AI", created=datetime(2025, 1, 15), paper_count=1, size_bytes=1000, project_id="proj-ai"),
-        TopicInfo(name="Games", created=datetime(2025, 1, 15), paper_count=1, size_bytes=1000, project_id="proj-games"),
+        TopicInfo(
+            name="Chess",
+            created=datetime(2025, 1, 15),
+            paper_count=1,
+            size_bytes=1000,
+            project_id="proj-chess",
+        ),
+        TopicInfo(
+            name="AI",
+            created=datetime(2025, 1, 15),
+            paper_count=1,
+            size_bytes=1000,
+            project_id="proj-ai",
+        ),
+        TopicInfo(
+            name="Games",
+            created=datetime(2025, 1, 15),
+            paper_count=1,
+            size_bytes=1000,
+            project_id="proj-games",
+        ),
     ]
     # Same paper in all three topics
     mock_state.topic_mgr._storage.list_documents.return_value = ["2501.12345"]

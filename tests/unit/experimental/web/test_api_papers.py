@@ -179,9 +179,7 @@ def test_add_paper_download_fetches_meta_from_searcher(
         patch(
             "shesha.experimental.arxiv.download.download_paper", return_value=meta
         ) as mock_download,
-        patch(
-            "shesha.experimental.arxiv.download.to_parsed_document", return_value=mock_doc
-        ),
+        patch("shesha.experimental.arxiv.download.to_parsed_document", return_value=mock_doc),
     ):
         resp = client.post(
             "/api/papers/add",
