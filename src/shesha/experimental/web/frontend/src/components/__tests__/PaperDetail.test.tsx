@@ -15,6 +15,45 @@ const PAPER: PaperInfo = {
   source_type: null,
 }
 
+describe('PaperDetail HTML sanitization', () => {
+  it('escapes HTML in abstract before rendering LaTeX', () => {
+    const maliciousPaper: PaperInfo = {
+      ...PAPER,
+      abstract: 'Safe text <script>alert("xss")</script> more text',
+    }
+    const { container } = render(
+      <PaperDetail paper={maliciousPaper} topicName="nlp" onRemove={() => {}} onClose={() => {}} />
+    )
+    // The script tag must not appear as an actual DOM element
+    expect(container.querySelector('script')).toBeNull()
+    // The escaped text should be visible
+    expect(container.textContent).toContain('<script>')
+  })
+
+  it('escapes HTML in title before rendering LaTeX', () => {
+    const maliciousPaper: PaperInfo = {
+      ...PAPER,
+      title: 'Title <img src=x onerror=alert(1)>',
+    }
+    const { container } = render(
+      <PaperDetail paper={maliciousPaper} topicName="nlp" onRemove={() => {}} onClose={() => {}} />
+    )
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('still renders LaTeX math after escaping HTML', () => {
+    const paper: PaperInfo = {
+      ...PAPER,
+      abstract: 'The loss is $L = \\sum x_i$ end.',
+    }
+    const { container } = render(
+      <PaperDetail paper={paper} topicName="nlp" onRemove={() => {}} onClose={() => {}} />
+    )
+    // KaTeX should produce .katex elements
+    expect(container.querySelector('.katex')).not.toBeNull()
+  })
+})
+
 describe('PaperDetail remove confirmation', () => {
   it('shows styled confirm dialog instead of native confirm', async () => {
     render(

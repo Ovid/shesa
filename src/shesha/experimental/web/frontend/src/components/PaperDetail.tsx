@@ -4,9 +4,18 @@ import 'katex/dist/katex.min.css'
 import type { PaperInfo } from '../types'
 import ConfirmDialog from './ConfirmDialog'
 
-function renderLatex(text: string): string {
-  // Replace $$...$$ (display math) then $...$ (inline math)
+function escapeHtml(text: string): string {
   return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function renderLatex(text: string): string {
+  // Escape HTML first, then replace $$...$$ (display math) then $...$ (inline math)
+  return escapeHtml(text)
     .replace(/\$\$([^$]+)\$\$/g, (_, tex) => {
       try {
         return katex.renderToString(tex, { displayMode: true, throwOnError: false })
