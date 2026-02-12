@@ -574,7 +574,7 @@ def create_app(
         "Add papers from search results",
         threaded=True,
     )
-    tui._command_registry.set_group_help_handler("/topic", _cmd_topic_help)
+    tui.set_group_help_handler("/topic", _cmd_topic_help)
 
     tui.register_command(
         "/search",

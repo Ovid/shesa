@@ -148,6 +148,10 @@ class SheshaTUI(App[None]):
         """Register a command group (e.g., '/topic')."""
         self._command_registry.register_group(name, description)
 
+    def set_group_help_handler(self, name: str, handler: Callable[[str], object]) -> None:
+        """Set a custom help handler for a command group."""
+        self._command_registry.set_group_help_handler(name, handler)
+
     def register_subcommand(
         self,
         group: str,
