@@ -45,6 +45,7 @@ dev = [
 arxiv = [
     "arxiv>=2.0",
     "bibtexparser>=2.0.0b7",
+    "httpx>=0.27",
 ]
 tui = [
     "textual>=1.0",
@@ -53,6 +54,7 @@ web = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "websockets>=12.0",
+    "httpx>=0.27",
 ]
 
 [project.scripts]
