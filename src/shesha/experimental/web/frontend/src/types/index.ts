@@ -89,3 +89,5 @@ export type WSMessage =
   | { type: 'complete'; answer: string; trace_id: string | null; tokens: { prompt: number; completion: number; total: number }; duration_ms: number; paper_ids?: string[] }
   | { type: 'error'; message: string }
   | { type: 'cancelled' }
+  | { type: 'citation_progress'; current: number; total: number }
+  | { type: 'citation_report'; report: string }

@@ -62,6 +62,11 @@ export default function App() {
         setCitationError(msg.message ?? 'Unknown error')
       } else if (msg.type === 'cancelled') {
         setPhase('Ready')
+      } else if (msg.type === 'citation_progress') {
+        setCitationProgress({ current: msg.current, total: msg.total })
+      } else if (msg.type === 'citation_report') {
+        setCitationChecking(false)
+        setCitationReport(msg.report)
       }
     })
   }, [onMessage, activeTopic])
@@ -73,7 +78,7 @@ export default function App() {
   // Citation check state
   const [citationChecking, setCitationChecking] = useState(false)
   const [citationProgress, setCitationProgress] = useState<{ current: number; total: number } | null>(null)
-  const [citationReport, setCitationReport] = useState<object | null>(null)
+  const [citationReport, setCitationReport] = useState<string | null>(null)
   const [citationError, setCitationError] = useState<string | null>(null)
 
   // Download tasks
@@ -162,12 +167,16 @@ export default function App() {
       showToast('Select a topic first', 'warning')
       return
     }
+    if (selectedPapers.size === 0) {
+      showToast('Select papers to check', 'warning')
+      return
+    }
     setCitationChecking(true)
     setCitationProgress(null)
     setCitationReport(null)
     setCitationError(null)
-    send({ type: 'check_citations', topic: activeTopic })
-  }, [activeTopic, send])
+    send({ type: 'check_citations', topic: activeTopic, paper_ids: Array.from(selectedPapers) })
+  }, [activeTopic, selectedPapers, send])
 
   const handleViewTrace = useCallback((traceId: string) => {
     if (activeTopic) {

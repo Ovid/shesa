@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import threading
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 from shesha.exceptions import DocumentNotFoundError
+from shesha.experimental.arxiv.citations import (
+    ArxivVerifier,
+    detect_llm_phrases,
+    extract_citations_from_bbl,
+    extract_citations_from_bib,
+    extract_citations_from_text,
+    format_check_report,
+)
+from shesha.experimental.arxiv.models import CheckReport, ExtractedCitation
 from shesha.experimental.web.dependencies import AppState
 from shesha.experimental.web.session import WebConversationSession
 from shesha.models import ParsedDocument
@@ -34,6 +44,9 @@ async def websocket_handler(ws: WebSocket, state: AppState) -> None:
 
             elif msg_type == "query":
                 cancel_event = await _handle_query(ws, state, data)
+
+            elif msg_type == "check_citations":
+                await _handle_check_citations(ws, state, data)
 
             else:
                 await ws.send_json(
@@ -189,3 +202,83 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
     )
 
     return cancel_event
+
+
+async def _handle_check_citations(
+    ws: WebSocket, state: AppState, data: dict[str, object]
+) -> None:
+    """Check citations for selected papers and stream progress."""
+    topic = str(data.get("topic", ""))
+    project_id = state.topic_mgr.resolve(topic)
+    if not project_id:
+        await ws.send_json({"type": "error", "message": f"Topic '{topic}' not found"})
+        return
+
+    paper_ids = data.get("paper_ids")
+    if not paper_ids or not isinstance(paper_ids, list) or len(paper_ids) == 0:
+        await ws.send_json(
+            {"type": "error", "message": "Please select one or more papers to check"}
+        )
+        return
+
+    loop = asyncio.get_event_loop()
+    verifier = ArxivVerifier(searcher=state.searcher)
+    total = len(paper_ids)
+    all_reports: list[str] = []
+
+    for idx, pid in enumerate(paper_ids, 1):
+        await ws.send_json(
+            {"type": "citation_progress", "current": idx, "total": total}
+        )
+        report_text = await loop.run_in_executor(
+            None,
+            functools.partial(_check_single_paper, str(pid), state, verifier, project_id),
+        )
+        if report_text is not None:
+            all_reports.append(report_text)
+
+    combined = "\n\n".join(all_reports) if all_reports else "No papers had cached metadata."
+    await ws.send_json({"type": "citation_report", "report": combined})
+
+
+def _check_single_paper(
+    paper_id: str,
+    state: AppState,
+    verifier: ArxivVerifier,
+    project_id: str,
+) -> str | None:
+    """Check citations for a single paper. Returns formatted report or None."""
+    meta = state.cache.get_meta(paper_id)
+    if meta is None:
+        return None
+
+    citations: list[ExtractedCitation] = []
+    source_files = state.cache.get_source_files(paper_id)
+    full_text = ""
+
+    if source_files is not None:
+        for filename, content in source_files.items():
+            full_text += content + "\n"
+            if filename.endswith(".bib"):
+                citations.extend(extract_citations_from_bib(content))
+            elif filename.endswith(".bbl"):
+                citations.extend(extract_citations_from_bbl(content))
+    else:
+        try:
+            doc = state.topic_mgr._storage.get_document(project_id, paper_id)
+            full_text = doc.content
+            citations.extend(extract_citations_from_text(full_text))
+        except Exception:
+            full_text = ""
+
+    llm_phrases = detect_llm_phrases(full_text)
+    results = [verifier.verify(c) for c in citations]
+
+    report = CheckReport(
+        arxiv_id=meta.arxiv_id,
+        title=meta.title,
+        citations=citations,
+        verification_results=results,
+        llm_phrases=llm_phrases,
+    )
+    return format_check_report(report)

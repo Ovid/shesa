@@ -1,7 +1,7 @@
 interface CitationReportProps {
   checking: boolean
   progress: { current: number; total: number } | null
-  report: object | null
+  report: string | null
   error: string | null
   onClose: () => void
 }
@@ -11,7 +11,7 @@ export default function CitationReport({ checking, progress, report, error, onCl
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-surface-1 border border-border rounded-lg shadow-2xl w-[500px] max-h-[80vh] flex flex-col">
+      <div className="bg-surface-1 border border-border rounded-lg shadow-2xl w-[600px] max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <h2 className="text-sm font-semibold text-text-primary">Citation Check</h2>
@@ -48,7 +48,7 @@ export default function CitationReport({ checking, progress, report, error, onCl
 
           {report && (
             <pre className="text-xs text-text-secondary font-mono whitespace-pre-wrap">
-              {JSON.stringify(report, null, 2)}
+              {report}
             </pre>
           )}
         </div>

@@ -6,7 +6,7 @@ import CitationReport from '../CitationReport'
 const defaultProps = {
   checking: false,
   progress: null,
-  report: null,
+  report: null as string | null,
   error: null as string | null,
   onClose: vi.fn(),
 }
@@ -51,6 +51,13 @@ describe('CitationReport', () => {
     expect(screen.getByText('Something went wrong')).toBeInTheDocument()
     // Should NOT show "Starting citation check..." when there's an error
     expect(screen.queryByText('Starting citation check...')).not.toBeInTheDocument()
+  })
+
+  it('displays formatted report text', () => {
+    const report = 'DISCLAIMER: This analysis...\n\nCitations found: 5\n  OK  3 verified'
+    render(<CitationReport {...defaultProps} report={report} />)
+    expect(screen.getByText(/DISCLAIMER: This analysis/)).toBeInTheDocument()
+    expect(screen.getByText(/Citations found: 5/)).toBeInTheDocument()
   })
 
   it('calls onClose when close button is clicked', async () => {
