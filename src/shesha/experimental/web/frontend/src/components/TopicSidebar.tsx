@@ -8,9 +8,13 @@ interface TopicSidebarProps {
   onSelectTopic: (name: string) => void
   onTopicsChange: () => void
   refreshKey: number
+  selectedPapers: Set<string>
+  onSelectionChange: (selected: Set<string>) => void
+  onPaperClick: (paper: PaperInfo) => void
+  onPapersLoaded: (papers: PaperInfo[]) => void
 }
 
-export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChange, refreshKey }: TopicSidebarProps) {
+export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChange, refreshKey, selectedPapers, onSelectionChange, onPaperClick, onPapersLoaded }: TopicSidebarProps) {
   const [topics, setTopics] = useState<TopicInfo[]>([])
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -43,6 +47,7 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
       try {
         const papers = await api.papers.list(topicName)
         setTopicPapers(prev => ({ ...prev, [topicName]: papers }))
+        onPapersLoaded(papers)
       } catch {
         showToast('Failed to load papers', 'error')
       }
@@ -158,7 +163,14 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
                     {expandedTopic === t.name ? '\u25BC' : '\u25B6'}
                   </button>
                   <span className="flex-1 truncate">{t.name}</span>
-                  <span className="text-[10px] text-text-dim ml-1">{t.paper_count} &middot; {t.size}</span>
+                  <span className="text-[10px] text-text-dim ml-1">{(() => {
+                    const topicPaperList = topicPapers[t.name]
+                    const selectedCount = topicPaperList
+                      ? topicPaperList.filter(p => selectedPapers.has(p.arxiv_id)).length
+                      : t.paper_count
+                    const countDisplay = selectedCount < t.paper_count ? `${selectedCount}/${t.paper_count}` : `${t.paper_count}`
+                    return `${countDisplay} \u00B7 ${t.size}`
+                  })()}</span>
                   <button
                     onClick={e => {
                       e.stopPropagation()
@@ -201,13 +213,48 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
             {/* Collapsible paper list */}
             {expandedTopic === t.name && topicPapers[t.name] && (
               <div className="bg-surface-0/50">
+                <div className="flex items-center gap-2 px-3 pl-7 py-1 text-[10px] text-text-dim">
+                  <button
+                    className="hover:text-accent"
+                    onClick={() => {
+                      const allIds = new Set(topicPapers[t.name].map(p => p.arxiv_id))
+                      onSelectionChange(allIds)
+                    }}
+                  >All</button>
+                  <span>/</span>
+                  <button
+                    className="hover:text-accent"
+                    onClick={() => onSelectionChange(new Set())}
+                  >None</button>
+                </div>
                 {topicPapers[t.name].map(p => (
                   <div
                     key={p.arxiv_id}
                     className="flex items-center gap-1 px-3 pl-7 py-1 text-xs text-text-secondary hover:bg-surface-2 cursor-pointer"
-                    title={`${p.title}\n${p.authors[0] ?? ''} \u00B7 ${p.date?.slice(0, 4) ?? ''}`}
                   >
-                    <span className="truncate">{p.title}</span>
+                    <input
+                      type="checkbox"
+                      checked={selectedPapers.has(p.arxiv_id)}
+                      onChange={(e) => {
+                        e.stopPropagation()
+                        const next = new Set(selectedPapers)
+                        if (next.has(p.arxiv_id)) {
+                          next.delete(p.arxiv_id)
+                        } else {
+                          next.add(p.arxiv_id)
+                        }
+                        onSelectionChange(next)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="shrink-0 accent-accent"
+                    />
+                    <span
+                      className="truncate cursor-pointer hover:text-accent"
+                      onClick={(e) => { e.stopPropagation(); onPaperClick(p) }}
+                      title={`${p.title}\n${p.authors[0] ?? ''} \u00B7 ${p.date?.slice(0, 4) ?? ''}`}
+                    >
+                      {p.title}
+                    </span>
                   </div>
                 ))}
               </div>
