@@ -173,7 +173,7 @@ export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, on
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={!connected}
+            disabled={!connected || !hasPapers}
             placeholder={
               !connected ? 'Reconnecting...'
               : !hasPapers ? 'Select papers in the sidebar first...'
