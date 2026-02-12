@@ -10,6 +10,8 @@
 
 **Design doc:** `docs/plans/2026-02-12-web-interface-design.md`
 
+**Visual reference:** `mockup.html` — the HTML mockup shows the target layout, color palette, and component placement. All frontend components should match this mockup's structure and styling.
+
 ---
 
 ## Phase 1: Core Engine Changes
@@ -1299,6 +1301,7 @@ Create `src/shesha/experimental/web/ws.py`:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from pathlib import Path
@@ -1366,16 +1369,15 @@ async def _handle_query(
     history_prefix = session.format_history_prefix()
     full_question = history_prefix + question if history_prefix else question
 
-    # Accumulate token usage for status updates
-    accumulated_tokens = {"prompt": 0, "completion": 0, "total": 0}
+    # Use asyncio.Queue for thread-safe message passing from the query
+    # thread to the async WebSocket send loop. The on_progress callback
+    # runs in a worker thread and cannot call ws.send_json() directly.
+    message_queue: asyncio.Queue[dict[str, object] | None] = asyncio.Queue()
+    loop = asyncio.get_event_loop()
 
     def on_progress(
         step_type: StepType, iteration: int, content: str, token_usage: TokenUsage
     ) -> None:
-        accumulated_tokens["prompt"] = token_usage.prompt_tokens
-        accumulated_tokens["completion"] = token_usage.completion_tokens
-        accumulated_tokens["total"] = token_usage.total_tokens
-
         step_msg: dict[str, object] = {
             "type": "step",
             "step_type": step_type.value,
@@ -1386,26 +1388,31 @@ async def _handle_query(
             step_msg["prompt_tokens"] = token_usage.prompt_tokens
             step_msg["completion_tokens"] = token_usage.completion_tokens
 
-        # Send via call_soon_threadsafe or similar
-        # (FastAPI's WebSocket is not thread-safe, so we queue messages)
-        import asyncio
-        loop = asyncio.get_event_loop()
-        loop.call_soon_threadsafe(
-            asyncio.ensure_future,
-            ws.send_json(step_msg),
-        )
+        loop.call_soon_threadsafe(message_queue.put_nowait, step_msg)
 
     await ws.send_json({"type": "status", "phase": "Starting", "iteration": 0})
 
+    # Drain the queue in a background task, sending each message to the client
+    async def drain_queue() -> None:
+        while True:
+            msg = await message_queue.get()
+            if msg is None:
+                break
+            await ws.send_json(msg)
+
+    drain_task = asyncio.create_task(drain_queue())
+
     # Run query in thread to avoid blocking the event loop
-    import asyncio
-    loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,
         lambda: project.query(
             full_question, on_progress=on_progress, cancel_event=cancel_event
         ),
     )
+
+    # Signal the drain task to stop, then wait for it
+    await message_queue.put(None)
+    await drain_task
 
     # Save to session
     trace_id = None
@@ -1460,7 +1467,7 @@ async def _handle_check(
     await ws.send_json({"type": "error", "message": "Not implemented yet"})
 ```
 
-Note: The `on_progress` thread-safety issue above is a known challenge. The implementer should use an `asyncio.Queue` to safely pass messages from the query thread to the WebSocket send loop. The test in Step 1 validates the end-to-end flow.
+Note: The `on_progress` callback runs in a worker thread. The implementation above uses `asyncio.Queue` with `loop.call_soon_threadsafe()` and a drain task to safely pass messages from the query thread to the async WebSocket send loop.
 
 Mount the WebSocket in `api.py`:
 
@@ -1530,6 +1537,7 @@ export default defineConfig({
 @import "tailwindcss";
 
 @theme {
+  /* Dark mode (default) */
   --color-surface-0: #0b1121;
   --color-surface-1: #0f1729;
   --color-surface-2: #151d33;
@@ -1543,9 +1551,23 @@ export default defineConfig({
   --color-amber: #ff9800;
   --color-red: #f44336;
 }
-```
 
-Light mode variants will be applied via a `.light` class on the root element, using Tailwind's `@variant` or conditional CSS variables.
+/* Light mode overrides — toggled via .light class on <html> */
+.light {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f8f9fb;
+  --color-surface-2: #eef0f4;
+  --color-border: #dde1e8;
+  --color-text-primary: #1a202c;
+  --color-text-secondary: #4a5568;
+  --color-text-dim: #9aa3b2;
+  --color-accent: #0d9488;
+  --color-accent-dim: rgba(13, 148, 136, 0.08);
+  --color-green: #2e7d32;
+  --color-amber: #e65100;
+  --color-red: #c62828;
+}
+```
 
 **Step 4: Create minimal App.tsx**
 
@@ -1587,8 +1609,8 @@ git commit -m "feat: scaffold React frontend with Vite + TypeScript + Tailwind"
 **Files:**
 - Create: `src/shesha/experimental/web/frontend/src/types/index.ts`
 - Create: `src/shesha/experimental/web/frontend/src/api/client.ts`
-- Create: `src/shesha/experimental/web/frontend/src/api/ws.ts`
-- Create: `src/shesha/experimental/web/frontend/src/hooks/useWebSocket.ts`
+- Create: `src/shesha/experimental/web/frontend/src/api/ws.ts` — low-level WebSocket connection management (connect, reconnect, send, message dispatch)
+- Create: `src/shesha/experimental/web/frontend/src/hooks/useWebSocket.ts` — React hook wrapping `api/ws.ts` for component use (exposes `connected`, `send`, `onMessage`)
 - Create: `src/shesha/experimental/web/frontend/src/hooks/useTheme.ts`
 
 **Step 1: Define TypeScript types**
@@ -1845,16 +1867,39 @@ git commit -m "feat: add TypeScript types, API client, and WebSocket/theme hooks
 
 ## Phase 6: Frontend Components
 
-### Task 13: App layout, Header, and StatusBar
+### Task 13: App layout, Header, StatusBar, and connection/error infrastructure
 
-Build the app shell: header with logo and action buttons, status bar at bottom, and the three-panel layout (sidebar, center, optional right panel).
+Build the app shell: header with logo and action buttons, status bar at bottom, the three-panel layout (sidebar, center, optional right panel), the connection loss banner, and the general toast notification system.
 
 **Files:**
 - Modify: `src/shesha/experimental/web/frontend/src/App.tsx`
 - Create: `src/shesha/experimental/web/frontend/src/components/Header.tsx`
 - Create: `src/shesha/experimental/web/frontend/src/components/StatusBar.tsx`
+- Create: `src/shesha/experimental/web/frontend/src/components/Toast.tsx`
 
-Follow the mockup's layout and styling from `mockup.html`. Use Tailwind classes matching the design doc's color tokens. The Header serves the logo from `/static/shesha.png` with an "S" fallback.
+Match the visual layout from `mockup.html`. Use Tailwind classes matching the design doc's color tokens.
+
+**Header must include (left to right):**
+- Logo: `<img src="/static/shesha.png">` with "S" styled fallback on load error
+- Title: "Shesha" (bold) + subtitle "arXiv Explorer" (monospace, dim) + "Experimental" pill badge (small, amber border)
+- Action buttons (right side): Search (toggles SearchPanel), Check (citation check), Export (download transcript), Help ("?" opens HelpPanel)
+- Thin vertical divider
+- Theme toggle (sun/moon icon)
+
+**StatusBar must include:**
+- Active topic name, model name (clickable for model selector), token counts, context budget with color-coded level, phase indicator with colored dot
+
+**Toast system (general-purpose):**
+- Bottom-right stack of dismissible toast notifications
+- Color-coded: red for errors, amber for warnings, green for success
+- Auto-dismiss after 8 seconds
+- Used by all components for transient operational feedback (search timeout, arXiv unreachable, etc.)
+
+**Connection loss banner:**
+- Persistent amber banner below header when WebSocket disconnects
+- Text: "Connection lost. Reconnecting..."
+- Chat input disables until reconnected
+- Driven by `connected` state from `useWebSocket` hook
 
 **Commit after each component is rendered correctly in the browser.**
 
@@ -1910,6 +1955,7 @@ Features:
 - On send: `ws.send({type: "query", topic, question})`
 - Listen for WebSocket messages to update status and receive answer
 - Empty state when no topic/papers selected
+- **Experimental banner:** On first launch, show a dismissible welcome banner above the chat area explaining this is experimental software and linking to Help. Dismiss state persisted in `localStorage`.
 
 ---
 
@@ -2007,7 +2053,9 @@ if images_dir.exists():
 from __future__ import annotations
 
 import argparse
+import threading
 import webbrowser
+from pathlib import Path
 
 import uvicorn
 
@@ -2023,13 +2071,11 @@ def main() -> None:
     parser.add_argument("--no-browser", action="store_true", help="Don't open browser")
     args = parser.parse_args()
 
-    from pathlib import Path
     data_dir = Path(args.data_dir) if args.data_dir else None
     state = create_app_state(data_dir=data_dir, model=args.model)
     app = create_api(state)
 
     if not args.no_browser:
-        import threading
         threading.Timer(1.5, lambda: webbrowser.open(f"http://localhost:{args.port}")).start()
 
     uvicorn.run(app, host="0.0.0.0", port=args.port)
