@@ -9,40 +9,41 @@ Shesha is a research tool that uses Recursive Language Models to help you explor
 - **Docker** — [docker.com/get-started](https://www.docker.com/get-started/) (for the code sandbox)
 - An **LLM API key** — e.g., `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set as an environment variable
 
-## Installation
+## Quick Start
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/your-org/shesha.git
 cd shesha
 
-# 2. Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate      # macOS/Linux
-# .venv\Scripts\activate       # Windows
-
-# 3. Install with web dependencies
-pip install -e ".[web]"
-
-# 4. Build the frontend
-cd src/shesha/experimental/web/frontend
-npm install
-npm run build
-cd -
-
-# 5. Set your API key
+# 2. Set your API key
 export OPENAI_API_KEY="sk-..."
 # or: export ANTHROPIC_API_KEY="sk-ant-..."
+
+# 3. Run (handles venv, dependencies, frontend build automatically)
+./run-web.sh
 ```
 
-## Running
+The launch script checks prerequisites, creates a virtual environment, installs dependencies, builds the frontend, and starts the server. On subsequent runs it skips steps that are already done.
 
 ```bash
-# Start the web interface (opens browser automatically)
-shesha-web
+# Options:
+./run-web.sh --model gpt-5-mini   # choose LLM model
+./run-web.sh --port 8080           # custom port
+./run-web.sh --no-browser          # don't open browser
+./run-web.sh --rebuild             # force frontend rebuild
+```
 
-# Or with options:
-shesha-web --model gpt-5-mini --port 8080 --no-browser
+## Manual Installation
+
+If you prefer to set things up yourself:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[web]"
+cd src/shesha/experimental/web/frontend && npm install && npm run build && cd -
+shesha-web
 ```
 
 Visit `http://localhost:8000` in your browser.
