@@ -147,18 +147,24 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
         return cancel_event
 
     storage = state.topic_mgr._storage
-    result = await loop.run_in_executor(
-        None,
-        lambda: rlm_engine.query(
-            documents=[d.content for d in loaded_docs],
-            question=full_question,
-            doc_names=[d.name for d in loaded_docs],
-            on_progress=on_progress,
-            storage=storage,
-            project_id=project_id,
-            cancel_event=cancel_event,
-        ),
-    )
+    try:
+        result = await loop.run_in_executor(
+            None,
+            lambda: rlm_engine.query(
+                documents=[d.content for d in loaded_docs],
+                question=full_question,
+                doc_names=[d.name for d in loaded_docs],
+                on_progress=on_progress,
+                storage=storage,
+                project_id=project_id,
+                cancel_event=cancel_event,
+            ),
+        )
+    except Exception as exc:
+        await message_queue.put(None)
+        await drain_task
+        await ws.send_json({"type": "error", "message": str(exc)})
+        return cancel_event
 
     # Signal the drain task to stop, then wait for it
     await message_queue.put(None)

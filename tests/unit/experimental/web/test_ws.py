@@ -88,3 +88,36 @@ def test_ws_cancel(client: TestClient, mock_state: MagicMock) -> None:
         ws.send_json({"type": "cancel"})
         msg = ws.receive_json()
     assert msg["type"] == "cancelled"
+
+
+def test_ws_query_engine_exception_sends_error(
+    client: TestClient, mock_state: MagicMock
+) -> None:
+    """If the RLM engine raises, drain_task is cleaned up and error is sent."""
+    mock_project = MagicMock()
+    mock_project._rlm_engine.query.side_effect = RuntimeError("engine exploded")
+
+    mock_state.topic_mgr.resolve.return_value = "proj-id"
+    mock_state.shesha.get_project.return_value = mock_project
+    mock_state.topic_mgr._storage.list_documents.return_value = ["doc1"]
+    mock_state.topic_mgr._storage.get_document.side_effect = lambda pid, name: _make_doc(name)
+
+    with patch("shesha.experimental.web.ws.WebConversationSession") as mock_sess_cls:
+        mock_session = MagicMock()
+        mock_session.format_history_prefix.return_value = ""
+        mock_sess_cls.return_value = mock_session
+
+        with client.websocket_connect("/api/ws") as ws:
+            ws.send_json(
+                {"type": "query", "topic": "test", "question": "What?", "paper_ids": ["doc1"]}
+            )
+            messages = []
+            while True:
+                msg = ws.receive_json()
+                messages.append(msg)
+                if msg["type"] in ("complete", "error"):
+                    break
+
+    errors = [m for m in messages if m["type"] == "error"]
+    assert len(errors) == 1
+    assert "engine exploded" in errors[0]["message"]
