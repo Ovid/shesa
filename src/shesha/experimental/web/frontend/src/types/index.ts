@@ -82,6 +82,32 @@ export interface ModelInfo {
   max_input_tokens: number | null
 }
 
+export interface MismatchEntry {
+  key: string
+  message: string
+  severity: 'error' | 'warning'
+  arxiv_url: string | null
+}
+
+export interface LLMPhraseEntry {
+  line: number
+  text: string
+}
+
+export interface PaperReport {
+  arxiv_id: string
+  title: string
+  arxiv_url: string
+  total_citations: number
+  verified_count: number
+  unresolved_count: number
+  mismatch_count: number
+  has_issues: boolean
+  group: 'verified' | 'unverifiable' | 'issues'
+  mismatches: MismatchEntry[]
+  llm_phrases: LLMPhraseEntry[]
+}
+
 // WebSocket message types
 export type WSMessage =
   | { type: 'status'; phase: string; iteration: number }
@@ -90,4 +116,4 @@ export type WSMessage =
   | { type: 'error'; message: string }
   | { type: 'cancelled' }
   | { type: 'citation_progress'; current: number; total: number }
-  | { type: 'citation_report'; report: string }
+  | { type: 'citation_report'; papers: PaperReport[] }

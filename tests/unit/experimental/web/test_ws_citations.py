@@ -6,8 +6,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from shesha.experimental.arxiv.models import (
-    CheckReport,
-    ExtractedCitation,
     VerificationResult,
     VerificationStatus,
 )
@@ -49,9 +47,7 @@ class TestCheckCitationsHandler:
         assert msg["type"] == "error"
         assert "paper" in msg["message"].lower()
 
-    def test_sends_progress_and_report(
-        self, client: TestClient, mock_state: MagicMock
-    ) -> None:
+    def test_sends_progress_and_report(self, client: TestClient, mock_state: MagicMock) -> None:
         """Sends citation_progress messages then citation_report for each paper."""
         mock_state.topic_mgr.resolve.return_value = "proj-id"
 
@@ -61,7 +57,7 @@ class TestCheckCitationsHandler:
         meta.title = "Test Paper"
         mock_state.cache.get_meta.return_value = meta
         mock_state.cache.get_source_files.return_value = {
-            "refs.bib": '@article{key1, title={Some Paper}, eprint={2301.99999}}'
+            "refs.bib": "@article{key1, title={Some Paper}, eprint={2301.99999}}"
         }
 
         # Mock the verifier to avoid real arXiv calls
@@ -70,19 +66,19 @@ class TestCheckCitationsHandler:
             status=VerificationStatus.VERIFIED,
             arxiv_url="https://arxiv.org/abs/2301.99999",
         )
-        with patch(
-            "shesha.experimental.web.ws.ArxivVerifier"
-        ) as mock_verifier_cls:
+        with patch("shesha.experimental.web.ws.ArxivVerifier") as mock_verifier_cls:
             mock_verifier = MagicMock()
             mock_verifier.verify.return_value = mock_result
             mock_verifier_cls.return_value = mock_verifier
 
             with client.websocket_connect("/api/ws") as ws:
-                ws.send_json({
-                    "type": "check_citations",
-                    "topic": "test",
-                    "paper_ids": ["2301.00001"],
-                })
+                ws.send_json(
+                    {
+                        "type": "check_citations",
+                        "topic": "test",
+                        "paper_ids": ["2301.00001"],
+                    }
+                )
                 messages = []
                 while True:
                     msg = ws.receive_json()
@@ -99,26 +95,32 @@ class TestCheckCitationsHandler:
         assert progress_msgs[0]["total"] == 1
 
         report_msg = [m for m in messages if m["type"] == "citation_report"][0]
-        assert "report" in report_msg
-        assert "DISCLAIMER" in report_msg["report"]
+        assert "papers" in report_msg
+        papers = report_msg["papers"]
+        assert isinstance(papers, list)
+        assert len(papers) == 1
+        paper = papers[0]
+        assert paper["arxiv_id"] == "2301.00001"
+        assert paper["title"] == "Test Paper"
+        assert "group" in paper
+        assert "mismatches" in paper
+        assert "llm_phrases" in paper
 
-    def test_skips_papers_without_metadata(
-        self, client: TestClient, mock_state: MagicMock
-    ) -> None:
+    def test_skips_papers_without_metadata(self, client: TestClient, mock_state: MagicMock) -> None:
         """Papers without cached metadata are skipped."""
         mock_state.topic_mgr.resolve.return_value = "proj-id"
         mock_state.cache.get_meta.return_value = None
         mock_state.cache.get_source_files.return_value = None
 
-        with patch(
-            "shesha.experimental.web.ws.ArxivVerifier"
-        ):
+        with patch("shesha.experimental.web.ws.ArxivVerifier"):
             with client.websocket_connect("/api/ws") as ws:
-                ws.send_json({
-                    "type": "check_citations",
-                    "topic": "test",
-                    "paper_ids": ["unknown-paper"],
-                })
+                ws.send_json(
+                    {
+                        "type": "check_citations",
+                        "topic": "test",
+                        "paper_ids": ["unknown-paper"],
+                    }
+                )
                 messages = []
                 while True:
                     msg = ws.receive_json()
@@ -126,13 +128,12 @@ class TestCheckCitationsHandler:
                     if msg["type"] in ("citation_report", "error"):
                         break
 
-        # Should still get a report (empty), not an error
+        # Should still get a report with empty papers list, not an error
         report_msgs = [m for m in messages if m["type"] == "citation_report"]
         assert len(report_msgs) == 1
+        assert report_msgs[0]["papers"] == []
 
-    def test_falls_back_to_text_extraction(
-        self, client: TestClient, mock_state: MagicMock
-    ) -> None:
+    def test_falls_back_to_text_extraction(self, client: TestClient, mock_state: MagicMock) -> None:
         """When no source files, falls back to extracting arXiv IDs from document text."""
         mock_state.topic_mgr.resolve.return_value = "proj-id"
 
@@ -151,19 +152,19 @@ class TestCheckCitationsHandler:
             citation_key="text-2301.55555",
             status=VerificationStatus.VERIFIED,
         )
-        with patch(
-            "shesha.experimental.web.ws.ArxivVerifier"
-        ) as mock_verifier_cls:
+        with patch("shesha.experimental.web.ws.ArxivVerifier") as mock_verifier_cls:
             mock_verifier = MagicMock()
             mock_verifier.verify.return_value = mock_result
             mock_verifier_cls.return_value = mock_verifier
 
             with client.websocket_connect("/api/ws") as ws:
-                ws.send_json({
-                    "type": "check_citations",
-                    "topic": "test",
-                    "paper_ids": ["2301.00001"],
-                })
+                ws.send_json(
+                    {
+                        "type": "check_citations",
+                        "topic": "test",
+                        "paper_ids": ["2301.00001"],
+                    }
+                )
                 messages = []
                 while True:
                     msg = ws.receive_json()

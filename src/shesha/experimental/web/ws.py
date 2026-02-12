@@ -16,7 +16,7 @@ from shesha.experimental.arxiv.citations import (
     extract_citations_from_bbl,
     extract_citations_from_bib,
     extract_citations_from_text,
-    format_check_report,
+    format_check_report_json,
 )
 from shesha.experimental.arxiv.models import CheckReport, ExtractedCitation
 from shesha.experimental.web.dependencies import AppState
@@ -204,9 +204,7 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
     return cancel_event
 
 
-async def _handle_check_citations(
-    ws: WebSocket, state: AppState, data: dict[str, object]
-) -> None:
+async def _handle_check_citations(ws: WebSocket, state: AppState, data: dict[str, object]) -> None:
     """Check citations for selected papers and stream progress."""
     topic = str(data.get("topic", ""))
     project_id = state.topic_mgr.resolve(topic)
@@ -224,21 +222,18 @@ async def _handle_check_citations(
     loop = asyncio.get_event_loop()
     verifier = ArxivVerifier(searcher=state.searcher)
     total = len(paper_ids)
-    all_reports: list[str] = []
+    all_papers: list[dict[str, object]] = []
 
     for idx, pid in enumerate(paper_ids, 1):
-        await ws.send_json(
-            {"type": "citation_progress", "current": idx, "total": total}
-        )
-        report_text = await loop.run_in_executor(
+        await ws.send_json({"type": "citation_progress", "current": idx, "total": total})
+        paper_json = await loop.run_in_executor(
             None,
             functools.partial(_check_single_paper, str(pid), state, verifier, project_id),
         )
-        if report_text is not None:
-            all_reports.append(report_text)
+        if paper_json is not None:
+            all_papers.append(paper_json)
 
-    combined = "\n\n".join(all_reports) if all_reports else "No papers had cached metadata."
-    await ws.send_json({"type": "citation_report", "report": combined})
+    await ws.send_json({"type": "citation_report", "papers": all_papers})
 
 
 def _check_single_paper(
@@ -246,8 +241,8 @@ def _check_single_paper(
     state: AppState,
     verifier: ArxivVerifier,
     project_id: str,
-) -> str | None:
-    """Check citations for a single paper. Returns formatted report or None."""
+) -> dict[str, object] | None:
+    """Check citations for a single paper. Returns JSON-serializable dict or None."""
     meta = state.cache.get_meta(paper_id)
     if meta is None:
         return None
@@ -281,4 +276,4 @@ def _check_single_paper(
         verification_results=results,
         llm_phrases=llm_phrases,
     )
-    return format_check_report(report)
+    return format_check_report_json(report)

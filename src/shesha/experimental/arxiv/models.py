@@ -98,6 +98,7 @@ class VerificationResult:
     message: str | None = None
     actual_title: str | None = None
     arxiv_url: str | None = None
+    severity: str | None = None  # "error" or "warning"; None for VERIFIED/UNRESOLVED
 
 
 @dataclass

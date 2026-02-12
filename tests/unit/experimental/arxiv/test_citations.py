@@ -211,7 +211,7 @@ class TestExtractFromText:
 
         text = (
             "We build on prior work [1] and extend the results of arXiv:2301.04567.\n"
-            "See also 2502.67890v2 for related approaches.\n"
+            "See also arXiv:2502.67890v2 for related approaches.\n"
         )
         cites = extract_citations_from_text(text)
         assert len(cites) == 2
@@ -236,3 +236,102 @@ class TestExtractFromText:
         text = "We cite arXiv:2301.04567 here and again arXiv:2301.04567 there."
         cites = extract_citations_from_text(text)
         assert len(cites) == 1
+
+    def test_requires_arxiv_context(self) -> None:
+        """Bare IDs without arXiv context should not be extracted from text."""
+        from shesha.experimental.arxiv.citations import extract_citations_from_text
+
+        text = "The parameter was 2301.04567 in our experiment."
+        assert extract_citations_from_text(text) == []
+
+    def test_extracts_with_arxiv_url(self) -> None:
+        """IDs in arxiv.org URLs should be extracted."""
+        from shesha.experimental.arxiv.citations import extract_citations_from_text
+
+        text = "Available at https://arxiv.org/abs/2301.04567v2."
+        cites = extract_citations_from_text(text)
+        assert len(cites) == 1
+        assert cites[0].arxiv_id == "2301.04567v2"
+
+
+class TestArxivIdPattern:
+    """Tests for strict arXiv ID regex validation."""
+
+    def test_valid_standard_id(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        assert ARXIV_ID_PATTERN.fullmatch("2301.04567") is not None
+
+    def test_valid_five_digit_id(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        assert ARXIV_ID_PATTERN.fullmatch("2501.12345") is not None
+
+    def test_valid_with_version(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        assert ARXIV_ID_PATTERN.fullmatch("2301.04567v2") is not None
+
+    def test_valid_with_arxiv_prefix(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        m = ARXIV_ID_PATTERN.fullmatch("arXiv:2301.04567")
+        assert m is not None
+        assert m.group(1) == "2301.04567"
+
+    def test_valid_earliest_new_style(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        # April 2007 was first new-style month
+        assert ARXIV_ID_PATTERN.fullmatch("0704.0001") is not None
+
+    def test_rejects_month_over_12(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        # 2016.25840: month 16 > 12
+        assert ARXIV_ID_PATTERN.fullmatch("2016.25840") is None
+
+    def test_rejects_doi_fragment_9876(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        # 9876.00159 from DOI 10.1111/1467-9876.00159
+        assert ARXIV_ID_PATTERN.fullmatch("9876.00159") is None
+
+    def test_rejects_doi_fragment_1149(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        # 1149.11012 from DOI 10.1145/1101149.1101236
+        assert ARXIV_ID_PATTERN.fullmatch("1149.11012") is None
+
+    def test_rejects_year_before_07(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        assert ARXIV_ID_PATTERN.fullmatch("0601.12345") is None
+
+    def test_rejects_impossible_month_56(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        assert ARXIV_ID_PATTERN.fullmatch("0156.13901") is None
+
+    def test_rejects_impossible_month_65(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        assert ARXIV_ID_PATTERN.fullmatch("5765.32358") is None
+
+    def test_rejects_year_page_fragment(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        # 8317.1983 from a year-based bib key
+        assert ARXIV_ID_PATTERN.fullmatch("8317.1983") is None
+
+    def test_rejects_month_00(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        assert ARXIV_ID_PATTERN.fullmatch("2300.12345") is None
+
+    def test_search_does_not_match_doi_in_text(self) -> None:
+        from shesha.experimental.arxiv.citations import ARXIV_ID_PATTERN
+
+        # Should not extract arXiv IDs from DOI strings
+        text = "doi:10.1111/1467-9876.00159"
+        assert ARXIV_ID_PATTERN.search(text) is None

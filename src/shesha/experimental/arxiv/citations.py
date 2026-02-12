@@ -27,8 +27,13 @@ LLM_TELL_PATTERNS = [
     re.compile(r"I was trained on data up to", re.IGNORECASE),
 ]
 
-# Pattern to find arXiv IDs in text
-ARXIV_ID_PATTERN = re.compile(r"(?:arXiv:)?(\d{4}\.\d{4,5}(?:v\d+)?)")
+# Pattern to find new-style arXiv IDs: YYMM.NNNNN where YY >= 07, MM is 01-12
+ARXIV_ID_PATTERN = re.compile(r"(?:arXiv:)?((?:0[7-9]|[1-9]\d)(?:0[1-9]|1[0-2])\.\d{4,5}(?:v\d+)?)")
+
+# For text extraction: require arXiv context (arXiv:, arxiv.org/abs/)
+ARXIV_ID_IN_TEXT_PATTERN = re.compile(
+    r"(?:arXiv:|arxiv\.org/abs/)((?:0[7-9]|[1-9]\d)(?:0[1-9]|1[0-2])\.\d{4,5}(?:v\d+)?)"
+)
 
 
 def extract_citations_from_bib(bib_content: str) -> list[ExtractedCitation]:
@@ -112,12 +117,14 @@ def extract_citations_from_text(text: str) -> list[ExtractedCitation]:
     """Extract citations from plain text by finding arXiv IDs.
 
     Best-effort fallback for PDF-only papers where no .bib/.bbl is available.
+    Only extracts IDs that appear near arXiv context tokens (arXiv:, arxiv.org/abs/)
+    to avoid false positives from DOI fragments and page numbers.
     """
     if not text.strip():
         return []
     seen: set[str] = set()
     citations = []
-    for match in ARXIV_ID_PATTERN.finditer(text):
+    for match in ARXIV_ID_IN_TEXT_PATTERN.finditer(text):
         arxiv_id = match.group(1)
         if arxiv_id in seen:
             continue
@@ -179,6 +186,7 @@ class ArxivVerifier:
                 citation_key=citation.key,
                 status=VerificationStatus.NOT_FOUND,
                 message=f"arXiv ID {citation.arxiv_id} does not exist",
+                severity="error",
             )
         # Compare titles if we have one
         if citation.title and not _titles_match(citation.title, actual.title):
@@ -188,6 +196,7 @@ class ArxivVerifier:
                 message=f'Cites "{citation.title}" but actual paper is "{actual.title}"',
                 actual_title=actual.title,
                 arxiv_url=actual.arxiv_url,
+                severity="warning",
             )
         return VerificationResult(
             citation_key=citation.key,
@@ -242,3 +251,56 @@ def format_check_report(report: CheckReport) -> str:
         lines.append("LLM-tell phrases: none detected")
 
     return "\n".join(lines)
+
+
+def format_check_report_json(report: CheckReport) -> dict[str, object]:
+    """Format a citation check report as a JSON-serializable dict.
+
+    Groups papers into: "verified", "unverifiable", or "issues".
+    """
+    mismatches = [
+        r
+        for r in report.verification_results
+        if r.status in (VerificationStatus.MISMATCH, VerificationStatus.NOT_FOUND)
+    ]
+
+    has_mismatches = len(mismatches) > 0
+    has_llm_phrases = len(report.llm_phrases) > 0
+    has_unresolved = report.unresolved_count > 0
+    zero_citations = len(report.citations) == 0
+
+    has_issues = has_mismatches or has_llm_phrases or zero_citations
+
+    if has_issues:
+        group = "issues"
+    elif has_unresolved:
+        group = "unverifiable"
+    else:
+        group = "verified"
+
+    # Strip version from arxiv_id for the URL (use base ID)
+    base_id = report.arxiv_id.split("v")[0] if "v" in report.arxiv_id else report.arxiv_id
+
+    return {
+        "arxiv_id": report.arxiv_id,
+        "title": report.title,
+        "arxiv_url": f"https://arxiv.org/abs/{base_id}",
+        "total_citations": len(report.citations),
+        "verified_count": report.verified_count,
+        "unresolved_count": report.unresolved_count,
+        "mismatch_count": report.mismatch_count,
+        "has_issues": has_issues,
+        "group": group,
+        "mismatches": [
+            {
+                "key": r.citation_key,
+                "message": r.message,
+                "severity": r.severity or "error",
+                "arxiv_url": r.arxiv_url,
+            }
+            for r in mismatches
+        ],
+        "llm_phrases": [
+            {"line": line_num, "text": phrase} for line_num, phrase in report.llm_phrases
+        ],
+    }

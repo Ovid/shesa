@@ -13,7 +13,7 @@ import PaperDetail from './components/PaperDetail'
 import { useTheme } from './hooks/useTheme'
 import { useWebSocket } from './hooks/useWebSocket'
 import { api } from './api/client'
-import type { ContextBudget, PaperInfo } from './types'
+import type { ContextBudget, PaperInfo, PaperReport } from './types'
 
 export default function App() {
   const { dark, toggle: toggleTheme } = useTheme()
@@ -66,7 +66,7 @@ export default function App() {
         setCitationProgress({ current: msg.current, total: msg.total })
       } else if (msg.type === 'citation_report') {
         setCitationChecking(false)
-        setCitationReport(msg.report)
+        setCitationReport(msg.papers)
       }
     })
   }, [onMessage, activeTopic])
@@ -78,7 +78,7 @@ export default function App() {
   // Citation check state
   const [citationChecking, setCitationChecking] = useState(false)
   const [citationProgress, setCitationProgress] = useState<{ current: number; total: number } | null>(null)
-  const [citationReport, setCitationReport] = useState<string | null>(null)
+  const [citationReport, setCitationReport] = useState<PaperReport[] | null>(null)
   const [citationError, setCitationError] = useState<string | null>(null)
 
   // Download tasks
