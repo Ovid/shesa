@@ -278,6 +278,7 @@ class TestTUICommands:
 
         state = _make_state(current_topic="2025-01-15-quantum")
         state.topic_mgr.get_topic_info_by_project_id.return_value = MagicMock(name="quantum")
+        state.topic_mgr.resolve.return_value = "2025-01-15-quantum"
         state.shesha.get_project.return_value = MagicMock()
         app = create_app(state, model="gpt-4o")
         async with app.run_test() as pilot:
@@ -290,6 +291,26 @@ class TestTUICommands:
             info_bar = pilot.app.query_one(InfoBar)
             line1, _ = info_bar._state.render_lines()
             assert "No topic" in line1
+
+    async def test_topic_delete_other_does_not_reset_current(self) -> None:
+        """/topic delete of a different topic must not clear current_topic."""
+        from arxiv_explorer import create_app
+
+        # current topic is "quantum"; deleting "a" should not clear it
+        # (the old substring check `"a" in "2025-01-15-quantum"` was True)
+        state = _make_state(current_topic="2025-01-15-quantum")
+        state.topic_mgr.get_topic_info_by_project_id.return_value = MagicMock(name="quantum")
+        state.shesha.get_project.return_value = MagicMock()
+        state.topic_mgr.resolve.return_value = "2025-01-10-a"
+        app = create_app(state, model="gpt-4o")
+        async with app.run_test() as pilot:
+            resolved = pilot.app._command_registry.resolve("/topic delete a")
+            assert resolved is not None
+            handler, args, _threaded = resolved
+            handler(args)
+            await pilot.pause()
+            # current_topic must still be set — "a" is a different topic
+            assert state.current_topic == "2025-01-15-quantum"
 
     async def test_topic_rename_calls_rename(self) -> None:
         """/topic rename <old> <new> calls topic_mgr.rename()."""

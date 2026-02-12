@@ -255,9 +255,10 @@ def create_app(
             output.add_system_message("Usage: /topic delete <name>")
             return
         try:
+            deleted_project_id = state.topic_mgr.resolve(args)
             state.topic_mgr.delete(args)
             output.add_system_message(f"Deleted topic: {args}")
-            if state.current_topic and args in state.current_topic:
+            if state.current_topic and state.current_topic == deleted_project_id:
                 state.current_topic = None
                 tui.query_one(InfoBar).update_project_name("No topic")
         except ValueError as e:
