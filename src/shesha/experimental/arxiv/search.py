@@ -66,8 +66,26 @@ class ArxivSearcher:
         self._page_size = page_size
 
     def close(self) -> None:
-        """Close the underlying HTTP session."""
-        self._client._session.close()
+        """Close the underlying HTTP session.
+
+        ``requests``' ``session.close()`` drops pool references via
+        ``PoolManager.clear()`` without calling ``pool.close()``, so
+        pooled connections and their ``http.client.HTTPResponse`` objects
+        linger until the garbage collector finalises them.  During
+        interpreter shutdown the finalisation order is unpredictable and
+        ``urllib3.HTTPResponse.__del__`` (inherited from ``io.IOBase``)
+        can try to flush an already-closed socket.  Explicitly closing
+        every pool first avoids this.
+        """
+        session = self._client._session
+        for adapter in session.adapters.values():
+            pool_manager = getattr(adapter, "poolmanager", None)
+            if pool_manager is not None:
+                with pool_manager.pools.lock:
+                    pools = list(pool_manager.pools._container.values())
+                for pool in pools:
+                    pool.close()
+        session.close()
 
     def search(
         self,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import UTC, datetime
+from threading import RLock
 from unittest.mock import MagicMock, patch
 
 
@@ -222,9 +224,18 @@ class TestArxivSearcher:
         """close() should close the arxiv.Client's requests session."""
         from shesha.experimental.arxiv.search import ArxivSearcher
 
+        mock_pool = MagicMock()
+        mock_pools_container = MagicMock()
+        mock_pools_container.lock = RLock()
+        mock_pools_container._container = OrderedDict({"key": mock_pool})
+        mock_adapter = MagicMock()
+        mock_adapter.poolmanager.pools = mock_pools_container
+
         mock_client = MagicMock()
+        mock_client._session.adapters.values.return_value = [mock_adapter]
         mock_arxiv.Client.return_value = mock_client
 
         searcher = ArxivSearcher()
         searcher.close()
+        mock_pool.close.assert_called_once()
         mock_client._session.close.assert_called_once()
