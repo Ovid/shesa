@@ -420,6 +420,7 @@ class RLMEngine:
         on_progress: ProgressCallback | None = None,
         storage: StorageBackend | None = None,
         project_id: str | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> QueryResult:
         """Run an RLM query against documents."""
         start_time = time.time()
@@ -532,6 +533,18 @@ class RLMEngine:
             executor.setup_context(wrapped_documents)
 
             for iteration in range(self.max_iterations):
+                # Check for cancellation before each iteration
+                if cancel_event is not None and cancel_event.is_set():
+                    answer = "[interrupted]"
+                    query_result = QueryResult(
+                        answer=answer,
+                        trace=trace,
+                        token_usage=token_usage,
+                        execution_time=time.time() - start_time,
+                    )
+                    _finalize_trace(answer, "interrupted")
+                    return query_result
+
                 executor.llm_query_handler = _make_llm_callback(iteration)
                 # Get LLM response
                 response = llm.complete(messages=messages)

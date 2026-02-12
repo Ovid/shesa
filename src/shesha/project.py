@@ -1,5 +1,6 @@
 """Project class for managing document collections."""
 
+import threading
 from pathlib import Path
 
 from shesha.exceptions import EngineNotConfiguredError
@@ -69,6 +70,7 @@ class Project:
         self,
         question: str,
         on_progress: ProgressCallback | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> QueryResult:
         """Query the documents with a question."""
         if self._rlm_engine is None:
@@ -82,4 +84,5 @@ class Project:
             on_progress=on_progress,
             storage=self._storage,
             project_id=self.project_id,
+            cancel_event=cancel_event,
         )
