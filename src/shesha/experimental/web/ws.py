@@ -18,7 +18,14 @@ from shesha.experimental.arxiv.citations import (
     extract_citations_from_text,
     format_check_report_json,
 )
-from shesha.experimental.arxiv.models import CheckReport, ExtractedCitation
+from shesha.experimental.arxiv.models import CheckReport, ExtractedCitation, VerificationStatus
+from shesha.experimental.arxiv.relevance import check_topical_relevance
+from shesha.experimental.arxiv.verifiers import (
+    CascadingVerifier,
+    CrossRefVerifier,
+    OpenAlexVerifier,
+    SemanticScholarVerifier,
+)
 from shesha.experimental.web.dependencies import AppState
 from shesha.experimental.web.session import WebConversationSession
 from shesha.models import ParsedDocument
@@ -225,16 +232,35 @@ async def _handle_check_citations(ws: WebSocket, state: AppState, data: dict[str
         )
         return
 
+    polite_email = data.get("polite_email")
+    email_str = str(polite_email) if polite_email else None
+
     loop = asyncio.get_running_loop()
-    verifier = ArxivVerifier(searcher=state.searcher)
+    verifier = CascadingVerifier(
+        arxiv_verifier=ArxivVerifier(searcher=state.searcher),
+        crossref_verifier=CrossRefVerifier(polite_email=email_str),
+        openalex_verifier=OpenAlexVerifier(polite_email=email_str),
+        semantic_scholar_verifier=SemanticScholarVerifier(),
+        polite_email=email_str,
+        model=state.model,
+    )
     total = len(paper_ids)
     all_papers: list[dict[str, object]] = []
 
     for idx, pid in enumerate(paper_ids, 1):
-        await ws.send_json({"type": "citation_progress", "current": idx, "total": total})
+        await ws.send_json(
+            {
+                "type": "citation_progress",
+                "current": idx,
+                "total": total,
+                "phase": "Verifying citations...",
+            }
+        )
         paper_json = await loop.run_in_executor(
             None,
-            functools.partial(_check_single_paper, str(pid), state, verifier, project_id),
+            functools.partial(
+                _check_single_paper, str(pid), state, verifier, project_id, state.model
+            ),
         )
         if paper_json is not None:
             all_papers.append(paper_json)
@@ -245,8 +271,9 @@ async def _handle_check_citations(ws: WebSocket, state: AppState, data: dict[str
 def _check_single_paper(
     paper_id: str,
     state: AppState,
-    verifier: ArxivVerifier,
+    verifier: CascadingVerifier,
     project_id: str,
+    model: str,
 ) -> dict[str, object] | None:
     """Check citations for a single paper. Returns JSON-serializable dict or None."""
     meta = state.cache.get_meta(paper_id)
@@ -274,6 +301,21 @@ def _check_single_paper(
 
     llm_phrases = detect_llm_phrases(full_text)
     results = [verifier.verify(c) for c in citations]
+
+    # Topical relevance check on verified citations
+    verified_keys = {
+        r.citation_key
+        for r in results
+        if r.status in (VerificationStatus.VERIFIED, VerificationStatus.VERIFIED_EXTERNAL)
+    }
+    relevance_results = check_topical_relevance(
+        paper_title=meta.title,
+        paper_abstract=getattr(meta, "abstract", "") or "",
+        citations=citations,
+        verified_keys=verified_keys,
+        model=model,
+    )
+    results.extend(relevance_results)
 
     report = CheckReport(
         arxiv_id=meta.arxiv_id,
