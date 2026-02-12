@@ -102,6 +102,9 @@ web = [
 
 Frontend: Vite, React 19, TypeScript, Tailwind CSS. No component library.
 
+In production, FastAPI serves the built frontend assets from
+`frontend/dist/` and static assets (logo image) from `images/`.
+
 ---
 
 ## REST API
@@ -149,11 +152,9 @@ the offset and increments it on "Load more."
 
 ### Citations
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/topics/{name}/check` | Run citation check (optional `{arxiv_id}` filter) |
-
-Citation checking streams progress via WebSocket (see below).
+Citation checking is initiated via WebSocket (see WebSocket Protocol below)
+and streams progress live. No REST endpoint — the check is inherently
+long-running and interactive.
 
 ### Traces
 
@@ -279,6 +280,27 @@ automatic retry. The chat input disables until reconnected.
 ---
 
 ## Frontend Components
+
+### Header (top, fixed)
+
+- **Logo:** `images/shesha.png` served as a static asset by FastAPI.
+  Fallback to a styled "S" if the image fails to load.
+- **Title:** "Shesha" with subtitle "arXiv Explorer" and a small
+  "Experimental" pill badge.
+- **Action buttons (right side):** Search (toggles SearchPanel), Check
+  (initiates citation check via WebSocket), Export (downloads markdown
+  transcript), Help ("?" opens HelpPanel), theme toggle (sun/moon icon).
+- **Divider** between Export and theme toggle (thin vertical line).
+
+### PaperBar (horizontal strip below header)
+
+Shows papers in the active topic as clickable chips.
+
+- Each chip: arXiv ID + green dot if loaded (has parsed content).
+- Click a chip to expand PaperDetail below the bar.
+- Click the active chip again to collapse.
+- Horizontally scrollable when papers overflow.
+- Label "Papers:" at the left edge.
 
 ### TopicSidebar (left, collapsible)
 
