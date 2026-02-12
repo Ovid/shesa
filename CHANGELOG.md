@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Web interface: paper sidebar redesign** — papers moved from top chip bar into collapsible lists under each topic in the sidebar, showing titles instead of arXiv IDs
+- Web interface: clicking a paper title opens full detail view (abstract, authors, metadata) in the main content area
+- Web interface: paper selection checkboxes with All/None toggle to scope queries to specific papers
 - TUI cancellation now uses real `cancel_event` instead of cosmetic query-ID bump
 
 ### Added
