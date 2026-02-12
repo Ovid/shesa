@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+  /* Dark mode (default) */
+  --color-surface-0: #0b1121;
+  --color-surface-1: #0f1729;
+  --color-surface-2: #151d33;
+  --color-border: #1e2a45;
+  --color-text-primary: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-text-dim: #5a6b8a;
+  --color-accent: #2dd4bf;
+  --color-accent-dim: rgba(45, 212, 191, 0.08);
+  --color-green: #4caf50;
+  --color-amber: #ff9800;
+  --color-red: #f44336;
+}
+
+/* Light mode overrides — toggled via .light class on <html> */
+.light {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f8f9fb;
+  --color-surface-2: #eef0f4;
+  --color-border: #dde1e8;
+  --color-text-primary: #1a202c;
+  --color-text-secondary: #4a5568;
+  --color-text-dim: #9aa3b2;
+  --color-accent: #0d9488;
+  --color-accent-dim: rgba(13, 148, 136, 0.08);
+  --color-green: #2e7d32;
+  --color-amber: #e65100;
+  --color-red: #c62828;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
