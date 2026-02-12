@@ -12,9 +12,10 @@ interface TopicSidebarProps {
   onSelectionChange: (selected: Set<string>) => void
   onPaperClick: (paper: PaperInfo) => void
   onPapersLoaded: (papers: PaperInfo[]) => void
+  style?: React.CSSProperties
 }
 
-export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChange, refreshKey, selectedPapers, onSelectionChange, onPaperClick, onPapersLoaded }: TopicSidebarProps) {
+export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChange, refreshKey, selectedPapers, onSelectionChange, onPaperClick, onPapersLoaded, style }: TopicSidebarProps) {
   const [topics, setTopics] = useState<TopicInfo[]>([])
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -99,7 +100,7 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
   }
 
   return (
-    <aside className="w-56 border-r border-border bg-surface-1 flex flex-col shrink-0">
+    <aside className="border-r border-border bg-surface-1 flex flex-col shrink-0" style={style}>
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <span className="text-xs text-text-dim font-semibold uppercase tracking-wider">Topics</span>

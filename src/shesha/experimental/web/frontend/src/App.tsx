@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import Header from './components/Header'
 import StatusBar from './components/StatusBar'
 import ToastContainer, { showToast } from './components/Toast'
@@ -27,6 +27,8 @@ export default function App() {
   const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set())
   const [viewingPaper, setViewingPaper] = useState<PaperInfo | null>(null)
   const [_topicPapersList, setTopicPapersList] = useState<PaperInfo[]>([])
+  const [sidebarWidth, setSidebarWidth] = useState(224)
+  const dragging = useRef(false)
 
   // Load model name from API on mount
   useEffect(() => {
@@ -173,6 +175,29 @@ export default function App() {
     setDownloadTaskIds(prev => prev.filter(id => id !== taskId))
   }, [])
 
+  const handleSidebarDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    const startX = e.clientX
+    const startWidth = sidebarWidth
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return
+      const newWidth = Math.min(600, Math.max(160, startWidth + ev.clientX - startX))
+      setSidebarWidth(newWidth)
+    }
+    const onUp = () => {
+      dragging.current = false
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [sidebarWidth])
+
   return (
     <div className="h-screen flex flex-col bg-surface-0 text-text-primary font-sans">
       <Header
@@ -202,6 +227,13 @@ export default function App() {
           onSelectionChange={setSelectedPapers}
           onPaperClick={handlePaperClick}
           onPapersLoaded={handlePapersLoaded}
+          style={{ width: sidebarWidth }}
+        />
+
+        {/* Resize handle */}
+        <div
+          onMouseDown={handleSidebarDrag}
+          className="w-1 cursor-col-resize hover:bg-accent/30 active:bg-accent/50 transition-colors shrink-0"
         />
 
         {/* Center column */}
