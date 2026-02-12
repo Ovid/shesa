@@ -72,6 +72,22 @@ class TestExtractFromBib:
             extract_citations_from_bib(bib)
         assert "Unknown block type" not in caplog.text
 
+    def test_eprint_with_arxiv_prefix_normalized(self) -> None:
+        """eprint = {arXiv:2301.04567} should store just '2301.04567'."""
+        from shesha.experimental.arxiv.citations import extract_citations_from_bib
+
+        bib = """
+@article{prefixed,
+    author = {X},
+    title = {T},
+    year = {2023},
+    eprint = {arXiv:2301.04567},
+}
+"""
+        cites = extract_citations_from_bib(bib)
+        assert len(cites) == 1
+        assert cites[0].arxiv_id == "2301.04567"
+
     def test_eprint_url_not_treated_as_arxiv_id(self) -> None:
         """A URL in the eprint field must not be accepted as an arXiv ID."""
         from shesha.experimental.arxiv.citations import extract_citations_from_bib
