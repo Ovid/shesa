@@ -131,3 +131,105 @@ def test_download_task_not_found(client: TestClient, mock_state: MagicMock) -> N
     mock_state.download_tasks = {}
     resp = client.get("/api/papers/tasks/nonexistent")
     assert resp.status_code == 404
+
+
+def test_add_paper_download_fetches_meta_from_searcher(
+    client: TestClient, mock_state: MagicMock
+) -> None:
+    """Background download should fetch metadata via searcher, not cache.
+
+    When cache.has() is False, cache.get_meta() also returns None (both check
+    meta.json existence). The download thread must use searcher.get_by_id()
+    to obtain metadata before calling download_paper().
+    """
+    import threading
+    from datetime import datetime
+
+    from shesha.experimental.arxiv.models import PaperMeta
+
+    mock_state.cache.has.return_value = False
+    mock_state.topic_mgr.resolve.side_effect = lambda name: f"proj-{name}"
+
+    meta = PaperMeta(
+        arxiv_id="2501.08753",
+        title="Test Paper",
+        authors=["Author A"],
+        abstract="Abstract",
+        published=datetime(2025, 1, 15),
+        updated=datetime(2025, 1, 15),
+        categories=["q-bio.PE"],
+        primary_category="q-bio.PE",
+        pdf_url="https://arxiv.org/pdf/2501.08753",
+        arxiv_url="https://arxiv.org/abs/2501.08753",
+    )
+    mock_state.searcher.get_by_id.return_value = meta
+
+    mock_doc = MagicMock()
+
+    # Capture the thread so we can wait for it
+    original_thread_init = threading.Thread.__init__
+    thread_ref: list[threading.Thread] = []
+
+    def capture_thread(self: threading.Thread, *args: object, **kwargs: object) -> None:
+        original_thread_init(self, *args, **kwargs)  # type: ignore[arg-type]
+        thread_ref.append(self)
+
+    with (
+        patch.object(threading.Thread, "__init__", capture_thread),
+        patch(
+            "shesha.experimental.arxiv.download.download_paper", return_value=meta
+        ) as mock_download,
+        patch(
+            "shesha.experimental.arxiv.download.to_parsed_document", return_value=mock_doc
+        ),
+    ):
+        resp = client.post(
+            "/api/papers/add",
+            json={"arxiv_id": "2501.08753", "topics": ["Chess"]},
+        )
+
+        assert resp.status_code == 202
+        task_id = resp.json()["task_id"]
+
+        # Wait for the background thread to finish
+        for t in thread_ref:
+            t.join(timeout=5)
+
+    # The download thread should have fetched meta from searcher, not cache
+    mock_state.searcher.get_by_id.assert_called_once_with("2501.08753")
+    mock_download.assert_called_once_with(meta, mock_state.cache)
+
+    # Task should complete successfully
+    assert mock_state.download_tasks[task_id]["papers"][0]["status"] == "complete"
+
+
+def test_add_paper_download_errors_when_searcher_returns_none(
+    client: TestClient, mock_state: MagicMock
+) -> None:
+    """If searcher can't find the paper, the task should report error."""
+    import threading
+
+    mock_state.cache.has.return_value = False
+    mock_state.topic_mgr.resolve.side_effect = lambda name: f"proj-{name}"
+    mock_state.searcher.get_by_id.return_value = None
+
+    original_thread_init = threading.Thread.__init__
+    thread_ref: list[threading.Thread] = []
+
+    def capture_thread(self: threading.Thread, *args: object, **kwargs: object) -> None:
+        original_thread_init(self, *args, **kwargs)  # type: ignore[arg-type]
+        thread_ref.append(self)
+
+    with patch.object(threading.Thread, "__init__", capture_thread):
+        resp = client.post(
+            "/api/papers/add",
+            json={"arxiv_id": "9999.99999", "topics": ["Chess"]},
+        )
+
+        assert resp.status_code == 202
+        task_id = resp.json()["task_id"]
+
+        for t in thread_ref:
+            t.join(timeout=5)
+
+    assert mock_state.download_tasks[task_id]["papers"][0]["status"] == "error"

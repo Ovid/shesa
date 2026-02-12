@@ -148,7 +148,7 @@ def create_api(state: AppState) -> FastAPI:
             assert isinstance(papers_list, list)
             papers_list[0]["status"] = "downloading"
             try:
-                meta = state.cache.get_meta(body.arxiv_id)
+                meta = state.searcher.get_by_id(body.arxiv_id)
                 if meta is None:
                     papers_list[0]["status"] = "error"
                     return
