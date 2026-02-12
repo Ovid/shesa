@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 import litellm
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from shesha.experimental.arxiv.download import to_parsed_document
@@ -29,6 +29,7 @@ from shesha.experimental.web.schemas import (
     TraceStepSchema,
 )
 from shesha.experimental.web.session import WebConversationSession
+from shesha.experimental.web.ws import websocket_handler
 
 
 def _resolve_topic_or_404(state: AppState, name: str) -> str:
@@ -423,5 +424,11 @@ def create_api(state: AppState) -> FastAPI:
             percentage=round(percentage, 1),
             level=level,
         )
+
+    # --- WebSocket ---
+
+    @app.websocket("/api/ws")
+    async def ws_endpoint(ws: WebSocket) -> None:
+        await websocket_handler(ws, state)
 
     return app
