@@ -108,7 +108,7 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
     # Use asyncio.Queue for thread-safe message passing from the query
     # thread to the async WebSocket send loop.
     message_queue: asyncio.Queue[dict[str, object] | None] = asyncio.Queue()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def on_progress(
         step_type: StepType, iteration: int, content: str, token_usage: TokenUsage
@@ -219,7 +219,7 @@ async def _handle_check_citations(ws: WebSocket, state: AppState, data: dict[str
         )
         return
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     verifier = ArxivVerifier(searcher=state.searcher)
     total = len(paper_ids)
     all_papers: list[dict[str, object]] = []
