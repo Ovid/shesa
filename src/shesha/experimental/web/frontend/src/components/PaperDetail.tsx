@@ -11,45 +11,53 @@ export default function PaperDetail({ paper, topicName, onRemove, onClose }: Pap
   if (!paper) return null
 
   return (
-    <div className="px-4 py-3 border-t border-border bg-surface-2">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-text-primary leading-tight">{paper.title}</h3>
-          <p className="text-xs text-text-secondary mt-1">
-            {paper.authors.join(', ')}
-          </p>
-          <p className="text-xs text-text-dim mt-1 line-clamp-3">
-            {paper.abstract}
-          </p>
-          <div className="flex items-center gap-3 mt-2 text-[10px] text-text-dim font-mono">
-            <span>{paper.category}</span>
-            <span>{paper.date}</span>
-            <a
-              href={paper.arxiv_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-accent hover:underline"
-            >
-              arXiv
-            </a>
-          </div>
-        </div>
-        <div className="flex flex-col gap-1 shrink-0">
-          <button
-            onClick={onClose}
-            className="text-text-dim hover:text-text-secondary text-xs"
+    <div className="flex-1 flex flex-col min-w-0 min-h-0">
+      {/* Top bar with Back button */}
+      <div className="flex items-center gap-3 px-6 py-3 border-b border-border bg-surface-1">
+        <button
+          onClick={onClose}
+          className="text-sm text-text-secondary hover:text-accent transition-colors"
+        >
+          &larr; Back
+        </button>
+        <span className="text-xs text-text-dim font-mono">{paper.arxiv_id}</span>
+      </div>
+
+      {/* Paper content */}
+      <div className="flex-1 overflow-y-auto px-6 py-6 max-w-3xl">
+        <h1 className="text-xl font-semibold text-text-primary leading-tight">
+          {paper.title}
+        </h1>
+        <p className="text-sm text-text-secondary mt-2">
+          {paper.authors.join(', ')}
+        </p>
+        <div className="flex items-center gap-3 mt-3 text-xs text-text-dim font-mono">
+          <span>{paper.category}</span>
+          <span>{paper.date}</span>
+          <a
+            href={paper.arxiv_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent hover:underline"
           >
-            Close
-          </button>
+            View on arXiv
+          </a>
+        </div>
+        <div className="mt-6 text-sm text-text-secondary leading-relaxed">
+          {paper.abstract}
+        </div>
+
+        {/* Actions */}
+        <div className="mt-8 flex gap-3">
           <button
             onClick={() => {
               if (confirm(`Remove paper ${paper.arxiv_id} from "${topicName}"?`)) {
                 onRemove(paper.arxiv_id)
               }
             }}
-            className="text-red hover:text-red/80 text-xs"
+            className="px-3 py-1.5 text-xs text-red border border-red/30 rounded hover:bg-red/10 transition-colors"
           >
-            Remove
+            Remove from topic
           </button>
         </div>
       </div>
