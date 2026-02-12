@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 class TestArxivVerifier:
     """Tests for ArxivVerifier."""
 
-    @patch("shesha.experimental.arxiv.citations.ArxivSearcher")
-    def test_verified_when_title_matches(self, mock_searcher_cls: MagicMock) -> None:
+    def test_verified_when_title_matches(self) -> None:
         from shesha.experimental.arxiv.citations import ArxivVerifier
         from shesha.experimental.arxiv.models import (
             ExtractedCitation,
@@ -19,7 +18,6 @@ class TestArxivVerifier:
         )
 
         mock_searcher = MagicMock()
-        mock_searcher_cls.return_value = mock_searcher
         mock_searcher.get_by_id.return_value = PaperMeta(
             arxiv_id="2301.04567",
             title="Quantum Error Correction Survey",
@@ -43,8 +41,7 @@ class TestArxivVerifier:
         result = verifier.verify(cite)
         assert result.status == VerificationStatus.VERIFIED
 
-    @patch("shesha.experimental.arxiv.citations.ArxivSearcher")
-    def test_mismatch_when_title_differs(self, mock_searcher_cls: MagicMock) -> None:
+    def test_mismatch_when_title_differs(self) -> None:
         from shesha.experimental.arxiv.citations import ArxivVerifier
         from shesha.experimental.arxiv.models import (
             ExtractedCitation,
@@ -53,7 +50,6 @@ class TestArxivVerifier:
         )
 
         mock_searcher = MagicMock()
-        mock_searcher_cls.return_value = mock_searcher
         mock_searcher.get_by_id.return_value = PaperMeta(
             arxiv_id="2301.04567",
             title="Fluid Dynamics of Turbulent Flow",
@@ -78,13 +74,11 @@ class TestArxivVerifier:
         assert result.status == VerificationStatus.MISMATCH
         assert "Fluid Dynamics" in (result.actual_title or "")
 
-    @patch("shesha.experimental.arxiv.citations.ArxivSearcher")
-    def test_not_found_when_id_missing(self, mock_searcher_cls: MagicMock) -> None:
+    def test_not_found_when_id_missing(self) -> None:
         from shesha.experimental.arxiv.citations import ArxivVerifier
         from shesha.experimental.arxiv.models import ExtractedCitation, VerificationStatus
 
         mock_searcher = MagicMock()
-        mock_searcher_cls.return_value = mock_searcher
         mock_searcher.get_by_id.return_value = None
 
         verifier = ArxivVerifier(searcher=mock_searcher)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import TYPE_CHECKING
 
 from shesha.experimental.arxiv.models import (
     CheckReport,
@@ -11,7 +12,9 @@ from shesha.experimental.arxiv.models import (
     VerificationResult,
     VerificationStatus,
 )
-from shesha.experimental.arxiv.search import ArxivSearcher
+
+if TYPE_CHECKING:
+    from shesha.experimental.arxiv.search import ArxivSearcher
 
 # Patterns that suggest LLM-generated text
 LLM_TELL_PATTERNS = [
@@ -155,7 +158,12 @@ class ArxivVerifier:
     """Verify citations against the arXiv API."""
 
     def __init__(self, searcher: ArxivSearcher | None = None) -> None:
-        self._searcher = searcher or ArxivSearcher()
+        if searcher is None:
+            # Late import: arxiv is an optional dependency (shesha[arxiv])
+            from shesha.experimental.arxiv.search import ArxivSearcher
+
+            searcher = ArxivSearcher()
+        self._searcher = searcher
 
     def verify(self, citation: ExtractedCitation) -> VerificationResult:
         """Verify a single citation."""
