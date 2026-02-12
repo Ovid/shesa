@@ -73,4 +73,31 @@ describe('useWebSocket', () => {
     // Should have created a second WebSocket for reconnection
     expect(MockWebSocket.instances).toHaveLength(2)
   })
+
+  it('does not re-render host component on every message', () => {
+    let renderCount = 0
+    const { result } = renderHook(() => {
+      renderCount++
+      return useWebSocket()
+    })
+
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.simulateOpen())
+    const rendersAfterOpen = renderCount
+
+    // Send 5 messages — should NOT cause re-renders
+    for (let i = 0; i < 5; i++) {
+      act(() => ws.onmessage?.({ data: JSON.stringify({ type: 'status', phase: `Step ${i}` }) }))
+    }
+
+    // Listeners should still be notified
+    const listener = vi.fn()
+    act(() => { result.current.onMessage(listener) })
+    act(() => ws.onmessage?.({ data: JSON.stringify({ type: 'status', phase: 'test' }) }))
+    expect(listener).toHaveBeenCalled()
+
+    // But render count should not have increased from the 5 messages
+    // (only the listener registration might cause a render)
+    expect(renderCount).toBeLessThanOrEqual(rendersAfterOpen + 1)
+  })
 })

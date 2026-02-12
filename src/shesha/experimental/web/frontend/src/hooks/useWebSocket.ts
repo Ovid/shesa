@@ -4,7 +4,6 @@ import type { WSMessage } from '../types'
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const [connected, setConnected] = useState(false)
-  const [lastMessage, setLastMessage] = useState<WSMessage | null>(null)
   const listenersRef = useRef<((msg: WSMessage) => void)[]>([])
 
   useEffect(() => {
@@ -24,7 +23,6 @@ export function useWebSocket() {
       }
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data) as WSMessage
-        setLastMessage(msg)
         listenersRef.current.forEach(fn => fn(msg))
       }
 
@@ -53,5 +51,5 @@ export function useWebSocket() {
     }
   }, [])
 
-  return { connected, send, onMessage, lastMessage }
+  return { connected, send, onMessage }
 }
