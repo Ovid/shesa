@@ -496,6 +496,7 @@ class TestRLMEngine:
                 trace=trace,
                 token_usage=token_usage,
                 iteration=0,
+                boundary="test",
             )
 
         error_msg = str(exc_info.value)
@@ -534,6 +535,7 @@ class TestRLMEngine:
             trace=trace,
             token_usage=token_usage,
             iteration=0,
+            boundary="test",
         )
 
         # Should return LLM response
@@ -560,6 +562,7 @@ class TestRLMEngine:
                 trace=trace,
                 token_usage=token_usage,
                 iteration=0,
+                boundary="test",
             )
 
         mock_llm_cls.assert_not_called()
@@ -589,6 +592,7 @@ class TestRLMEngine:
             trace=trace,
             token_usage=token_usage,
             iteration=0,
+            boundary="test",
         )
 
         # Verify the prompt sent does NOT contain untrusted wrapping tags
@@ -623,6 +627,7 @@ class TestRLMEngine:
             trace=trace,
             token_usage=token_usage,
             iteration=0,
+            boundary="test",
         )
 
         # Verify the prompt sent to LLM contains the wrapping tags
@@ -1953,6 +1958,7 @@ class TestHandleLlmQueryThreadSafety:
                     trace=trace,
                     token_usage=token_usage,
                     iteration=0,
+                    boundary="test",
                 )
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
@@ -1964,6 +1970,80 @@ class TestHandleLlmQueryThreadSafety:
         # Token counts should reflect all calls
         assert token_usage.prompt_tokens == n_calls * 10
         assert token_usage.completion_tokens == n_calls * 5
+
+
+class TestBoundaryNotSharedState:
+    """Boundary must be per-query, not stored on the engine instance."""
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_handle_llm_query_uses_boundary_parameter(
+        self,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """_handle_llm_query wraps content using the boundary argument, not self._boundary."""
+        mock_sub_llm = MagicMock()
+        mock_sub_llm.complete.return_value = MagicMock(
+            content="result",
+            prompt_tokens=10,
+            completion_tokens=5,
+            total_tokens=15,
+        )
+        mock_llm_cls.return_value = mock_sub_llm
+
+        engine = RLMEngine(model="test-model")
+        trace = Trace()
+        token_usage = TokenUsage()
+
+        # Pass an explicit boundary that differs from any engine default
+        explicit_boundary = "EXPLICIT_TEST_BOUNDARY_12345"
+        engine._handle_llm_query(
+            instruction="Summarize",
+            content="Some document",
+            trace=trace,
+            token_usage=token_usage,
+            iteration=0,
+            boundary=explicit_boundary,
+        )
+
+        call_args = mock_sub_llm.complete.call_args
+        messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
+        prompt_text = messages[0]["content"]
+        assert explicit_boundary in prompt_text
+
+    @patch("shesha.rlm.engine.LLMClient")
+    def test_semantic_verification_uses_boundary_parameter(
+        self,
+        mock_llm_cls: MagicMock,
+    ) -> None:
+        """_run_semantic_verification wraps docs using the boundary argument."""
+        mock_sub_llm = MagicMock()
+        mock_sub_llm.complete.return_value = MagicMock(
+            content='{"findings": []}',
+            prompt_tokens=10,
+            completion_tokens=5,
+            total_tokens=15,
+        )
+        mock_llm_cls.return_value = mock_sub_llm
+
+        engine = RLMEngine(model="test-model")
+        trace = Trace()
+        token_usage = TokenUsage()
+
+        explicit_boundary = "SEMANTIC_BOUNDARY_99999"
+        engine._run_semantic_verification(
+            final_answer="The code uses pattern X in context[0]",
+            documents=["def foo(): pass"],
+            doc_names=["module.py"],
+            trace=trace,
+            token_usage=token_usage,
+            iteration=0,
+            boundary=explicit_boundary,
+        )
+
+        call_args = mock_sub_llm.complete.call_args
+        messages = call_args[1]["messages"] if "messages" in call_args[1] else call_args[0][0]
+        prompt_text = messages[0]["content"]
+        assert explicit_boundary in prompt_text
 
 
 class TestFindFinalAnswerInText:

@@ -171,7 +171,6 @@ class RLMEngine:
         self.verify_citations = verify_citations
         self.verify = verify
         self._subcall_lock = threading.Lock()
-        self._boundary = generate_boundary()
 
     def _handle_llm_query(
         self,
@@ -182,6 +181,8 @@ class RLMEngine:
         iteration: int,
         on_progress: ProgressCallback | None = None,
         on_step: Callable[[TraceStep], None] | None = None,
+        *,
+        boundary: str,
     ) -> str:
         """Handle a sub-LLM query from the sandbox.
 
@@ -230,7 +231,7 @@ class RLMEngine:
         # Build prompt: when content is empty (single-arg llm_query), send
         # instruction directly. When content is provided, wrap in untrusted tags.
         if content:
-            wrapped_content = wrap_untrusted(content, self._boundary)
+            wrapped_content = wrap_untrusted(content, boundary)
             prompt = self.prompt_loader.render_subcall_prompt(instruction, wrapped_content)
         else:
             prompt = instruction
@@ -269,6 +270,8 @@ class RLMEngine:
         iteration: int,
         on_progress: ProgressCallback | None = None,
         on_step: Callable[[TraceStep], None] | None = None,
+        *,
+        boundary: str,
     ) -> SemanticVerificationReport | None:
         """Run semantic verification on the final answer.
 
@@ -294,7 +297,7 @@ class RLMEngine:
             return None
 
         # Wrap cited docs in untrusted content tags (security boundary)
-        wrapped_docs = wrap_untrusted(cited_docs_text, self._boundary)
+        wrapped_docs = wrap_untrusted(cited_docs_text, boundary)
 
         # Layer 1: Adversarial verification
         prompt = self.prompt_loader.render_verify_adversarial_prompt(
@@ -423,7 +426,6 @@ class RLMEngine:
         trace = Trace()
         token_usage = TokenUsage()
         boundary = generate_boundary()
-        self._boundary = boundary
 
         if doc_names is None:
             doc_names = [f"doc_{i}" for i in range(len(documents))]
@@ -509,6 +511,7 @@ class RLMEngine:
                     frozen_iteration,
                     on_progress,
                     on_step=_write_step,
+                    boundary=boundary,
                 )
 
             return llm_query_callback
@@ -784,6 +787,7 @@ class RLMEngine:
                                 iteration=iteration,
                                 on_progress=on_progress,
                                 on_step=_write_step,
+                                boundary=boundary,
                             )
                         except Exception as exc:
                             step = trace.add_step(
