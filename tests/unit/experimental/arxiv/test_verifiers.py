@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from shesha.experimental.arxiv.models import (
     ExtractedCitation,
+    VerificationResult,
     VerificationStatus,
 )
 
@@ -264,3 +265,201 @@ class TestSemanticScholarVerifier:
 
         verifier = SemanticScholarVerifier()
         assert verifier._limiter._min_interval >= 1.0
+
+
+class TestCascadingVerifier:
+    """Tests for the cascading verification orchestrator."""
+
+    def test_arxiv_id_uses_arxiv_verifier_first(self) -> None:
+        from shesha.experimental.arxiv.verifiers import CascadingVerifier
+
+        citation = ExtractedCitation(
+            key="x", title="T", authors=[], year=None, arxiv_id="2301.00001"
+        )
+
+        mock_arxiv = MagicMock()
+        mock_arxiv.verify.return_value = VerificationResult(
+            citation_key="x", status=VerificationStatus.VERIFIED, source="arxiv"
+        )
+
+        verifier = CascadingVerifier(arxiv_verifier=mock_arxiv)
+        result = verifier.verify(citation)
+
+        assert result.status == VerificationStatus.VERIFIED
+        mock_arxiv.verify.assert_called_once()
+
+    def test_arxiv_not_found_falls_through_to_external(self) -> None:
+        from shesha.experimental.arxiv.verifiers import CascadingVerifier
+
+        citation = ExtractedCitation(
+            key="x", title="Some Paper", authors=[], year=None, arxiv_id="2301.99999"
+        )
+
+        mock_arxiv = MagicMock()
+        mock_arxiv.verify.return_value = VerificationResult(
+            citation_key="x", status=VerificationStatus.NOT_FOUND, severity="error"
+        )
+
+        mock_openalex = MagicMock()
+        mock_openalex.verify.return_value = VerificationResult(
+            citation_key="x", status=VerificationStatus.VERIFIED_EXTERNAL, source="openalex"
+        )
+
+        verifier = CascadingVerifier(arxiv_verifier=mock_arxiv, openalex_verifier=mock_openalex)
+        result = verifier.verify(citation)
+
+        assert result.status == VerificationStatus.VERIFIED_EXTERNAL
+
+    def test_doi_uses_crossref_first(self) -> None:
+        from shesha.experimental.arxiv.verifiers import CascadingVerifier
+
+        citation = ExtractedCitation(
+            key="x", title="T", authors=[], year=None, doi="10.1234/example"
+        )
+
+        mock_crossref = MagicMock()
+        mock_crossref.verify.return_value = VerificationResult(
+            citation_key="x", status=VerificationStatus.VERIFIED_EXTERNAL, source="crossref"
+        )
+
+        verifier = CascadingVerifier(crossref_verifier=mock_crossref)
+        result = verifier.verify(citation)
+
+        assert result.status == VerificationStatus.VERIFIED_EXTERNAL
+        assert result.source == "crossref"
+
+    def test_title_only_cascades_through_external_verifiers(self) -> None:
+        from shesha.experimental.arxiv.verifiers import CascadingVerifier
+
+        citation = ExtractedCitation(key="x", title="Some Paper", authors=[], year=None)
+
+        mock_openalex = MagicMock()
+        mock_openalex.verify.return_value = VerificationResult(
+            citation_key="x", status=VerificationStatus.UNRESOLVED
+        )
+        mock_s2 = MagicMock()
+        mock_s2.verify.return_value = VerificationResult(
+            citation_key="x",
+            status=VerificationStatus.VERIFIED_EXTERNAL,
+            source="semantic_scholar",
+        )
+
+        verifier = CascadingVerifier(
+            openalex_verifier=mock_openalex, semantic_scholar_verifier=mock_s2
+        )
+        result = verifier.verify(citation)
+
+        assert result.status == VerificationStatus.VERIFIED_EXTERNAL
+        assert result.source == "semantic_scholar"
+
+    def test_all_fail_returns_unresolved(self) -> None:
+        from shesha.experimental.arxiv.verifiers import CascadingVerifier
+
+        citation = ExtractedCitation(key="x", title="Totally Unknown Paper", authors=[], year=None)
+
+        mock_openalex = MagicMock()
+        mock_openalex.verify.return_value = VerificationResult(
+            citation_key="x", status=VerificationStatus.UNRESOLVED
+        )
+        mock_s2 = MagicMock()
+        mock_s2.verify.return_value = VerificationResult(
+            citation_key="x", status=VerificationStatus.UNRESOLVED
+        )
+        mock_crossref = MagicMock()
+        mock_crossref.verify.return_value = VerificationResult(
+            citation_key="x", status=VerificationStatus.UNRESOLVED
+        )
+
+        verifier = CascadingVerifier(
+            openalex_verifier=mock_openalex,
+            semantic_scholar_verifier=mock_s2,
+            crossref_verifier=mock_crossref,
+        )
+        result = verifier.verify(citation)
+
+        assert result.status == VerificationStatus.UNRESOLVED
+
+    def test_stops_at_first_verified(self) -> None:
+        from shesha.experimental.arxiv.verifiers import CascadingVerifier
+
+        citation = ExtractedCitation(key="x", title="Found Paper", authors=[], year=None)
+
+        mock_openalex = MagicMock()
+        mock_openalex.verify.return_value = VerificationResult(
+            citation_key="x", status=VerificationStatus.VERIFIED_EXTERNAL, source="openalex"
+        )
+        mock_s2 = MagicMock()
+
+        verifier = CascadingVerifier(
+            openalex_verifier=mock_openalex, semantic_scholar_verifier=mock_s2
+        )
+        verifier.verify(citation)
+
+        mock_s2.verify.assert_not_called()
+
+    def test_ambiguous_match_triggers_llm_judgment(self) -> None:
+        from shesha.experimental.arxiv.verifiers import CascadingVerifier
+
+        citation = ExtractedCitation(
+            key="x", title="Learning Chess from Text", authors=[], year=None
+        )
+
+        mock_openalex = MagicMock()
+        mock_openalex.verify.return_value = VerificationResult(
+            citation_key="x",
+            status=VerificationStatus.UNRESOLVED,
+            source="openalex",
+            actual_title="LEAP: Learning to Play Chess from Textbooks",
+            message="Title match ambiguous (similarity=0.65)",
+        )
+
+        mock_completion = MagicMock()
+        mock_completion.choices = [MagicMock()]
+        mock_completion.choices[0].message.content = "YES. These are the same paper."
+
+        with patch(
+            "shesha.experimental.arxiv.verifiers.litellm.completion",
+            return_value=mock_completion,
+        ):
+            verifier = CascadingVerifier(openalex_verifier=mock_openalex, model="test-model")
+            result = verifier.verify(citation)
+
+        assert result.status == VerificationStatus.VERIFIED_EXTERNAL
+        assert "LLM title judgment" in (result.message or "")
+
+    def test_ambiguous_match_llm_says_no(self) -> None:
+        from shesha.experimental.arxiv.verifiers import CascadingVerifier
+
+        citation = ExtractedCitation(key="x", title="Chess Engine Analysis", authors=[], year=None)
+
+        mock_openalex = MagicMock()
+        mock_openalex.verify.return_value = VerificationResult(
+            citation_key="x",
+            status=VerificationStatus.UNRESOLVED,
+            source="openalex",
+            actual_title="Chess Board Manufacturing Analysis",
+            message="Title match ambiguous (similarity=0.55)",
+        )
+
+        mock_s2 = MagicMock()
+        mock_s2.verify.return_value = VerificationResult(
+            citation_key="x", status=VerificationStatus.UNRESOLVED
+        )
+
+        mock_completion = MagicMock()
+        mock_completion.choices = [MagicMock()]
+        mock_completion.choices[0].message.content = "NO. Different papers."
+
+        with patch(
+            "shesha.experimental.arxiv.verifiers.litellm.completion",
+            return_value=mock_completion,
+        ):
+            verifier = CascadingVerifier(
+                openalex_verifier=mock_openalex,
+                semantic_scholar_verifier=mock_s2,
+                model="test-model",
+            )
+            result = verifier.verify(citation)
+
+        mock_s2.verify.assert_called_once()
+        assert result.status == VerificationStatus.UNRESOLVED

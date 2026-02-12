@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import httpx
+import logging
 
-from shesha.experimental.arxiv.citations import title_similarity
+import httpx
+import litellm
+
+from shesha.experimental.arxiv.citations import ArxivVerifier, title_similarity
 from shesha.experimental.arxiv.models import (
     ExtractedCitation,
     VerificationResult,
@@ -313,4 +316,118 @@ class SemanticScholarVerifier:
             citation_key=citation.key,
             status=VerificationStatus.UNRESOLVED,
             message="No matching title found on Semantic Scholar",
+        )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _llm_title_judgment(
+    cited_title: str,
+    found_title: str,
+    found_abstract: str | None,
+    model: str,
+) -> bool:
+    """Ask the LLM whether two titles refer to the same paper.
+
+    Only called for ambiguous fuzzy matches (similarity 0.50-0.85).
+    Returns True if the LLM judges them to be the same paper.
+    """
+    abstract_line = f'\nFound abstract: "{found_abstract}"' if found_abstract else ""
+    prompt = (
+        f'Cited title: "{cited_title}"\n'
+        f'Found title: "{found_title}"{abstract_line}\n\n'
+        "Are these the same paper? Respond YES or NO with a one-sentence reason."
+    )
+    try:
+        response = litellm.completion(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+        )
+        content = (response.choices[0].message.content or "").strip().upper()
+        return content.startswith("YES")
+    except Exception:
+        logger.warning("LLM title judgment failed", exc_info=True)
+        return False
+
+
+class CascadingVerifier:
+    """Orchestrates verification across multiple sources."""
+
+    def __init__(
+        self,
+        *,
+        arxiv_verifier: ArxivVerifier | None = None,
+        crossref_verifier: CrossRefVerifier | None = None,
+        openalex_verifier: OpenAlexVerifier | None = None,
+        semantic_scholar_verifier: SemanticScholarVerifier | None = None,
+        polite_email: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        self._arxiv = arxiv_verifier
+        self._crossref = crossref_verifier
+        self._openalex = openalex_verifier
+        self._s2 = semantic_scholar_verifier
+        self._model = model
+
+    def verify(self, citation: ExtractedCitation) -> VerificationResult:
+        """Verify citation using cascading sources."""
+        # 1. arXiv ID -> ArxivVerifier
+        if citation.arxiv_id and self._arxiv:
+            result = self._arxiv.verify(citation)
+            if result.status not in (
+                VerificationStatus.NOT_FOUND,
+                VerificationStatus.UNRESOLVED,
+            ):
+                return result
+
+        # 2. DOI -> CrossRefVerifier
+        if citation.doi and self._crossref:
+            result = self._crossref.verify(citation)
+            if result.status not in (VerificationStatus.UNRESOLVED,):
+                return result
+
+        # 3. Title search chain: OpenAlex -> Semantic Scholar -> CrossRef title
+        if citation.title:
+            for verifier in [self._openalex, self._s2, self._crossref]:
+                if verifier is None:
+                    continue
+                # Skip CrossRef if we already tried it via DOI
+                if verifier is self._crossref and citation.doi:
+                    continue
+                result = verifier.verify(citation)
+                if result.status in (
+                    VerificationStatus.VERIFIED_EXTERNAL,
+                    VerificationStatus.MISMATCH,
+                ):
+                    return result
+                # Ambiguous match (0.50-0.85) -- try LLM judgment
+                if (
+                    result.status == VerificationStatus.UNRESOLVED
+                    and result.actual_title
+                    and result.message
+                    and "ambiguous" in result.message.lower()
+                    and self._model
+                    and citation.title
+                ):
+                    is_same = _llm_title_judgment(
+                        cited_title=citation.title,
+                        found_title=result.actual_title,
+                        found_abstract=None,
+                        model=self._model,
+                    )
+                    if is_same:
+                        return VerificationResult(
+                            citation_key=citation.key,
+                            status=VerificationStatus.VERIFIED_EXTERNAL,
+                            source=result.source,
+                            actual_title=result.actual_title,
+                            message="Verified by LLM title judgment",
+                        )
+
+        return VerificationResult(
+            citation_key=citation.key,
+            status=VerificationStatus.UNRESOLVED,
+            message="Could not verify in any database",
         )
