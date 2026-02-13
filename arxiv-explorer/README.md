@@ -8,12 +8,12 @@ Shesha is a research tool that uses Recursive Language Models to help you explor
 - An **LLM API key** — set `SHESHA_API_KEY` as an environment variable
 - **Model selection** — set `SHESHA_MODEL` (recommended: `gpt-5-mini` for OpenAI)
 
-## Quick Start (Docker)
+## Quick Start
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/your-org/shesha.git
-cd shesha
+cd shesha/arxiv-explorer
 
 # 2. Set your API key and model
 export SHESHA_API_KEY="sk-..."
@@ -21,38 +21,6 @@ export SHESHA_MODEL="gpt-5-mini"   # recommended: inexpensive with great results
 
 # 3. Run
 docker compose up
-```
-
-Visit `http://localhost:8000` in your browser.
-
-## Alternative: Shell Script
-
-If you prefer to run without Docker Compose (requires Python 3.12+, Node.js 20+, and bash):
-
-```bash
-export SHESHA_API_KEY="sk-..."
-export SHESHA_MODEL="gpt-5-mini"
-./examples/arxiv-explorer.sh
-```
-
-```bash
-# Options:
-./examples/arxiv-explorer.sh --model gpt-5-mini   # choose LLM model
-./examples/arxiv-explorer.sh --port 8080           # custom port
-./examples/arxiv-explorer.sh --no-browser          # don't open browser
-./examples/arxiv-explorer.sh --rebuild             # force frontend rebuild
-```
-
-## Manual Installation
-
-If you prefer to set things up yourself (requires Python 3.12+, Node.js 20+):
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[web]"
-cd src/shesha/experimental/web/frontend && npm install && npm run build && cd -
-shesha-web
 ```
 
 Visit `http://localhost:8000` in your browser.

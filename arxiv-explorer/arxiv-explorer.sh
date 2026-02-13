@@ -3,11 +3,11 @@
 # Handles venv creation, dependency installation, frontend build, and startup.
 #
 # Usage:
-#   ./examples/arxiv-explorer.sh                      # defaults
-#   ./examples/arxiv-explorer.sh --model gpt-5-mini   # pass args to shesha-web
-#   ./examples/arxiv-explorer.sh --port 8080          # custom port
-#   ./examples/arxiv-explorer.sh --no-browser         # don't open browser
-#   ./examples/arxiv-explorer.sh --rebuild            # force frontend rebuild
+#   ./arxiv-explorer/arxiv-explorer.sh                      # defaults
+#   ./arxiv-explorer/arxiv-explorer.sh --model gpt-5-mini   # pass args to shesha-web
+#   ./arxiv-explorer/arxiv-explorer.sh --port 8080          # custom port
+#   ./arxiv-explorer/arxiv-explorer.sh --no-browser         # don't open browser
+#   ./arxiv-explorer/arxiv-explorer.sh --rebuild            # force frontend rebuild
 
 set -euo pipefail
 

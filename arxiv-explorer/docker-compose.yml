@@ -1,6 +1,8 @@
 services:
   shesha-web:
-    build: .
+    build:
+      context: ..
+      dockerfile: arxiv-explorer/Dockerfile
     ports:
       - "8000:8000"
     volumes:
