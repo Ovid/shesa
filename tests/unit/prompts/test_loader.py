@@ -255,4 +255,4 @@ def test_system_prompt_contains_document_only_constraint():
     loader = PromptLoader()
     result = loader.render_system_prompt()
     assert "ONLY using information found in the provided context documents" in result
-    assert "Do NOT use your training data" in result
+    assert "do not introduce facts from your training data" in result
