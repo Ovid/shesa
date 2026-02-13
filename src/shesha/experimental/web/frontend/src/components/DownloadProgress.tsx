@@ -76,6 +76,15 @@ export default function DownloadProgress({ taskIds, onComplete }: DownloadProgre
       ? 'Complete'
       : 'Waiting...'
 
+  // When nothing is complete yet but downloads are active, pulse the bar
+  const isIndeterminate = done === 0 && total > 0
+  const barPercent = total > 0 ? (done / total) * 100 : 0
+  const barClass = done === total
+    ? 'bg-green'
+    : isIndeterminate
+      ? 'bg-accent animate-pulse'
+      : 'bg-accent'
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-surface-1 border border-border rounded-lg shadow-2xl w-[700px] max-h-[80vh] flex flex-col">
@@ -98,8 +107,9 @@ export default function DownloadProgress({ taskIds, onComplete }: DownloadProgre
             </div>
             <div className="w-full bg-surface-2 rounded-full h-2">
               <div
-                className={`h-2 rounded-full transition-all ${done === total ? 'bg-green' : 'bg-accent'}`}
-                style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }}
+                data-testid="download-bar-fill"
+                className={`h-2 rounded-full transition-all ${barClass}`}
+                style={{ width: isIndeterminate ? '30%' : `${barPercent}%` }}
               />
             </div>
           </div>

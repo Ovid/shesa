@@ -88,6 +88,26 @@ describe('DownloadProgress', () => {
     })
   })
 
+  it('shows animated bar when downloading but none complete', async () => {
+    vi.mocked(api.papers.taskStatus).mockResolvedValue({
+      task_id: 'task-1',
+      papers: [
+        { arxiv_id: '2501.00001', status: 'downloading' },
+        { arxiv_id: '2501.00002', status: 'pending' },
+      ],
+    })
+
+    render(<DownloadProgress {...defaultProps} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Downloading Papers')).toBeInTheDocument()
+    })
+
+    // Progress bar should have animate-pulse class, not 0% width
+    const barFill = screen.getByTestId('download-bar-fill')
+    expect(barFill.className).toContain('animate-pulse')
+  })
+
   it('shows green bar when all downloads complete', async () => {
     vi.mocked(api.papers.taskStatus).mockResolvedValue({
       task_id: 'task-1',
