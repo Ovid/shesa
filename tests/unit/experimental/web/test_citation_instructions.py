@@ -76,8 +76,5 @@ def test_citation_instructions_appended_to_question() -> None:
     # Starts with newlines so it appends cleanly to a question
     assert instructions.startswith("\n\n")
     # Ends with the closing instruction
-    expected_ending = (
-        "Always use [@arxiv:ID] when referencing a specific paper's "
-        "claims or quotes."
-    )
+    expected_ending = "Always use [@arxiv:ID] when referencing a specific paper's claims or quotes."
     assert instructions.endswith(expected_ending)
