@@ -148,4 +148,30 @@ describe('ChatMessage citation rendering', () => {
     expect(inlineButtons[0].textContent).toContain('2005.09008v1')
     expect(inlineButtons[1].textContent).toContain('2401.12345')
   })
+
+  it('renders old-style arxiv IDs with slashes as clickable buttons', () => {
+    const oldPaper: PaperInfo = {
+      ...basePaper,
+      arxiv_id: 'astro-ph/0601001v1',
+      title: 'Old Style Paper',
+    }
+    const exchange: Exchange = {
+      ...baseExchange,
+      answer: 'See [@arxiv:astro-ph/0601001v1] for details.',
+      paper_ids: ['astro-ph/0601001v1'],
+    }
+    render(
+      <ChatMessage
+        exchange={exchange}
+        onViewTrace={vi.fn()}
+        topicPapers={[oldPaper]}
+        onPaperClick={vi.fn()}
+      />
+    )
+
+    const answerDiv = document.querySelector('.whitespace-pre-wrap')!
+    const inlineButtons = answerDiv.querySelectorAll('button')
+    expect(inlineButtons.length).toBe(1)
+    expect(inlineButtons[0].textContent).toContain('astro-ph/0601001v1')
+  })
 })

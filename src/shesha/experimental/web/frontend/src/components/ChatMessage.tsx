@@ -8,7 +8,7 @@ function formatTime(iso: string): string {
 }
 
 const CITATION_RE = /\[@arxiv:([^\]]+)\]/g
-const ARXIV_ID_RE = /\d{4}\.\d{4,5}(?:v\d+)?/g
+const ARXIV_ID_RE = /(?:[\w.-]+\/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?/g
 
 function renderAnswerWithCitations(
   text: string,
