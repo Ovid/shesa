@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import DownloadProgress from '../DownloadProgress'
@@ -20,6 +20,7 @@ const defaultProps = {
 
 describe('DownloadProgress', () => {
   beforeEach(() => {
+    vi.useRealTimers()
     vi.clearAllMocks()
   })
 
@@ -106,6 +107,40 @@ describe('DownloadProgress', () => {
     // Progress bar should have animate-progress-slide class, not 0% width
     const barFill = screen.getByTestId('download-bar-fill')
     expect(barFill.className).toContain('animate-progress-slide')
+  })
+
+  it('preserves completed task count across polls', async () => {
+    vi.useFakeTimers()
+    const onComplete = vi.fn()
+
+    // task-1 returns complete, task-2 returns downloading — every poll
+    vi.mocked(api.papers.taskStatus).mockImplementation(async (taskId: string) => ({
+      task_id: taskId,
+      papers: [{
+        arxiv_id: taskId === 'task-1' ? '2501.00001' : '2501.00002',
+        status: taskId === 'task-1' ? 'complete' : 'downloading',
+      }],
+    }))
+
+    render(<DownloadProgress taskIds={['task-1', 'task-2']} onComplete={onComplete} />)
+
+    // Flush first poll (called immediately in useEffect)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(screen.getByText(/1\/2/)).toBeInTheDocument()
+
+    // Second poll (2s interval) — task-1 skipped via completedRef
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+
+    // Without fix: shows 0/1 (completed task papers lost)
+    // With fix: still shows 1/2
+    expect(screen.getByText(/1\/2/)).toBeInTheDocument()
+
+    vi.useRealTimers()
   })
 
   it('shows green bar when all downloads complete', async () => {

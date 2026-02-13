@@ -15,6 +15,7 @@ export default function DownloadProgress({ taskIds, onComplete }: DownloadProgre
   const [papers, setPapers] = useState<PaperStatus[]>([])
   const [dismissed, setDismissed] = useState(false)
   const completedRef = useRef(new Set<string>())
+  const completedPapersRef = useRef(new Map<string, PaperStatus[]>())
 
   // Reset dismissed state when new tasks arrive
   const prevTaskIdsRef = useRef<string[]>([])
@@ -27,6 +28,10 @@ export default function DownloadProgress({ taskIds, onComplete }: DownloadProgre
 
   const poll = useCallback(async () => {
     const allPapers: PaperStatus[] = []
+    // Include cached papers from previously completed tasks
+    for (const cached of completedPapersRef.current.values()) {
+      allPapers.push(...cached)
+    }
     for (const taskId of taskIds) {
       if (completedRef.current.has(taskId)) continue
       try {
@@ -37,6 +42,7 @@ export default function DownloadProgress({ taskIds, onComplete }: DownloadProgre
         )
         if (allDone) {
           completedRef.current.add(taskId)
+          completedPapersRef.current.set(taskId, data.papers)
           onComplete(taskId)
         }
       } catch {
@@ -59,7 +65,10 @@ export default function DownloadProgress({ taskIds, onComplete }: DownloadProgre
   useEffect(() => {
     const current = new Set(taskIds)
     for (const id of completedRef.current) {
-      if (!current.has(id)) completedRef.current.delete(id)
+      if (!current.has(id)) {
+        completedRef.current.delete(id)
+        completedPapersRef.current.delete(id)
+      }
     }
   }, [taskIds])
 
