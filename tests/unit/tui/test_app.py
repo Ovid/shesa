@@ -546,6 +546,36 @@ class TestQueryCancellation:
             _, kwargs = project.query.call_args
             assert kwargs.get("cancel_event") is cancel_event
 
+    async def test_query_runner_captures_cancel_event_at_creation(self) -> None:
+        """Runner uses the cancel_event from creation time, not call time.
+
+        If _cancel_event is replaced (by a new query starting), the old
+        runner must still reference the original event, not the new one.
+        """
+        project = MagicMock()
+        project.query.return_value = QueryResult(
+            answer="ok",
+            trace=Trace(steps=[]),
+            token_usage=TokenUsage(prompt_tokens=10, completion_tokens=5),
+            execution_time=0.1,
+        )
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            original_event = threading.Event()
+            pilot.app._cancel_event = original_event
+            runner = pilot.app._make_query_runner("question", "question")
+
+            # Simulate a new query replacing the cancel event
+            new_event = threading.Event()
+            pilot.app._cancel_event = new_event
+            pilot.app._query_id += 1
+
+            runner()
+            _, kwargs = project.query.call_args
+            # Must use the ORIGINAL event, not the new one
+            assert kwargs.get("cancel_event") is original_event
+            assert kwargs.get("cancel_event") is not new_event
+
 
 class TestAnalysisShortcutTokenDisplay:
     """Tests that analysis shortcut answers update token counts in the info bar."""

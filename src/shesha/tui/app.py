@@ -372,6 +372,7 @@ class SheshaTUI(App[None]):
         project.query() call.
         """
         my_query_id = self._query_id
+        my_cancel_event = self._cancel_event
 
         def on_progress(
             step_type: StepType, iteration: int, content: str, token_usage: TokenUsage
@@ -408,7 +409,7 @@ class SheshaTUI(App[None]):
                 result = self._project.query(
                     full_question,
                     on_progress=on_progress,
-                    cancel_event=self._cancel_event,
+                    cancel_event=my_cancel_event,
                 )
                 if self._query_id == my_query_id:
                     self.call_from_thread(
