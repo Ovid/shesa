@@ -1,6 +1,16 @@
-# Shesha arXiv Explorer — Setup Guide
+# Shesha arXiv Explorer
 
-Shesha is a research tool that uses Recursive Language Models to help you explore and query arXiv papers. You add papers to topics, then ask natural language questions. The LLM writes code to explore the documents, runs it in a sandbox, and iterates until it finds an answer.
+Shesha lets you ask plain-English questions across dozens of arXiv papers at once. Add papers to a topic, type a question, and Shesha writes and runs code to dig through your documents — iterating until it finds a real answer, with citations you can verify against the source.
+
+## First Research Session
+
+1. **Create a topic** — Click the `+` button in the left sidebar and name it (e.g., "Abiogenesis")
+2. **Search for papers** — Click the search icon in the header and search arXiv (e.g., "origin of life RNA world")
+3. **Add papers** — Select papers from the results and click "Add". Papers download in the background (there's a 3-second delay between downloads to respect arXiv's rate limits)
+4. **Ask a question** — Once papers are downloaded, type a question like "What are the main theories for the origin of life?"
+5. **Wait for the answer** — The status bar shows the current phase and token count. Queries typically take 1-3 minutes, but complex queries might be longer.
+6. **Inspect the trace** — Click "View trace" at the bottom of any answer to see the step-by-step reasoning
+7. **Check citations** — Click the checkmark icon in the header to verify citations against the source documents (experimental!)
 
 ## Prerequisites
 
@@ -105,16 +115,6 @@ docker compose up
 ```
 
 Visit `http://localhost:8000` in your browser.
-
-## First Research Session
-
-1. **Create a topic** — Click the `+` button in the left sidebar and name it (e.g., "Abiogenesis")
-2. **Search for papers** — Click the search icon in the header and search arXiv (e.g., "origin of life RNA world")
-3. **Add papers** — Select papers from the results and click "Add". Papers download in the background (there's a 3-second delay between downloads to respect arXiv's rate limits)
-4. **Ask a question** — Once papers appear as chips above the chat area, type a question like "What are the main theories for the origin of life?"
-5. **Wait for the answer** — The status bar shows the current phase and token count. Queries typically take 1-3 minutes
-6. **Inspect the trace** — Click "View trace" on any answer to see the LLM's step-by-step reasoning
-7. **Check citations** — Click the checkmark icon in the header to verify the LLM's citations against the source documents
 
 ## Troubleshooting
 

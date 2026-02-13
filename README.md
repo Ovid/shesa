@@ -6,7 +6,7 @@
 
 **Ask complex questions across large document collections—and get answers with citations**
 
-Shesha lets AI explore your documents, [even large codebases](examples/repo.py), the way a researcher would: reading, searching, cross-referencing, and iterating until it finds the answer. Unlike simple RAG that retrieves chunks, Shesha reasons across your entire corpus.
+Shesha lets AI explore your documents, [even large codebases](examples/repo.py), the way a researcher would: reading, searching, cross-referencing, and iterating until it finds the answer. Most AI search tools grab a few relevant paragraphs and hope for the best. Shesha reads everything, designs its own research strategy for your specific question, and keeps digging until it's confident.
 
 <p align="center">
   <img src="images/tui.png" alt="Shesha TUI screenshot (examples/repo.py screenshot)">
@@ -14,13 +14,71 @@ Shesha lets AI explore your documents, [even large codebases](examples/repo.py),
 
 _**Note** for fans of [Perl's Dancer2 framework](https://github.com/PerlDancer/Dancer2): I'm not seriously proposing the above._
 
-**Why this matters:** [Recursive Language Models (RLMs)](https://arxiv.org/abs/2512.24601) give LLMs effectively unlimited context and dramatically better long-horizon reasoning. The AI writes Python code to actively explore your documents in a secure sandbox, iterating until confident in the answer—no context window limits, no lost information.
+**How it's different:** The AI writes Python code to actively explore your documents in a secure sandbox, iterating until confident in the answer—no context window limits, no lost information. This approach is based on [Recursive Language Models](https://arxiv.org/abs/2512.24601), a new technique that gives AI effectively unlimited reading capacity.
 
-See [Sample Session](#sample-session) for a demo: tracking 30 chronological events across 7 novels with supporting quotes.
+## See It in Action
+
+Here's a real session querying 7 novels (~2.8M characters), demonstrating three key capabilities:
+
+1. **Guardrails** — Politely refuses out-of-scope questions while explaining why
+2. **Simple lookup** — Quick fact retrieval from the document collection
+3. **Complex multi-document reasoning** — Tracks events across 7 books, orders them chronologically, cites supporting quotes, and identifies continuity conflicts
+
+```
+$ python examples/barsoom.py
+
+Ask questions about the Barsoom series. Type "quit" or "exit" to leave.
+
+> What is the capital of Malawi?
+[Thought for 7 seconds]
+The documents provided are Barsoom (Mars) texts and do not contain information
+about Malawi. I can't find the capital of Malawi in the provided documents.
+
+> Who is the son of Dejah Thoris and John Carter?
+[Thought for 29 seconds]
+The son of Dejah Thoris and John Carter is **Carthoris of Helium**.
+
+> What are the major events in his life, in the order they happened?
+[Thought for 227 seconds]
+1) **Named "Carthoris" in childhood (a deliberate blend of his parents' names)**
+- Key people/places: Carthoris; Dejah Thoris; John Carter; Helium
+- Quote: "so the name that she called me is the one that you desired, a
+  combination of hers and yours—Carthoris."
+
+2) **Has a younger sister, Tara (family context established)**
+- Key people/places: Carthoris; Tara of Helium; John Carter
+- Quote: "'A daughter,' he replied, 'only a little younger than Carthoris,
+  … Tara of Helium.'"
+
+3) **Disappears (triggering prolonged grief and major search expeditions)**
+- Key people/places: Carthoris; Dejah Thoris; Tardos Mors; Helium
+- Quote: "Ever since Carthoris disappeared, Dejah Thoris has grieved and
+  mourned for her lost boy."
+
+...
+
+21) **Develops the destination control compass, sparking a new era of invention**
+- Key people/places: Carthoris; Barsoom's scientists/engineers; Helium
+- Quote: "The perfection of the destination control compass by Carthoris
+  of Helium… marked the beginning of a new era of invention."
+
+...
+
+30) **Later-life stability: Thuvia is his mate; he hunts in Okar with Talu**
+- Key people/places: Carthoris; Thuvia of Ptarth; Talu (Jeddak of Okar)
+- Quote: "Thuvia of Ptarth… while Carthoris, her mate, hunted in Okar."
+
+### Noted conflict across sources
+- **Thuvia's status** conflicts (promised to another vs. called his mate).
+  Resolution: treated as narrative progression—first promised elsewhere,
+  later described as his mate (implying circumstances changed).
+```
+
+The third question searched across all 7 novels, extracted 30 chronological events with supporting quotes, and identified a continuity conflict between books—the kind of deep, cross-document analysis that typically trips up standard AI approaches.
 
 ## Alpha Code
 
-So far it seems to work, but it's only been tested with .txt documents and the OpenAI API. It _should_ support PDFs, Word Documents, and other files. Your mileage may vary.
+So far it seems to work, but it's only been tested with .txt documents and the OpenAI API. It _should_ support PDFs, Word Documents, and other files — feedback welcome.
 
 ## Prerequisites
 
@@ -30,33 +88,7 @@ So far it seems to work, but it's only been tested with .txt documents and the O
 
 ## Supported LLM Providers
 
-Shesha uses [LiteLLM](https://github.com/BerriAI/litellm) under the hood, giving you access to 100+ LLM providers with a unified interface:
-
-| Provider | Example Model | Environment Variable |
-|----------|---------------|---------------------|
-| **Anthropic** | `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` |
-| **OpenAI** | `gpt-4o`, `gpt-4-turbo` | `OPENAI_API_KEY` |
-| **Google** | `gemini/gemini-1.5-pro` | `GEMINI_API_KEY` |
-| **Ollama** | `ollama/llama3`, `ollama/mistral` | (local, no key needed) |
-| **Azure** | `azure/gpt-4` | `AZURE_API_KEY` |
-| **AWS Bedrock** | `bedrock/anthropic.claude-3` | AWS credentials |
-
-See the [LiteLLM documentation](https://docs.litellm.ai/docs/providers) for the full list of supported providers.
-
-### Using Ollama (Local Models)
-
-Run models locally with no API key required:
-
-```bash
-# Start Ollama
-ollama serve
-
-# Pull a model
-ollama pull llama3
-
-# Use with Shesha
-shesha = Shesha(model="ollama/llama3")
-```
+Works with 100+ LLM providers via [LiteLLM](https://github.com/BerriAI/litellm) — Anthropic, OpenAI, Google, Azure, AWS Bedrock, and local models through [Ollama](https://ollama.com/) (no API key needed). See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for provider setup details.
 
 ## Installation
 
@@ -98,8 +130,6 @@ echo '{"action": "ping"}' | docker run -i --rm shesha-sandbox
 
 ## Configuration
 
-### Environment Variables
-
 Set your API key and optionally specify a model:
 
 ```bash
@@ -107,50 +137,7 @@ export SHESHA_API_KEY="your-api-key-here"
 export SHESHA_MODEL="claude-sonnet-4-20250514"  # Default model
 ```
 
-See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for all configuration options including Ollama setup and repository authentication.
-
-### Programmatic Configuration
-
-```python
-from shesha import Shesha, SheshaConfig
-
-# Anthropic Claude
-shesha = Shesha(model="claude-sonnet-4-20250514")
-
-# OpenAI GPT-4
-shesha = Shesha(model="gpt-4o", api_key="your-openai-key")
-
-# Google Gemini
-shesha = Shesha(model="gemini/gemini-1.5-pro", api_key="your-gemini-key")
-
-# Ollama (local, no API key needed)
-shesha = Shesha(model="ollama/llama3")
-
-# Full configuration
-config = SheshaConfig(
-    model="gpt-4-turbo",
-    api_key="your-openai-key",
-    storage_path="./data",
-    pool_size=3,
-    max_iterations=30,
-)
-shesha = Shesha(config=config)
-
-# Load from file
-config = SheshaConfig.from_file("config.yaml")
-shesha = Shesha(config=config)
-```
-
-### Config File Format (YAML)
-
-```yaml
-model: claude-sonnet-4-20250514
-storage_path: ./my_data
-pool_size: 5
-max_iterations: 25
-container_memory_mb: 1024
-execution_timeout_sec: 60
-```
+Shesha also supports programmatic configuration, YAML config files, and per-provider API keys. See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for all options.
 
 ## Quick Start
 
@@ -302,14 +289,13 @@ python examples/repo.py https://github.com/org/repo --update --verbose
 
 ## DeepWiki
 
-We love DeepWiki. Amazing tool. DeepWiki can provide much of what we do, but there are some issues:
+We love DeepWiki — it's an amazing tool that covers much of the same ground. But there are reasons you might prefer Shesha:
 
-1. Free plan means you can only update your code once a week. Shesha allows you to update your code when it's updated.
-2. You get to choose your model, including local ones, meaning *you* have control.
-3. Shesha is free, open-source, with a liberal MIT license
-4. We use a recursive language model which, while new, appears to be a game-changing new approach.
-5. Queries have their full execution change logged, meaning you can see *how* we got the answers we did.
-6. You can wrap a web interface around this library, or you can use it as a CLI on your box.
+1. **Your code, your schedule** — update whenever you want, not once a week
+2. **Your model, your choice** — pick any provider, or run locally with Ollama so nothing leaves your machine
+3. **Free and open source** — MIT license, no usage limits, no lock-in
+4. **See how it thinks** — every query logs its full reasoning trace, so you can see *how* the answer was found
+5. **Run it your way** — embed it as a library, use the CLI, or wrap a web interface around it
 
 ## How It Works
 
@@ -383,66 +369,6 @@ src/shesha/
     └── trace.py         # Execution tracing
 ```
 
-## Sample Session
-
-Here's a real session querying the Barsoom novels, demonstrating three key capabilities:
-
-1. **Guardrails** - Politely refuses out-of-scope questions while explaining why
-2. **Simple lookup** - Quick fact retrieval from the document collection
-3. **Complex multi-document reasoning** - Tracks events across 7 books, orders them chronologically, cites supporting quotes, and identifies continuity conflicts
-
-```
-$ python examples/barsoom.py
-
-Ask questions about the Barsoom series. Type "quit" or "exit" to leave.
-
-> What is the capital of Malawi?
-[Thought for 7 seconds]
-The documents provided are Barsoom (Mars) texts and do not contain information
-about Malawi. I can't find the capital of Malawi in the provided documents.
-
-> Who is the son of Dejah Thoris and John Carter?
-[Thought for 29 seconds]
-The son of Dejah Thoris and John Carter is **Carthoris of Helium**.
-
-> What are the major events in his life, in the order they happened?
-[Thought for 227 seconds]
-1) **Named "Carthoris" in childhood (a deliberate blend of his parents' names)**
-- Key people/places: Carthoris; Dejah Thoris; John Carter; Helium
-- Quote: "so the name that she called me is the one that you desired, a
-  combination of hers and yours—Carthoris."
-
-2) **Has a younger sister, Tara (family context established)**
-- Key people/places: Carthoris; Tara of Helium; John Carter
-- Quote: "'A daughter,' he replied, 'only a little younger than Carthoris,
-  … Tara of Helium.'"
-
-3) **Disappears (triggering prolonged grief and major search expeditions)**
-- Key people/places: Carthoris; Dejah Thoris; Tardos Mors; Helium
-- Quote: "Ever since Carthoris disappeared, Dejah Thoris has grieved and
-  mourned for her lost boy."
-
-...
-
-21) **Develops the destination control compass, sparking a new era of invention**
-- Key people/places: Carthoris; Barsoom's scientists/engineers; Helium
-- Quote: "The perfection of the destination control compass by Carthoris
-  of Helium… marked the beginning of a new era of invention."
-
-...
-
-30) **Later-life stability: Thuvia is his mate; he hunts in Okar with Talu**
-- Key people/places: Carthoris; Thuvia of Ptarth; Talu (Jeddak of Okar)
-- Quote: "Thuvia of Ptarth… while Carthoris, her mate, hunted in Okar."
-
-### Noted conflict across sources
-- **Thuvia's status** conflicts (promised to another vs. called his mate).
-  Resolution: treated as narrative progression—first promised elsewhere,
-  later described as his mate (implying circumstances changed).
-```
-
-The third question demonstrates RLM's strength for complex reasoning: it searched across all 7 novels (~2.8M characters), extracted 30 chronological events with supporting quotes, and identified a continuity conflict between books—the kind of long-context sequential analysis that typically trips up standard LLM approaches.
-
 ## Security
 
 See [SECURITY.md](SECURITY.md) for details on:
@@ -458,10 +384,6 @@ See [SECURITY.md](SECURITY.md) for details on:
 # RLM Reference
 
 Internal engine borrows heavily from [this reference implementation](https://github.com/alexzhang13/rlm) by the authors of the original paper.
-
-## Why use Shesha?
-
-Shesha is designed to handle common-case problems that developers and businesses face.
 
 ## Using the Reference RLM or Shesha?
 
@@ -487,22 +409,15 @@ Choose Shesha if you:
 
 ## What About RAG?
 
-Use RAG when:
+Most AI document tools use Retrieval-Augmented Generation (RAG): they find a few relevant paragraphs, feed them to the AI, and hope the answer is in there. That works great when the answer lives in one or two passages and you need fast, predictable responses.
 
-- Answer lives in few retrievable chunks
-- Information density is low
-- Input fits model's context window
-- Predictable cost and latency matter
+Shesha takes a different approach. Instead of retrieving snippets, the AI reads your documents directly, writes code to search and cross-reference them, and keeps iterating until it's confident. This matters when:
 
-Use RLM when:
+- The answer spans many documents or requires connecting information across them
+- Your documents are too large for an AI to read in one pass
+- The question requires reasoning, not just lookup — like tracking a character across 7 novels or understanding how an authentication system works across dozens of source files
 
-- Answer depends on most of the input
-- Input exceeds model's context window
-- Task requires semantic transformation then aggregation
-- Complexity scales with input length
-- Multi-hop reasoning across many documents
-
-RAG often has a predefined (and lossy) workflow up front. RLMs design their workflow based on your query.
+The tradeoff: Shesha is slower and uses more tokens than RAG. But for questions that RAG gets wrong — because the answer isn't in any single chunk — Shesha gets them right.
 
 ## License
 
