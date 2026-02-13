@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Topical relevance checking** — LLM-based batch check flags citations that exist but are clearly unrelated to the citing paper
 - **Source badges** — citation report shows where each citation was verified (arXiv, CrossRef, OpenAlex, S2)
 - **Email modal for polite-pool access** — optional email stored in browser localStorage gives faster API access to CrossRef and OpenAlex
+- **Inline paper citations** — LLM responses in arXiv Explorer now cite papers by arxiv ID with clickable links that open the paper detail view
 
 ### Changed
 
