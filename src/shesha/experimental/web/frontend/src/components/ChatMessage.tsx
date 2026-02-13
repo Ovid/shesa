@@ -1,8 +1,58 @@
+import type { ReactNode } from 'react'
+
 import type { Exchange, PaperInfo } from '../types'
 
 function formatTime(iso: string): string {
   const d = new Date(iso)
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+const CITATION_RE = /\[@arxiv:([^\]]+)\]/g
+
+function renderAnswerWithCitations(
+  text: string,
+  topicPapers?: PaperInfo[],
+  onPaperClick?: (paper: PaperInfo) => void,
+): ReactNode[] {
+  const parts: ReactNode[] = []
+  let lastIndex = 0
+
+  for (const match of text.matchAll(CITATION_RE)) {
+    const arxivId = match[1]
+    const matchStart = match.index!
+
+    // Add text before this match
+    if (matchStart > lastIndex) {
+      parts.push(text.slice(lastIndex, matchStart))
+    }
+
+    // Look up paper — only render as button if found in topicPapers
+    const paper = topicPapers?.find(p => p.arxiv_id === arxivId)
+    if (paper) {
+      parts.push(
+        <button
+          key={`cite-${matchStart}`}
+          onClick={() => onPaperClick?.(paper)}
+          className="text-xs text-accent hover:underline bg-accent/5 rounded px-1 py-0.5 mx-0.5 inline"
+          title={paper.title}
+        >
+          {paper.arxiv_id}
+        </button>
+      )
+    } else {
+      // Unknown ID — render as literal text
+      parts.push(match[0])
+    }
+
+    lastIndex = matchStart + match[0].length
+  }
+
+  // Add remaining text after last match
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : [text]
 }
 
 interface ChatMessageProps {
@@ -37,7 +87,7 @@ export default function ChatMessage({ exchange, onViewTrace, topicPapers, onPape
       {/* Assistant answer */}
       <div className="flex flex-col items-start gap-0.5">
         <div className="max-w-[70%] bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-primary">
-          <div className="whitespace-pre-wrap">{exchange.answer}</div>
+          <div className="whitespace-pre-wrap">{renderAnswerWithCitations(exchange.answer, topicPapers, onPaperClick)}</div>
 
           {/* Consulted papers */}
           {consultedPapers.length > 0 && (
