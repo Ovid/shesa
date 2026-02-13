@@ -427,6 +427,40 @@ class TestCascadingVerifier:
         assert result.status == VerificationStatus.VERIFIED_EXTERNAL
         assert "LLM title judgment" in (result.message or "")
 
+    def test_ambiguous_match_passes_api_key_to_llm(self) -> None:
+        from shesha.experimental.arxiv.verifiers import CascadingVerifier
+
+        citation = ExtractedCitation(
+            key="x", title="Learning Chess from Text", authors=[], year=None
+        )
+
+        mock_openalex = MagicMock()
+        mock_openalex.verify.return_value = VerificationResult(
+            citation_key="x",
+            status=VerificationStatus.UNRESOLVED,
+            source="openalex",
+            actual_title="LEAP: Learning to Play Chess from Textbooks",
+            message="Title match ambiguous (similarity=0.65)",
+        )
+
+        mock_completion = MagicMock()
+        mock_completion.choices = [MagicMock()]
+        mock_completion.choices[0].message.content = "YES. Same paper."
+
+        with patch(
+            "shesha.experimental.arxiv.verifiers.litellm.completion",
+            return_value=mock_completion,
+        ) as mock_llm:
+            verifier = CascadingVerifier(
+                openalex_verifier=mock_openalex,
+                model="test-model",
+                api_key="sk-test-key-456",
+            )
+            verifier.verify(citation)
+
+        call_kwargs = mock_llm.call_args.kwargs
+        assert call_kwargs["api_key"] == "sk-test-key-456"
+
     def test_ambiguous_match_llm_says_no(self) -> None:
         from shesha.experimental.arxiv.verifiers import CascadingVerifier
 

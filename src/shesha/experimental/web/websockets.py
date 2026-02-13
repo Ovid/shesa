@@ -251,6 +251,7 @@ async def _handle_check_citations(ws: WebSocket, state: AppState, data: dict[str
     email_str = str(polite_email) if polite_email else None
 
     loop = asyncio.get_running_loop()
+    api_key = state.shesha._config.api_key
     verifier = CascadingVerifier(
         arxiv_verifier=ArxivVerifier(searcher=state.searcher),
         crossref_verifier=CrossRefVerifier(polite_email=email_str),
@@ -258,6 +259,7 @@ async def _handle_check_citations(ws: WebSocket, state: AppState, data: dict[str
         semantic_scholar_verifier=SemanticScholarVerifier(),
         polite_email=email_str,
         model=state.model,
+        api_key=api_key,
     )
     total = len(paper_ids)
     all_papers: list[dict[str, object]] = []
@@ -358,6 +360,7 @@ def _check_single_paper(
         citations=citations,
         verified_keys=verified_keys,
         model=model,
+        api_key=state.shesha._config.api_key,
     )
     results.extend(relevance_results)
 

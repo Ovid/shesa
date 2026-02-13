@@ -327,6 +327,7 @@ def _llm_title_judgment(
     found_title: str,
     found_abstract: str | None,
     model: str,
+    api_key: str | None = None,
 ) -> bool:
     """Ask the LLM whether two titles refer to the same paper.
 
@@ -340,12 +341,15 @@ def _llm_title_judgment(
         "Are these the same paper? Respond YES or NO with a one-sentence reason."
     )
     try:
-        response = litellm.completion(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            drop_params=True,
-        )
+        call_kwargs: dict[str, object] = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "drop_params": True,
+        }
+        if api_key:
+            call_kwargs["api_key"] = api_key
+        response = litellm.completion(**call_kwargs)
         content = (response.choices[0].message.content or "").strip().upper()
         return content.startswith("YES")
     except Exception:
@@ -365,12 +369,14 @@ class CascadingVerifier:
         semantic_scholar_verifier: SemanticScholarVerifier | None = None,
         polite_email: str | None = None,
         model: str | None = None,
+        api_key: str | None = None,
     ) -> None:
         self._arxiv = arxiv_verifier
         self._crossref = crossref_verifier
         self._openalex = openalex_verifier
         self._s2 = semantic_scholar_verifier
         self._model = model
+        self._api_key = api_key
 
     def verify(self, citation: ExtractedCitation) -> VerificationResult:
         """Verify citation using cascading sources."""
@@ -417,6 +423,7 @@ class CascadingVerifier:
                         found_title=result.actual_title,
                         found_abstract=None,
                         model=self._model,
+                        api_key=self._api_key,
                     )
                     if is_same:
                         return VerificationResult(

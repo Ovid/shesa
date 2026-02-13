@@ -23,6 +23,8 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [start, setStart] = useState(0)
+  const [adding, setAdding] = useState(false)
+  const [addProgress, setAddProgress] = useState({ current: 0, total: 0 })
 
   const searchArxiv = async (newStart = 0) => {
     if (!query.trim()) return
@@ -76,19 +78,31 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
       showToast('Select a topic first', 'warning')
       return
     }
-    for (const arxivId of selected) {
+    const ids = Array.from(selected)
+    setAdding(true)
+    setAddProgress({ current: 0, total: ids.length })
+    for (let i = 0; i < ids.length; i++) {
+      const arxivId = ids[i]
       const topics = [activeTopic]
       try {
         const result = await api.papers.add(arxivId, topics)
         if (result.task_id && onDownloadStarted) {
           onDownloadStarted(result.task_id)
         }
-        showToast(`Added ${arxivId}`, 'success')
+        // Update in_topics on the result card so it shows the tag immediately
+        setResults(prev => prev.map(r =>
+          r.arxiv_id === arxivId && !r.in_topics.includes(activeTopic!)
+            ? { ...r, in_topics: [...r.in_topics, activeTopic!] }
+            : r
+        ))
       } catch (e) {
         showToast(e instanceof Error ? e.message : `Failed to add ${arxivId}`, 'error')
       }
+      setAddProgress({ current: i + 1, total: ids.length })
     }
+    showToast(`Added ${ids.length} paper${ids.length > 1 ? 's' : ''}`, 'success')
     setSelected(new Set())
+    setAdding(false)
     onPapersChanged()
   }
 
@@ -158,36 +172,79 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
         )}
       </div>
 
+      {/* All / None */}
+      {results.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-1 text-[10px] text-text-dim border-b border-border">
+          <button
+            className="hover:text-accent"
+            onClick={() => setSelected(new Set(results.map(r => r.arxiv_id)))}
+          >All</button>
+          <span>/</span>
+          <button
+            className="hover:text-accent"
+            onClick={() => setSelected(new Set())}
+          >None</button>
+          {selected.size > 0 && (
+            <span className="ml-auto text-text-secondary">{selected.size} selected</span>
+          )}
+        </div>
+      )}
+
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
         {results.map(r => (
           <div
             key={r.arxiv_id}
-            className={`px-3 py-2 border-b border-border text-xs cursor-pointer transition-colors ${
+            className={`flex items-start gap-2 px-3 py-2 border-b border-border text-xs cursor-pointer transition-colors ${
               selected.has(r.arxiv_id) ? 'bg-accent-dim' : 'hover:bg-surface-2'
             }`}
             onClick={() => toggleSelect(r.arxiv_id)}
           >
-            <div className="font-medium text-text-primary text-sm leading-tight line-clamp-2">{r.title}</div>
-            <div className="text-text-dim mt-0.5">{r.authors.slice(0, 3).join(', ')}{r.authors.length > 3 ? ' ...' : ''}</div>
-            <div className="flex items-center gap-2 mt-1 text-text-dim font-mono">
-              <span>{r.arxiv_id}</span>
-              <span>{r.category}</span>
-              <span>{r.date}</span>
-            </div>
-            {r.in_topics.length > 0 && (
-              <div className="mt-1 flex gap-1">
-                {r.in_topics.map(t => (
-                  <span key={t} className="bg-green/10 text-green px-1 rounded text-[10px]">{t}</span>
-                ))}
+            <input
+              type="checkbox"
+              checked={selected.has(r.arxiv_id)}
+              onChange={() => toggleSelect(r.arxiv_id)}
+              onClick={e => e.stopPropagation()}
+              className="shrink-0 mt-1 accent-accent"
+            />
+            <div className="min-w-0">
+              <div className="font-medium text-text-primary text-sm leading-tight line-clamp-2">{r.title}</div>
+              <div className="text-text-dim mt-0.5">{r.authors.slice(0, 3).join(', ')}{r.authors.length > 3 ? ' ...' : ''}</div>
+              <div className="flex items-center gap-2 mt-1 text-text-dim font-mono">
+                <span>{r.arxiv_id}</span>
+                <span>{r.category}</span>
+                <span>{r.date}</span>
               </div>
-            )}
+              {r.in_topics.length > 0 && (
+                <div className="mt-1 flex gap-1 flex-wrap">
+                  {r.in_topics.map(t => (
+                    <span key={t} className="bg-green/10 text-green px-1 rounded text-[10px]">{t}</span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ))}
       </div>
 
+      {/* Progress bar */}
+      {adding && (
+        <div className="px-3 py-2 border-t border-border">
+          <div className="flex items-center justify-between text-[10px] text-text-dim mb-1">
+            <span>Adding papers...</span>
+            <span>{addProgress.current}/{addProgress.total}</span>
+          </div>
+          <div className="w-full h-1.5 bg-surface-2 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-accent rounded-full transition-all duration-300"
+              style={{ width: `${addProgress.total > 0 ? (addProgress.current / addProgress.total) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Actions */}
-      {(selected.size > 0 || (tab === 'arxiv' && results.length > 0)) && (
+      {!adding && (selected.size > 0 || (tab === 'arxiv' && results.length > 0)) && (
         <div className="px-3 py-2 border-t border-border flex items-center gap-2">
           {selected.size > 0 && (
             <button onClick={addSelected} className="px-3 py-1 bg-accent text-surface-0 rounded text-xs">

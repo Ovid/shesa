@@ -23,6 +23,7 @@ def check_topical_relevance(
     citations: list[ExtractedCitation],
     verified_keys: set[str],
     model: str,
+    api_key: str | None = None,
 ) -> list[VerificationResult]:
     """Check topical relevance of verified citations using the LLM.
 
@@ -50,12 +51,15 @@ Citations:
 {citation_list}"""
 
     try:
-        response = litellm.completion(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            drop_params=True,
-        )
+        call_kwargs: dict[str, object] = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "drop_params": True,
+        }
+        if api_key:
+            call_kwargs["api_key"] = api_key
+        response = litellm.completion(**call_kwargs)
         content = response.choices[0].message.content
         if not content:
             return []

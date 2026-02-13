@@ -5,20 +5,20 @@ from __future__ import annotations
 import gzip
 import io
 import tarfile
-import time
 import urllib.request
 from pathlib import Path
 from urllib.error import URLError
 
 from shesha.experimental.arxiv.cache import PaperCache
 from shesha.experimental.arxiv.models import PaperMeta
+from shesha.experimental.arxiv.rate_limit import RateLimiter
 from shesha.models import ParsedDocument
 
 # File extensions to extract from LaTeX source archives
 TEXT_EXTENSIONS = {".tex", ".bib", ".bbl", ".bst", ".sty", ".cls", ".txt", ".md"}
 
-# Delay between downloads to respect arXiv rate limits
-DOWNLOAD_DELAY_SECONDS = 3.0
+# Shared rate limiter for arXiv downloads (3s between requests, thread-safe via GIL)
+_arxiv_limiter = RateLimiter(min_interval=3.0)
 
 # Timeout for HTTP requests to arXiv (seconds)
 REQUEST_TIMEOUT_SECONDS = 30
@@ -115,6 +115,7 @@ def download_paper(meta: PaperMeta, cache: PaperCache) -> PaperMeta:
 
     # Try source first
     source_url = f"https://export.arxiv.org/e-print/{meta.arxiv_id}"
+    _arxiv_limiter.wait()
     try:
         with urllib.request.urlopen(source_url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             data = response.read()
@@ -127,10 +128,9 @@ def download_paper(meta: PaperMeta, cache: PaperCache) -> PaperMeta:
     except (URLError, TimeoutError):
         pass  # Source not available or timed out, fall back to PDF
 
-    time.sleep(DOWNLOAD_DELAY_SECONDS)
-
     # Fall back to PDF
     pdf_url = f"https://export.arxiv.org/pdf/{meta.arxiv_id}"
+    _arxiv_limiter.wait()
     try:
         with urllib.request.urlopen(pdf_url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             pdf_data = response.read()

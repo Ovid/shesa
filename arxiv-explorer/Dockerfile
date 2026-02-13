@@ -16,16 +16,14 @@ RUN npm run build
 # --- Stage 2: Runtime ---
 FROM python:3.12-slim
 
-# Install git (needed for hatch-vcs version detection)
-RUN apt-get update && apt-get install -y --no-install-recommends git && \
-    rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 COPY . .
 
 # Copy built frontend into the source tree
 COPY --from=frontend /build/dist src/shesha/experimental/web/frontend/dist
 
+# .git is excluded by .dockerignore, so provide version via env var
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 RUN pip install --no-cache-dir -e ".[web]"
 
 EXPOSE 8000

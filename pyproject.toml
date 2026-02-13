@@ -51,6 +51,7 @@ tui = [
     "textual>=1.0",
 ]
 web = [
+    "shesha[arxiv]",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "websockets>=12.0",

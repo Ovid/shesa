@@ -24,7 +24,9 @@ export default function ToastContainer() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
 
   const addToast = useCallback((item: Omit<ToastItem, 'id'>) => {
-    const id = crypto.randomUUID()
+    const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
     setToasts(prev => [...prev, { ...item, id }])
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id))

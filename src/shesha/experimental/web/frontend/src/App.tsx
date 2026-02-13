@@ -58,9 +58,14 @@ export default function App() {
           api.contextBudget(activeTopic).then(setBudget).catch(() => {})
         }
       } else if (msg.type === 'error') {
-        setPhase('Error')
-        setCitationChecking(false)
-        setCitationError(msg.message ?? 'Unknown error')
+        const errorMsg = msg.message ?? 'Unknown error'
+        if (citationCheckingRef.current) {
+          setCitationChecking(false)
+          setCitationError(errorMsg)
+        } else {
+          setPhase('Error')
+          showToast(errorMsg, 'error')
+        }
       } else if (msg.type === 'cancelled') {
         setPhase('Ready')
       } else if (msg.type === 'citation_progress') {
@@ -76,8 +81,10 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [traceView, setTraceView] = useState<{ topic: string; traceId: string } | null>(null)
 
-  // Citation check state
+  // Citation check state — ref tracks state for use in WebSocket callback closure
   const [citationChecking, setCitationChecking] = useState(false)
+  const citationCheckingRef = useRef(false)
+  useEffect(() => { citationCheckingRef.current = citationChecking }, [citationChecking])
   const [citationProgress, setCitationProgress] = useState<{ current: number; total: number; phase?: string } | null>(null)
   const [citationReport, setCitationReport] = useState<PaperReport[] | null>(null)
   const [citationError, setCitationError] = useState<string | null>(null)

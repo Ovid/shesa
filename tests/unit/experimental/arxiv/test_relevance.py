@@ -132,6 +132,61 @@ class TestTopicalRelevanceChecker:
 
         assert results == []
 
+    def test_passes_api_key_to_litellm(self) -> None:
+        from shesha.experimental.arxiv.relevance import check_topical_relevance
+
+        citations = [
+            ExtractedCitation(key="a", title="Paper A", authors=[], year=None),
+        ]
+        mock_completion = MagicMock()
+        mock_completion.choices = [MagicMock()]
+        mock_completion.choices[0].message.content = json.dumps(
+            [{"key": "a", "relevant": True, "reason": "Related"}]
+        )
+
+        with patch(
+            "shesha.experimental.arxiv.relevance.litellm.completion",
+            return_value=mock_completion,
+        ) as mock_llm:
+            check_topical_relevance(
+                paper_title="Test",
+                paper_abstract="Abstract",
+                citations=citations,
+                verified_keys={"a"},
+                model="test-model",
+                api_key="sk-test-key-123",
+            )
+
+        call_kwargs = mock_llm.call_args.kwargs
+        assert call_kwargs["api_key"] == "sk-test-key-123"
+
+    def test_omits_api_key_when_none(self) -> None:
+        from shesha.experimental.arxiv.relevance import check_topical_relevance
+
+        citations = [
+            ExtractedCitation(key="a", title="Paper A", authors=[], year=None),
+        ]
+        mock_completion = MagicMock()
+        mock_completion.choices = [MagicMock()]
+        mock_completion.choices[0].message.content = json.dumps(
+            [{"key": "a", "relevant": True, "reason": "Related"}]
+        )
+
+        with patch(
+            "shesha.experimental.arxiv.relevance.litellm.completion",
+            return_value=mock_completion,
+        ) as mock_llm:
+            check_topical_relevance(
+                paper_title="Test",
+                paper_abstract="Abstract",
+                citations=citations,
+                verified_keys={"a"},
+                model="test-model",
+            )
+
+        call_kwargs = mock_llm.call_args.kwargs
+        assert "api_key" not in call_kwargs
+
     def test_malformed_json_returns_empty(self) -> None:
         from shesha.experimental.arxiv.relevance import check_topical_relevance
 
