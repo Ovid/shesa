@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from shesha.exceptions import DocumentNotFoundError
-from shesha.experimental.web.ws import _handle_query
+from shesha.experimental.web.websockets import _handle_query
 from shesha.models import ParsedDocument
 
 
@@ -85,9 +86,9 @@ class TestPaperIdsFilterLoadsSelectedDocs:
             "paper_ids": ["paper-a", "paper-c"],
         }
 
-        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
+        with patch("shesha.experimental.web.websockets.WebConversationSession") as mock_session_cls:
             mock_session_cls.return_value.format_history_prefix.return_value = ""
-            await _handle_query(ws, state, data)
+            await _handle_query(ws, state, data, threading.Event())
 
         storage = state.topic_mgr._storage
         # get_document should be called for each paper_id
@@ -110,9 +111,9 @@ class TestPaperIdsFilterLoadsSelectedDocs:
             "paper_ids": ["paper-b"],
         }
 
-        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
+        with patch("shesha.experimental.web.websockets.WebConversationSession") as mock_session_cls:
             mock_session_cls.return_value.format_history_prefix.return_value = ""
-            await _handle_query(ws, state, data)
+            await _handle_query(ws, state, data, threading.Event())
 
         project = state.shesha.get_project.return_value
         engine = project._rlm_engine
@@ -138,7 +139,7 @@ class TestPaperIdsFilterLoadsSelectedDocs:
             "paper_ids": [],
         }
 
-        await _handle_query(ws, state, data)
+        await _handle_query(ws, state, data, threading.Event())
 
         storage = state.topic_mgr._storage
         storage.load_all_documents.assert_not_called()
@@ -167,7 +168,7 @@ class TestNoPaperIdsSendsError:
             "question": "What is chess?",
         }
 
-        await _handle_query(ws, state, data)
+        await _handle_query(ws, state, data, threading.Event())
 
         storage = state.topic_mgr._storage
         storage.load_all_documents.assert_not_called()
@@ -197,9 +198,9 @@ class TestCompleteMessageIncludesPaperIds:
             "paper_ids": ["paper-a", "paper-c"],
         }
 
-        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
+        with patch("shesha.experimental.web.websockets.WebConversationSession") as mock_session_cls:
             mock_session_cls.return_value.format_history_prefix.return_value = ""
-            await _handle_query(ws, state, data)
+            await _handle_query(ws, state, data, threading.Event())
 
         complete_calls = [
             c
@@ -222,10 +223,10 @@ class TestCompleteMessageIncludesPaperIds:
             "paper_ids": ["paper-a"],
         }
 
-        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
+        with patch("shesha.experimental.web.websockets.WebConversationSession") as mock_session_cls:
             mock_session = mock_session_cls.return_value
             mock_session.format_history_prefix.return_value = ""
-            await _handle_query(ws, state, data)
+            await _handle_query(ws, state, data, threading.Event())
 
         mock_session.add_exchange.assert_called_once()
         call_kwargs = mock_session.add_exchange.call_args.kwargs
@@ -251,9 +252,9 @@ class TestPaperIdsAllInvalid:
             "paper_ids": ["nonexistent"],
         }
 
-        with patch("shesha.experimental.web.ws.WebConversationSession") as mock_session_cls:
+        with patch("shesha.experimental.web.websockets.WebConversationSession") as mock_session_cls:
             mock_session_cls.return_value.format_history_prefix.return_value = ""
-            await _handle_query(ws, state, data)
+            await _handle_query(ws, state, data, threading.Event())
 
         # Should have sent an error about no valid papers
         error_calls = [

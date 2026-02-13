@@ -6,6 +6,7 @@ Shesha is a research tool that uses Recursive Language Models to help you explor
 
 - **Docker** — [docker.com/get-started](https://www.docker.com/get-started/)
 - An **LLM API key** — set `SHESHA_API_KEY` as an environment variable
+- **Model selection** — set `SHESHA_MODEL` (recommended: `gpt-5-mini` for OpenAI)
 
 ## Quick Start (Docker)
 
@@ -14,8 +15,9 @@ Shesha is a research tool that uses Recursive Language Models to help you explor
 git clone https://github.com/your-org/shesha.git
 cd shesha
 
-# 2. Set your API key
+# 2. Set your API key and model
 export SHESHA_API_KEY="sk-..."
+export SHESHA_MODEL="gpt-5-mini"   # recommended: inexpensive with great results
 
 # 3. Run
 docker compose up
@@ -23,19 +25,13 @@ docker compose up
 
 Visit `http://localhost:8000` in your browser.
 
-To choose a different model, set `SHESHA_MODEL` before running:
-
-```bash
-export SHESHA_MODEL="gpt-5-mini"
-docker compose up
-```
-
 ## Alternative: Shell Script
 
 If you prefer to run without Docker Compose (requires Python 3.12+, Node.js 20+, and bash):
 
 ```bash
 export SHESHA_API_KEY="sk-..."
+export SHESHA_MODEL="gpt-5-mini"
 ./examples/arxiv-explorer.sh
 ```
 

@@ -44,6 +44,7 @@ async def websocket_handler(ws: WebSocket, state: AppState) -> None:
     """Handle WebSocket connections for queries and citation checks."""
     await ws.accept()
     cancel_event: threading.Event | None = None
+    query_task: asyncio.Task[None] | None = None
 
     try:
         while True:
@@ -56,7 +57,13 @@ async def websocket_handler(ws: WebSocket, state: AppState) -> None:
                 await ws.send_json({"type": "cancelled"})
 
             elif msg_type == "query":
-                cancel_event = await _handle_query(ws, state, data)
+                # Cancel any in-flight query before starting a new one
+                if cancel_event is not None:
+                    cancel_event.set()
+                cancel_event = threading.Event()
+                query_task = asyncio.create_task(
+                    _handle_query(ws, state, data, cancel_event)
+                )
 
             elif msg_type == "check_citations":
                 await _handle_check_citations(ws, state, data)
@@ -68,25 +75,31 @@ async def websocket_handler(ws: WebSocket, state: AppState) -> None:
     except WebSocketDisconnect:
         if cancel_event is not None:
             cancel_event.set()
+        if query_task is not None and not query_task.done():
+            query_task.cancel()
 
 
-async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object]) -> threading.Event:
-    """Execute a query and stream progress. Returns the cancel_event."""
+async def _handle_query(
+    ws: WebSocket,
+    state: AppState,
+    data: dict[str, object],
+    cancel_event: threading.Event,
+) -> None:
+    """Execute a query and stream progress."""
     topic = str(data.get("topic", ""))
     question = str(data.get("question", ""))
 
     project_id = state.topic_mgr.resolve(topic)
     if not project_id:
         await ws.send_json({"type": "error", "message": f"Topic '{topic}' not found"})
-        return threading.Event()
+        return
 
     doc_names = state.topic_mgr._storage.list_documents(project_id)
     if not doc_names:
         await ws.send_json({"type": "error", "message": "No papers in topic"})
-        return threading.Event()
+        return
 
     project = state.shesha.get_project(project_id)
-    cancel_event = threading.Event()
 
     # Load documents filtered by paper_ids (required)
     paper_ids = data.get("paper_ids")
@@ -96,7 +109,7 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
         await ws.send_json(
             {"type": "error", "message": "Please select one or more papers before querying"}
         )
-        return threading.Event()
+        return
 
     # Load only the requested papers, skipping any that don't exist
     loaded_docs = []
@@ -110,7 +123,7 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
         await ws.send_json(
             {"type": "error", "message": "No valid papers found for the given paper_ids"}
         )
-        return threading.Event()
+        return
 
     # Load session for history prefix
     project_dir = state.topic_mgr._storage._project_path(project_id)
@@ -157,7 +170,7 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
         await ws.send_json({"type": "error", "message": "Query engine not configured"})
         await message_queue.put(None)
         await drain_task
-        return cancel_event
+        return
 
     storage = state.topic_mgr._storage
     try:
@@ -177,7 +190,7 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
         await message_queue.put(None)
         await drain_task
         await ws.send_json({"type": "error", "message": str(exc)})
-        return cancel_event
+        return
 
     # Signal the drain task to stop, then wait for it
     await message_queue.put(None)
@@ -219,8 +232,6 @@ async def _handle_query(ws: WebSocket, state: AppState, data: dict[str, object])
             "paper_ids": consulted_paper_ids,
         }
     )
-
-    return cancel_event
 
 
 async def _handle_check_citations(ws: WebSocket, state: AppState, data: dict[str, object]) -> None:

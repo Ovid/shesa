@@ -66,7 +66,7 @@ class TestCheckCitationsHandler:
             status=VerificationStatus.VERIFIED,
             arxiv_url="https://arxiv.org/abs/2301.99999",
         )
-        with patch("shesha.experimental.web.ws.ArxivVerifier") as mock_verifier_cls:
+        with patch("shesha.experimental.web.websockets.ArxivVerifier") as mock_verifier_cls:
             mock_verifier = MagicMock()
             mock_verifier.verify.return_value = mock_result
             mock_verifier_cls.return_value = mock_verifier
@@ -112,7 +112,7 @@ class TestCheckCitationsHandler:
         mock_state.cache.get_meta.return_value = None
         mock_state.cache.get_source_files.return_value = None
 
-        with patch("shesha.experimental.web.ws.ArxivVerifier"):
+        with patch("shesha.experimental.web.websockets.ArxivVerifier"):
             with client.websocket_connect("/api/ws") as ws:
                 ws.send_json(
                     {
@@ -154,7 +154,7 @@ class TestCheckCitationsHandler:
             status=VerificationStatus.VERIFIED,
             arxiv_url="https://arxiv.org/abs/2301.11111",
         )
-        with patch("shesha.experimental.web.ws.ArxivVerifier") as mock_verifier_cls:
+        with patch("shesha.experimental.web.websockets.ArxivVerifier") as mock_verifier_cls:
             mock_verifier = MagicMock()
             mock_verifier.verify.return_value = mock_result
             mock_verifier_cls.return_value = mock_verifier
@@ -200,7 +200,7 @@ class TestCheckCitationsHandler:
             citation_key="text-2301.55555",
             status=VerificationStatus.VERIFIED,
         )
-        with patch("shesha.experimental.web.ws.ArxivVerifier") as mock_verifier_cls:
+        with patch("shesha.experimental.web.websockets.ArxivVerifier") as mock_verifier_cls:
             mock_verifier = MagicMock()
             mock_verifier.verify.return_value = mock_result
             mock_verifier_cls.return_value = mock_verifier

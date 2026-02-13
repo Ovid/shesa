@@ -33,7 +33,7 @@ from shesha.experimental.web.schemas import (
     TraceStepSchema,
 )
 from shesha.experimental.web.session import WebConversationSession
-from shesha.experimental.web.ws import websocket_handler
+from shesha.experimental.web.websockets import websocket_handler
 
 
 def _resolve_topic_or_404(state: AppState, name: str) -> str:
