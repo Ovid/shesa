@@ -287,6 +287,16 @@ Command line options:
 python examples/repo.py https://github.com/org/repo --update --verbose
 ```
 
+## arXiv Explorer
+
+The [arXiv Explorer](arxiv-explorer/) is a web-based research tool that lets you search arXiv, add papers to topics, and ask plain-English questions across dozens of papers at once. Shesha writes and runs code to dig through your documents, iterating until it finds a real answer with citations you can verify against the source.
+
+<p align="center">
+  <img src="images/arxiv_explorer.png" alt="arXiv Explorer screenshot — searching nearly 25 MB of papers to answer a complex question">
+</p>
+
+_The screenshot above shows Shesha searching through nearly 25 MB of research papers to answer a complex question._
+
 ## DeepWiki
 
 We love DeepWiki — it's an amazing tool that covers much of the same ground. But there are reasons you might prefer Shesha:
