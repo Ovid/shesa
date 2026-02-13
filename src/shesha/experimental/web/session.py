@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 CONVERSATION_FILE = "_conversation.json"
 
@@ -20,8 +23,12 @@ class WebConversationSession:
 
     def _load(self) -> None:
         if self._file.exists():
-            data = json.loads(self._file.read_text())
-            self._exchanges = data.get("exchanges", [])
+            try:
+                data = json.loads(self._file.read_text())
+                self._exchanges = data.get("exchanges", [])
+            except (json.JSONDecodeError, OSError):
+                logger.warning("Corrupt conversation file %s; starting empty", self._file)
+                self._exchanges = []
 
     def _save(self) -> None:
         self._file.write_text(json.dumps({"exchanges": self._exchanges}, indent=2))

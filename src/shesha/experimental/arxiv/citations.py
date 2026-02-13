@@ -306,8 +306,8 @@ def format_check_report_json(report: CheckReport) -> dict[str, object]:
         if r.source:
             sources[r.citation_key] = r.source
 
-    # Strip version from arxiv_id for the URL (use base ID)
-    base_id = report.arxiv_id.split("v")[0] if "v" in report.arxiv_id else report.arxiv_id
+    # Strip trailing version suffix (e.g. "v1", "v2") from arxiv_id for the URL
+    base_id = re.sub(r"v\d+$", "", report.arxiv_id)
 
     return {
         "arxiv_id": report.arxiv_id,

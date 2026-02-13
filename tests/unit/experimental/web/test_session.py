@@ -135,6 +135,14 @@ def test_add_exchange_stores_paper_ids(session: WebConversationSession) -> None:
     assert reloaded.list_exchanges()[0]["paper_ids"] == ["paper-a", "paper-c"]
 
 
+def test_corrupt_json_loads_as_empty(session_dir: Path) -> None:
+    """A corrupt conversation file should not crash; session loads as empty."""
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "_conversation.json").write_text("{bad json")
+    s = WebConversationSession(session_dir)
+    assert s.list_exchanges() == []
+
+
 def test_add_exchange_paper_ids_defaults_to_none(session: WebConversationSession) -> None:
     """add_exchange works without paper_ids for backward compatibility."""
     exchange = session.add_exchange(

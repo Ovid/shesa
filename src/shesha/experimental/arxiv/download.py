@@ -17,7 +17,7 @@ from shesha.models import ParsedDocument
 # File extensions to extract from LaTeX source archives
 TEXT_EXTENSIONS = {".tex", ".bib", ".bbl", ".bst", ".sty", ".cls", ".txt", ".md"}
 
-# Shared rate limiter for arXiv downloads (3s between requests, thread-safe via GIL)
+# Shared rate limiter for arXiv downloads (3s between requests, thread-safe via internal lock)
 _arxiv_limiter = RateLimiter(min_interval=3.0)
 
 # Timeout for HTTP requests to arXiv (seconds)
