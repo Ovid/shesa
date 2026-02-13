@@ -35,7 +35,7 @@ export default function Header({
             onError={() => setLogoError(true)}
           />
         )}
-        <span className="text-base font-bold text-text-primary">Shesha</span>
+        <a href="https://github.com/Ovid/shesha" target="_blank" rel="noopener noreferrer" className="text-base font-bold text-text-primary hover:text-accent transition-colors">Shesha</a>
         <span className="text-xs text-text-dim font-mono">arXiv Explorer</span>
         <span className="text-[10px] text-amber border border-amber/40 rounded-full px-2 py-0.5 font-medium">
           Experimental
