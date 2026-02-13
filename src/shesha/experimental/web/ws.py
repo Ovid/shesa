@@ -6,6 +6,7 @@ import asyncio
 import functools
 import logging
 import threading
+from collections.abc import Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -18,7 +19,12 @@ from shesha.experimental.arxiv.citations import (
     extract_citations_from_text,
     format_check_report_json,
 )
-from shesha.experimental.arxiv.models import CheckReport, ExtractedCitation, VerificationStatus
+from shesha.experimental.arxiv.models import (
+    CheckReport,
+    ExtractedCitation,
+    VerificationResult,
+    VerificationStatus,
+)
 from shesha.experimental.arxiv.relevance import check_topical_relevance
 from shesha.experimental.arxiv.verifiers import (
     CascadingVerifier,
@@ -256,10 +262,33 @@ async def _handle_check_citations(ws: WebSocket, state: AppState, data: dict[str
                 "phase": "Verifying citations...",
             }
         )
+
+        def _send_citation_progress(
+            current_citation: int, total_citations: int, _idx: int = idx
+        ) -> None:
+            """Send per-citation progress from worker thread."""
+            asyncio.run_coroutine_threadsafe(
+                ws.send_json(
+                    {
+                        "type": "citation_progress",
+                        "current": _idx,
+                        "total": total,
+                        "phase": f"Checking citation {current_citation}/{total_citations}...",
+                    }
+                ),
+                loop,
+            )
+
         paper_json = await loop.run_in_executor(
             None,
             functools.partial(
-                _check_single_paper, str(pid), state, verifier, project_id, state.model
+                _check_single_paper,
+                str(pid),
+                state,
+                verifier,
+                project_id,
+                state.model,
+                progress_callback=_send_citation_progress,
             ),
         )
         if paper_json is not None:
@@ -274,6 +303,7 @@ def _check_single_paper(
     verifier: CascadingVerifier,
     project_id: str,
     model: str,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, object] | None:
     """Check citations for a single paper. Returns JSON-serializable dict or None."""
     meta = state.cache.get_meta(paper_id)
@@ -300,7 +330,12 @@ def _check_single_paper(
             full_text = ""
 
     llm_phrases = detect_llm_phrases(full_text)
-    results = [verifier.verify(c) for c in citations]
+    total_citations = len(citations)
+    results: list[VerificationResult] = []
+    for i, c in enumerate(citations, 1):
+        if progress_callback and total_citations > 1:
+            progress_callback(i, total_citations)
+        results.append(verifier.verify(c))
 
     # Topical relevance check on verified citations
     verified_keys = {
