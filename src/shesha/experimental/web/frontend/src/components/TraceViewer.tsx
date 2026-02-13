@@ -65,7 +65,7 @@ export default function TraceViewer({ topicName, traceId, onClose }: TraceViewer
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-text-dim text-sm">Loading...</div>
       ) : trace ? (
-        <>
+        <div className="flex-1 overflow-y-auto min-h-0">
           {/* Summary */}
           <div className="px-4 py-3 border-b border-border text-xs text-text-secondary space-y-1">
             <div className="text-sm text-text-primary font-medium">{trace.question}</div>
@@ -96,7 +96,7 @@ export default function TraceViewer({ topicName, traceId, onClose }: TraceViewer
           </div>
 
           {/* Steps timeline */}
-          <div className="flex-1 overflow-y-auto px-4 py-2">
+          <div className="px-4 py-2">
             {trace.steps.map((step, idx) => (
               <StepCard
                 key={idx}
@@ -107,7 +107,7 @@ export default function TraceViewer({ topicName, traceId, onClose }: TraceViewer
               />
             ))}
           </div>
-        </>
+        </div>
       ) : (
         <div className="flex-1 flex items-center justify-center text-text-dim text-sm">Trace not found.</div>
       )}
