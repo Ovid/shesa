@@ -14,6 +14,7 @@
   --color-green: #4caf50;
   --color-amber: #ff9800;
   --color-red: #f44336;
+  --animate-progress-slide: progress-slide 1.5s ease-in-out infinite;
 }
 
 /* Light mode overrides — toggled via .light class on <html> */
@@ -30,6 +31,11 @@
   --color-green: #2e7d32;
   --color-amber: #e65100;
   --color-red: #c62828;
+}
+
+@keyframes progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(333%); }
 }
 
 body {

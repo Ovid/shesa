@@ -103,9 +103,9 @@ describe('DownloadProgress', () => {
       expect(screen.getByText('Downloading Papers')).toBeInTheDocument()
     })
 
-    // Progress bar should have animate-pulse class, not 0% width
+    // Progress bar should have animate-progress-slide class, not 0% width
     const barFill = screen.getByTestId('download-bar-fill')
-    expect(barFill.className).toContain('animate-pulse')
+    expect(barFill.className).toContain('animate-progress-slide')
   })
 
   it('shows green bar when all downloads complete', async () => {

@@ -82,7 +82,7 @@ export default function DownloadProgress({ taskIds, onComplete }: DownloadProgre
   const barClass = done === total
     ? 'bg-green'
     : isIndeterminate
-      ? 'bg-accent animate-pulse'
+      ? 'bg-accent animate-progress-slide'
       : 'bg-accent'
 
   return (
@@ -105,7 +105,7 @@ export default function DownloadProgress({ taskIds, onComplete }: DownloadProgre
             <div className="text-sm text-text-secondary mb-2">
               {done}/{total} &mdash; {phase}
             </div>
-            <div className="w-full bg-surface-2 rounded-full h-2">
+            <div className="w-full bg-surface-2 rounded-full h-2 overflow-hidden">
               <div
                 data-testid="download-bar-fill"
                 className={`h-2 rounded-full transition-all ${barClass}`}
