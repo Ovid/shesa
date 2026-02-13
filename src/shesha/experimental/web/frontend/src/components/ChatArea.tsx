@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, type KeyboardEvent } from 'react'
 import { api } from '../api/client'
 import { showToast } from './Toast'
 import ChatMessage from './ChatMessage'
@@ -92,7 +92,7 @@ export default function ChatArea({ topicName, connected, wsSend, wsOnMessage, on
     setPhase('Starting')
   }, [canSend, input, topicName, wsSend, selectedPapers])
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()

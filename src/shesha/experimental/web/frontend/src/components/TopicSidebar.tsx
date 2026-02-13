@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type CSSProperties, type MouseEvent } from 'react'
 import { api } from '../api/client'
 import { showToast } from './Toast'
 import ConfirmDialog from './ConfirmDialog'
@@ -14,7 +14,7 @@ interface TopicSidebarProps {
   onPaperClick: (paper: PaperInfo) => void
   onPapersLoaded: (papers: PaperInfo[]) => void
   viewingPaperId?: string | null
-  style?: React.CSSProperties
+  style?: CSSProperties
 }
 
 export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChange, refreshKey, selectedPapers, onSelectionChange, onPaperClick, onPapersLoaded, viewingPaperId, style }: TopicSidebarProps) {
@@ -54,7 +54,7 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
     }
   }, [activeTopic])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleTogglePapers = async (topicName: string, e: React.MouseEvent) => {
+  const handleTogglePapers = async (topicName: string, e: MouseEvent) => {
     e.stopPropagation()
     if (expandedTopic === topicName) {
       setExpandedTopic(null)

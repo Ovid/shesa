@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, type MouseEvent } from 'react'
 import Header from './components/Header'
 import StatusBar from './components/StatusBar'
 import ToastContainer, { showToast } from './components/Toast'
@@ -244,12 +244,12 @@ export default function App() {
     handlePapersChanged()
   }, [handlePapersChanged])
 
-  const handleSidebarDrag = useCallback((e: React.MouseEvent) => {
+  const handleSidebarDrag = useCallback((e: MouseEvent) => {
     e.preventDefault()
     dragging.current = true
     const startX = e.clientX
     const startWidth = sidebarWidth
-    const onMove = (ev: MouseEvent) => {
+    const onMove = (ev: globalThis.MouseEvent) => {
       if (!dragging.current) return
       const newWidth = Math.min(600, Math.max(160, startWidth + ev.clientX - startX))
       setSidebarWidth(newWidth)
