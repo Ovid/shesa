@@ -9,8 +9,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - shesha-data:/app/shesha_data
     environment:
-      - SHESHA_API_KEY
-      - SHESHA_MODEL
+      - SHESHA_API_KEY=${SHESHA_API_KEY:?Set SHESHA_API_KEY before running (see README.md)}
+      - SHESHA_MODEL=${SHESHA_MODEL:?Set SHESHA_MODEL before running (see README.md)}
       - SHESHA_STORAGE_PATH=/app/shesha_data
 
 volumes:
