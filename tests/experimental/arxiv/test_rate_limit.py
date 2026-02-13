@@ -67,7 +67,7 @@ class TestRateLimiter:
         # Each consecutive pair should be at least min_interval apart
         for i in range(1, len(timestamps)):
             gap = timestamps[i] - timestamps[i - 1]
-            assert gap >= 0.08, f"Gap {gap:.3f}s between calls {i-1} and {i} is too small"
+            assert gap >= 0.08, f"Gap {gap:.3f}s between calls {i - 1} and {i} is too small"
 
     @pytest.mark.parametrize("interval", [0.05, 0.1])
     def test_respects_different_intervals(self, interval: float) -> None:
