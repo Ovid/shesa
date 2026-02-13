@@ -278,6 +278,36 @@ describe('SearchPanel', () => {
         expect(screen.getByText('my-topic')).toBeInTheDocument()
       })
     })
+
+    it('shows completion state instead of toast after adding', async () => {
+      const user = userEvent.setup()
+
+      vi.mocked(api.search).mockResolvedValue([
+        makeResult('2501.00001', 'Paper A'),
+        makeResult('2501.00002', 'Paper B'),
+      ])
+      vi.mocked(api.papers.add).mockResolvedValue({})
+
+      render(<SearchPanel {...defaultProps} />)
+      await searchAndWait(user, 'test')
+
+      await waitFor(() => {
+        expect(screen.getByText('Paper A')).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'All' }))
+      await user.click(screen.getByRole('button', { name: /Add 2 papers/ }))
+
+      // Should show completion message in progress bar area, NOT a success toast
+      await waitFor(() => {
+        expect(screen.getByText('Added 2 papers')).toBeInTheDocument()
+      })
+
+      // No success toast should have been shown
+      const toastCalls = vi.mocked(showToast).mock.calls
+      const successCalls = toastCalls.filter(([, type]) => type === 'success')
+      expect(successCalls).toHaveLength(0)
+    })
   })
 
   describe('add errors', () => {

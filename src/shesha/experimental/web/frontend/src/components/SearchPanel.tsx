@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { showToast } from './Toast'
 import type { SearchResult } from '../types'
@@ -25,6 +25,13 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
   const [start, setStart] = useState(0)
   const [adding, setAdding] = useState(false)
   const [addProgress, setAddProgress] = useState({ current: 0, total: 0 })
+  const [addComplete, setAddComplete] = useState<string | null>(null)
+  const addCompleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clean up timer on unmount
+  useEffect(() => () => {
+    if (addCompleteTimer.current) clearTimeout(addCompleteTimer.current)
+  }, [])
 
   const searchArxiv = async (newStart = 0) => {
     if (!query.trim()) return
@@ -100,9 +107,12 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
       }
       setAddProgress({ current: i + 1, total: ids.length })
     }
-    showToast(`Added ${ids.length} paper${ids.length > 1 ? 's' : ''}`, 'success')
-    setSelected(new Set())
     setAdding(false)
+    const msg = `Added ${ids.length} paper${ids.length > 1 ? 's' : ''}`
+    setAddComplete(msg)
+    if (addCompleteTimer.current) clearTimeout(addCompleteTimer.current)
+    addCompleteTimer.current = setTimeout(() => setAddComplete(null), 2000)
+    setSelected(new Set())
     onPapersChanged()
   }
 
@@ -239,6 +249,18 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
               className="h-full bg-accent rounded-full transition-all duration-300"
               style={{ width: `${addProgress.total > 0 ? (addProgress.current / addProgress.total) * 100 : 0}%` }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Completion message */}
+      {!adding && addComplete && (
+        <div className="px-3 py-2 border-t border-border">
+          <div className="flex items-center justify-between text-[10px] text-green mb-1">
+            <span>{addComplete}</span>
+          </div>
+          <div className="w-full h-1.5 bg-surface-2 rounded-full overflow-hidden">
+            <div className="h-full bg-green rounded-full w-full" />
           </div>
         </div>
       )}
