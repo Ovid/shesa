@@ -143,6 +143,41 @@ describe('DownloadProgress', () => {
     vi.useRealTimers()
   })
 
+  it('reappears when a task is replaced at the same length', async () => {
+    const user = userEvent.setup()
+
+    vi.mocked(api.papers.taskStatus).mockResolvedValue({
+      task_id: 'task-1',
+      papers: [{ arxiv_id: '2501.00001', status: 'downloading' }],
+    })
+
+    const { rerender } = render(
+      <DownloadProgress taskIds={['task-1']} onComplete={vi.fn()} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Downloading Papers')).toBeInTheDocument()
+    })
+
+    // Dismiss the modal
+    await user.click(screen.getByRole('button', { name: /×/ }))
+    expect(screen.queryByText('Downloading Papers')).not.toBeInTheDocument()
+
+    // Replace task-1 with task-2 (same array length)
+    vi.mocked(api.papers.taskStatus).mockResolvedValue({
+      task_id: 'task-2',
+      papers: [{ arxiv_id: '2501.00002', status: 'downloading' }],
+    })
+
+    rerender(
+      <DownloadProgress taskIds={['task-2']} onComplete={vi.fn()} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Downloading Papers')).toBeInTheDocument()
+    })
+  })
+
   it('shows green bar when all downloads complete', async () => {
     vi.mocked(api.papers.taskStatus).mockResolvedValue({
       task_id: 'task-1',

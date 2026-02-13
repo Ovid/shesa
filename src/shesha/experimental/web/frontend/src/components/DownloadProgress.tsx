@@ -18,12 +18,13 @@ export default function DownloadProgress({ taskIds, onComplete }: DownloadProgre
   const completedPapersRef = useRef(new Map<string, PaperStatus[]>())
 
   // Reset dismissed state when new tasks arrive
-  const prevTaskIdsRef = useRef<string[]>([])
+  const prevTaskIdsRef = useRef(new Set<string>())
   useEffect(() => {
-    if (taskIds.length > prevTaskIdsRef.current.length) {
+    const hasNewTask = taskIds.some(id => !prevTaskIdsRef.current.has(id))
+    if (hasNewTask) {
       setDismissed(false)
     }
-    prevTaskIdsRef.current = taskIds
+    prevTaskIdsRef.current = new Set(taskIds)
   }, [taskIds])
 
   const poll = useCallback(async () => {

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,7 +33,15 @@ class WebConversationSession:
                 self._exchanges = []
 
     def _save(self) -> None:
-        self._file.write_text(json.dumps({"exchanges": self._exchanges}, indent=2))
+        data = json.dumps({"exchanges": self._exchanges}, indent=2)
+        fd, tmp = tempfile.mkstemp(dir=self._file.parent, prefix=self._file.name + ".")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(data)
+            os.replace(tmp, self._file)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
 
     def add_exchange(
         self,

@@ -4,8 +4,6 @@ import inspect
 import threading
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from shesha.rlm.engine import RLMEngine
 
 

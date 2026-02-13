@@ -1,6 +1,7 @@
 """Tests for persistent web conversation session."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -141,6 +142,45 @@ def test_corrupt_json_loads_as_empty(session_dir: Path) -> None:
     (session_dir / "_conversation.json").write_text("{bad json")
     s = WebConversationSession(session_dir)
     assert s.list_exchanges() == []
+
+
+def test_save_is_atomic_on_crash(session_dir: Path) -> None:
+    """If _save crashes mid-write, the original file is preserved."""
+    session_dir.mkdir(parents=True, exist_ok=True)
+    s = WebConversationSession(session_dir)
+    s.add_exchange(
+        question="Q1",
+        answer="A1",
+        trace_id="t1",
+        tokens={"prompt": 10, "completion": 5, "total": 15},
+        execution_time=0.5,
+        model="test",
+    )
+
+    conv_file = session_dir / "_conversation.json"
+    original_data = conv_file.read_text()
+
+    # Simulate a crash during the second save by making os.replace raise
+    with patch("os.replace", side_effect=OSError("disk full")):
+        with pytest.raises(OSError):
+            s.add_exchange(
+                question="Q2",
+                answer="A2",
+                trace_id="t2",
+                tokens={"prompt": 10, "completion": 5, "total": 15},
+                execution_time=0.5,
+                model="test",
+            )
+
+    # Original file should still be intact and valid
+    assert conv_file.read_text() == original_data
+    reloaded = WebConversationSession(session_dir)
+    assert len(reloaded.list_exchanges()) == 1
+    assert reloaded.list_exchanges()[0]["question"] == "Q1"
+
+    # No leftover temp files
+    tmp_files = list(session_dir.glob("_conversation.json.*"))
+    assert tmp_files == []
 
 
 def test_add_exchange_paper_ids_defaults_to_none(session: WebConversationSession) -> None:
