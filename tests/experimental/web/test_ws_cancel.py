@@ -20,9 +20,7 @@ class TestCancelDuringQuery:
         """A cancel message sent while a query runs should be acknowledged promptly."""
         query_started = asyncio.Event()
 
-        async def blocking_query(
-            ws: Any, state: Any, data: Any, cancel_event: Any
-        ) -> None:
+        async def blocking_query(ws: Any, state: Any, data: Any, cancel_event: Any) -> None:
             """Simulate a long-running query that yields to the event loop."""
             query_started.set()
             await asyncio.sleep(10)
@@ -67,16 +65,12 @@ class TestCancelDuringQuery:
         query_started = asyncio.Event()
         captured_cancel_event: list[Any] = []
 
-        async def blocking_query(
-            ws: Any, state: Any, data: Any, cancel_event: Any
-        ) -> None:
+        async def blocking_query(ws: Any, state: Any, data: Any, cancel_event: Any) -> None:
             captured_cancel_event.append(cancel_event)
             query_started.set()
             # Block until cancelled or timeout
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, lambda: cancel_event.wait(timeout=5.0)
-            )
+            await loop.run_in_executor(None, lambda: cancel_event.wait(timeout=5.0))
 
         call_idx = 0
 
@@ -116,16 +110,12 @@ class TestCancelDuringQuery:
 
         second_query_started = asyncio.Event()
 
-        async def blocking_query(
-            ws: Any, state: Any, data: Any, cancel_event: Any
-        ) -> None:
+        async def blocking_query(ws: Any, state: Any, data: Any, cancel_event: Any) -> None:
             captured_events.append(cancel_event)
             if len(captured_events) == 1:
                 first_query_started.set()
                 loop = asyncio.get_running_loop()
-                await loop.run_in_executor(
-                    None, lambda: cancel_event.wait(timeout=5.0)
-                )
+                await loop.run_in_executor(None, lambda: cancel_event.wait(timeout=5.0))
             else:
                 second_query_started.set()
 

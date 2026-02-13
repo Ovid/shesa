@@ -61,9 +61,7 @@ async def websocket_handler(ws: WebSocket, state: AppState) -> None:
                 if cancel_event is not None:
                     cancel_event.set()
                 cancel_event = threading.Event()
-                query_task = asyncio.create_task(
-                    _handle_query(ws, state, data, cancel_event)
-                )
+                query_task = asyncio.create_task(_handle_query(ws, state, data, cancel_event))
 
             elif msg_type == "check_citations":
                 await _handle_check_citations(ws, state, data)
