@@ -28,4 +28,4 @@ RUN pip install --no-cache-dir -e ".[web]"
 
 EXPOSE 8000
 
-ENTRYPOINT ["shesha-web", "--no-browser"]
+ENTRYPOINT ["shesha-web", "--no-browser", "--data-dir", "/data"]
