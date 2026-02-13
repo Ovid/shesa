@@ -273,7 +273,7 @@ export default function TopicSidebar({ activeTopic, onSelectTopic, onTopicsChang
                     />
                     <span
                       className="truncate cursor-pointer hover:text-accent"
-                      onClick={(e) => { e.stopPropagation(); onSelectTopic(t.name); onPaperClick(p) }}
+                      onClick={(e) => { e.stopPropagation(); if (activeTopic !== t.name) onSelectTopic(t.name); onPaperClick(p) }}
                       title={`${p.title}\n${p.authors[0] ?? ''} \u00B7 ${p.date?.slice(0, 4) ?? ''}`}
                     >
                       {p.title}

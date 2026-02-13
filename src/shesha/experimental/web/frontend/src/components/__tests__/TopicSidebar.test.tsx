@@ -68,4 +68,17 @@ describe('TopicSidebar paper click selects topic', () => {
     // onPaperClick should also be called
     expect(defaultProps.onPaperClick).toHaveBeenCalled()
   })
+
+  it('does not call onSelectTopic when paper clicked in already-active topic', async () => {
+    render(<TopicSidebar {...defaultProps} activeTopic="chess" />)
+
+    // Papers auto-load via useEffect when activeTopic matches
+    const paperTitle = await screen.findByText('Chess Strategies')
+    await userEvent.click(paperTitle)
+
+    // onSelectTopic should NOT be called (topic is already active)
+    expect(defaultProps.onSelectTopic).not.toHaveBeenCalled()
+    // onPaperClick should still be called
+    expect(defaultProps.onPaperClick).toHaveBeenCalled()
+  })
 })

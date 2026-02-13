@@ -315,14 +315,15 @@ export default function App() {
 
         {/* Center column */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          {viewingPaper ? (
+          {viewingPaper && (
             <PaperDetail
               paper={viewingPaper}
               topicName={activeTopic ?? ''}
               onRemove={handlePaperRemove}
               onClose={() => setViewingPaper(null)}
             />
-          ) : (
+          )}
+          <div className={`flex-1 flex flex-col min-w-0 min-h-0 ${viewingPaper ? 'hidden' : ''}`}>
             <ChatArea
               topicName={activeTopic}
               connected={connected}
@@ -335,7 +336,7 @@ export default function App() {
               topicPapers={topicPapersList}
               onPaperClick={handlePaperClick}
             />
-          )}
+          </div>
         </div>
 
         {/* Right panels */}
