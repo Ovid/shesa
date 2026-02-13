@@ -31,7 +31,7 @@ export const api = {
       method: 'POST', body: JSON.stringify({ arxiv_id: arxivId, topics }),
     }),
     remove: (topic: string, arxivId: string) => request<void>(
-      `/topics/${encodeURIComponent(topic)}/papers/${arxivId}`, { method: 'DELETE' },
+      `/topics/${encodeURIComponent(topic)}/papers/${encodeURIComponent(arxivId)}`, { method: 'DELETE' },
     ),
     taskStatus: (taskId: string) => request<{ task_id: string; papers: { arxiv_id: string; status: string }[] }>(
       `/papers/tasks/${taskId}`,
