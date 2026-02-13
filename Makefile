@@ -22,6 +22,6 @@ format:
 all: format lint typecheck test test-frontend
 
 loc:
-	@cloc src tests examples pyproject.toml Makefile run-web.sh \
+	@cloc src tests examples pyproject.toml Makefile \
 		--exclude-dir=node_modules,dist \
 		--not-match-f='package-lock\.json'

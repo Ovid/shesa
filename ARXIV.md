@@ -4,12 +4,10 @@ Shesha is a research tool that uses Recursive Language Models to help you explor
 
 ## Prerequisites
 
-- **Python 3.12+** — [python.org/downloads](https://www.python.org/downloads/)
-- **Node.js 20+** — [nodejs.org](https://nodejs.org/) (for the web frontend)
-- **Docker** — [docker.com/get-started](https://www.docker.com/get-started/) (for the code sandbox)
-- An **LLM API key** — e.g., `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set as an environment variable
+- **Docker** — [docker.com/get-started](https://www.docker.com/get-started/)
+- An **LLM API key** — set `SHESHA_API_KEY` as an environment variable
 
-## Quick Start
+## Quick Start (Docker)
 
 ```bash
 # 1. Clone the repository
@@ -17,26 +15,41 @@ git clone https://github.com/your-org/shesha.git
 cd shesha
 
 # 2. Set your API key
-export OPENAI_API_KEY="sk-..."
-# or: export ANTHROPIC_API_KEY="sk-ant-..."
+export SHESHA_API_KEY="sk-..."
 
-# 3. Run (handles venv, dependencies, frontend build automatically)
-./run-web.sh
+# 3. Run
+docker compose up
 ```
 
-The launch script checks prerequisites, creates a virtual environment, installs dependencies, builds the frontend, and starts the server. On subsequent runs it skips steps that are already done.
+Visit `http://localhost:8000` in your browser.
+
+To choose a different model, set `SHESHA_MODEL` before running:
+
+```bash
+export SHESHA_MODEL="gpt-5-mini"
+docker compose up
+```
+
+## Alternative: Shell Script
+
+If you prefer to run without Docker Compose (requires Python 3.12+, Node.js 20+, and bash):
+
+```bash
+export SHESHA_API_KEY="sk-..."
+./examples/arxiv-explorer.sh
+```
 
 ```bash
 # Options:
-./run-web.sh --model gpt-5-mini   # choose LLM model
-./run-web.sh --port 8080           # custom port
-./run-web.sh --no-browser          # don't open browser
-./run-web.sh --rebuild             # force frontend rebuild
+./examples/arxiv-explorer.sh --model gpt-5-mini   # choose LLM model
+./examples/arxiv-explorer.sh --port 8080           # custom port
+./examples/arxiv-explorer.sh --no-browser          # don't open browser
+./examples/arxiv-explorer.sh --rebuild             # force frontend rebuild
 ```
 
 ## Manual Installation
 
-If you prefer to set things up yourself:
+If you prefer to set things up yourself (requires Python 3.12+, Node.js 20+):
 
 ```bash
 python -m venv .venv
@@ -64,7 +77,7 @@ Visit `http://localhost:8000` in your browser.
 Shesha needs Docker to run code in a sandbox. Start Docker Desktop or the Docker daemon.
 
 **API key not set**
-Set your LLM API key as an environment variable before running `shesha-web`.
+Set `SHESHA_API_KEY` as an environment variable before running.
 
 **Papers fail to download**
 arXiv may be temporarily unavailable. Wait a minute and try again. Some papers with non-standard formats may fail to parse.

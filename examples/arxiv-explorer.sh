@@ -3,17 +3,18 @@
 # Handles venv creation, dependency installation, frontend build, and startup.
 #
 # Usage:
-#   ./run-web.sh                      # defaults
-#   ./run-web.sh --model gpt-5-mini   # pass args to shesha-web
-#   ./run-web.sh --port 8080          # custom port
-#   ./run-web.sh --no-browser         # don't open browser
-#   ./run-web.sh --rebuild            # force frontend rebuild
+#   ./examples/arxiv-explorer.sh                      # defaults
+#   ./examples/arxiv-explorer.sh --model gpt-5-mini   # pass args to shesha-web
+#   ./examples/arxiv-explorer.sh --port 8080          # custom port
+#   ./examples/arxiv-explorer.sh --no-browser         # don't open browser
+#   ./examples/arxiv-explorer.sh --rebuild            # force frontend rebuild
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/.venv"
-FRONTEND_DIR="$SCRIPT_DIR/src/shesha/experimental/web/frontend"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+VENV_DIR="$PROJECT_ROOT/.venv"
+FRONTEND_DIR="$PROJECT_ROOT/src/shesha/experimental/web/frontend"
 FRONTEND_DIST="$FRONTEND_DIR/dist"
 
 RED='\033[0;31m'
@@ -59,9 +60,8 @@ if [ "$PYMAJOR" -lt 3 ] || { [ "$PYMAJOR" -eq 3 ] && [ "$PYMINOR" -lt 12 ]; }; t
 fi
 
 # Check for an API key
-if [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${LITELLM_API_KEY:-}" ]; then
-    warn "No LLM API key detected (OPENAI_API_KEY, ANTHROPIC_API_KEY, or LITELLM_API_KEY)."
-    warn "Set one before querying papers. Continuing anyway..."
+if [ -z "${SHESHA_API_KEY:-}" ]; then
+    warn "No SHESHA_API_KEY detected. Set it before querying papers. Continuing anyway..."
 fi
 
 # Check Docker is running
@@ -81,9 +81,9 @@ source "$VENV_DIR/bin/activate"
 # --- Python dependencies ---
 # Install/update if shesha-web command doesn't exist or pyproject.toml is newer
 MARKER="$VENV_DIR/.shesha-web-installed"
-if [ ! -f "$MARKER" ] || [ "$SCRIPT_DIR/pyproject.toml" -nt "$MARKER" ]; then
+if [ ! -f "$MARKER" ] || [ "$PROJECT_ROOT/pyproject.toml" -nt "$MARKER" ]; then
     info "Installing Python dependencies..."
-    pip install -q -e ".[web]"
+    pip install -q -e "$PROJECT_ROOT[web]"
     touch "$MARKER"
 else
     info "Python dependencies up to date."

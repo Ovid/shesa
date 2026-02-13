@@ -1,0 +1,15 @@
+services:
+  shesha-web:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - shesha-data:/app/shesha_data
+    environment:
+      - SHESHA_API_KEY
+      - SHESHA_MODEL
+      - SHESHA_STORAGE_PATH=/app/shesha_data
+
+volumes:
+  shesha-data:
