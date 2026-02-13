@@ -78,3 +78,27 @@ def test_citation_instructions_appended_to_question() -> None:
     # Ends with the closing instruction
     expected_ending = "Always use [@arxiv:ID] when referencing a specific paper's claims or quotes."
     assert instructions.endswith(expected_ending)
+
+
+def test_citation_instructions_require_one_id_per_tag() -> None:
+    """Instructions must explicitly tell the LLM to use one ID per tag.
+
+    LLMs sometimes generate [@arxiv:ID1; @arxiv:ID2] which breaks the
+    frontend regex parser. The prompt must forbid this and show the
+    correct multi-citation format.
+    """
+    cache = MagicMock()
+    meta = MagicMock()
+    meta.title = "Test Paper"
+    cache.get_meta.return_value = meta
+
+    result = build_citation_instructions(["2005.09008v1"], cache)
+
+    # Must explicitly forbid combining IDs in one tag
+    assert "one" in result.lower() and "per" in result.lower(), (
+        "Instructions must state 'one ID per tag' or similar"
+    )
+    # Must show the correct multi-citation format
+    assert "][@arxiv:" in result, (
+        "Instructions must show adjacent-tag format: [@arxiv:ID1][@arxiv:ID2]"
+    )

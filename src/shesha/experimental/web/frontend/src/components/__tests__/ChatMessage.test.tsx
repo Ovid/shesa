@@ -120,4 +120,32 @@ describe('ChatMessage citation rendering', () => {
     expect(inlineButtons[0].textContent).toContain('2005.09008v1')
     expect(inlineButtons[1].textContent).toContain('2401.12345')
   })
+
+  it('renders semicolon-separated citations as individual clickable buttons', () => {
+    const paper2: PaperInfo = {
+      ...basePaper,
+      arxiv_id: '2401.12345',
+      title: 'Another Paper',
+    }
+    const exchange: Exchange = {
+      ...baseExchange,
+      answer: 'See [@arxiv:2005.09008v1; @arxiv:2401.12345] for details.',
+      paper_ids: ['2005.09008v1', '2401.12345'],
+    }
+    render(
+      <ChatMessage
+        exchange={exchange}
+        onViewTrace={vi.fn()}
+        topicPapers={[basePaper, paper2]}
+        onPaperClick={vi.fn()}
+      />
+    )
+
+    // Both IDs should render as clickable buttons despite being in one tag
+    const answerDiv = document.querySelector('.whitespace-pre-wrap')!
+    const inlineButtons = answerDiv.querySelectorAll('button')
+    expect(inlineButtons.length).toBe(2)
+    expect(inlineButtons[0].textContent).toContain('2005.09008v1')
+    expect(inlineButtons[1].textContent).toContain('2401.12345')
+  })
 })

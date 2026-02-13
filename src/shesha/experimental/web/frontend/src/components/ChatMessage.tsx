@@ -8,6 +8,7 @@ function formatTime(iso: string): string {
 }
 
 const CITATION_RE = /\[@arxiv:([^\]]+)\]/g
+const ARXIV_ID_RE = /\d{4}\.\d{4,5}(?:v\d+)?/g
 
 function renderAnswerWithCitations(
   text: string,
@@ -18,7 +19,7 @@ function renderAnswerWithCitations(
   let lastIndex = 0
 
   for (const match of text.matchAll(CITATION_RE)) {
-    const arxivId = match[1]
+    const rawContent = match[1]
     const matchStart = match.index!
 
     // Add text before this match
@@ -26,22 +27,30 @@ function renderAnswerWithCitations(
       parts.push(text.slice(lastIndex, matchStart))
     }
 
-    // Look up paper — only render as button if found in topicPapers
-    const paper = topicPapers?.find(p => p.arxiv_id === arxivId)
-    if (paper) {
-      parts.push(
-        <button
-          key={`cite-${matchStart}`}
-          onClick={() => onPaperClick?.(paper)}
-          className="text-xs text-accent hover:underline bg-accent/5 rounded px-1 py-0.5 mx-0.5 inline"
-          title={paper.title}
-        >
-          {paper.arxiv_id}
-        </button>
-      )
-    } else {
-      // Unknown ID — render as literal text
+    // Extract all arxiv IDs from the tag (handles semicolon-separated IDs)
+    const ids = [...rawContent.matchAll(ARXIV_ID_RE)].map(m => m[0])
+
+    if (ids.length === 0) {
+      // No valid IDs found — render as literal text
       parts.push(match[0])
+    } else {
+      for (const arxivId of ids) {
+        const paper = topicPapers?.find(p => p.arxiv_id === arxivId)
+        if (paper) {
+          parts.push(
+            <button
+              key={`cite-${matchStart}-${arxivId}`}
+              onClick={() => onPaperClick?.(paper)}
+              className="text-xs text-accent hover:underline bg-accent/5 rounded px-1 py-0.5 mx-0.5 inline"
+              title={paper.title}
+            >
+              {paper.arxiv_id}
+            </button>
+          )
+        } else {
+          parts.push(`[@arxiv:${arxivId}]`)
+        }
+      }
     }
 
     lastIndex = matchStart + match[0].length

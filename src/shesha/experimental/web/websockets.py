@@ -53,6 +53,9 @@ def build_citation_instructions(paper_ids: list[str], cache: PaperCache) -> str:
     lines = [
         "\n\nCITATION INSTRUCTIONS: When citing a source paper in your answer, "
         "use the format [@arxiv:ID] inline (e.g. [@arxiv:2005.09008v1]). "
+        "Use exactly one arxiv ID per tag. "
+        "To cite multiple papers, use adjacent tags: [@arxiv:ID1][@arxiv:ID2] "
+        "(NEVER [@arxiv:ID1; @arxiv:ID2]). "
         "Available papers:",
     ]
     for pid in paper_ids:
