@@ -57,3 +57,27 @@ def test_build_citation_instructions_empty_list() -> None:
     result = build_citation_instructions([], cache)
 
     assert result == ""
+
+
+def test_citation_instructions_appended_to_question() -> None:
+    """Verify that build_citation_instructions output follows expected structure.
+
+    The actual wiring into _handle_query is integration-level (WebSocket +
+    async + RLM engine), so we test the contract: the returned string starts
+    with newlines and ends with the 'Always use' instruction.
+    """
+    cache = MagicMock()
+    meta = MagicMock()
+    meta.title = "Test Paper"
+    cache.get_meta.return_value = meta
+
+    instructions = build_citation_instructions(["2005.09008v1"], cache)
+
+    # Starts with newlines so it appends cleanly to a question
+    assert instructions.startswith("\n\n")
+    # Ends with the closing instruction
+    expected_ending = (
+        "Always use [@arxiv:ID] when referencing a specific paper's "
+        "claims or quotes."
+    )
+    assert instructions.endswith(expected_ending)

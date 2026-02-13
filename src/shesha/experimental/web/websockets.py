@@ -151,7 +151,10 @@ async def _handle_query(
     project_dir = state.topic_mgr._storage._project_path(project_id)
     session = WebConversationSession(project_dir)
     history_prefix = session.format_history_prefix()
-    full_question = history_prefix + question if history_prefix else question
+    citation_suffix = build_citation_instructions(
+        [d.name for d in loaded_docs], state.cache
+    )
+    full_question = (history_prefix + question if history_prefix else question) + citation_suffix
 
     # Use asyncio.Queue for thread-safe message passing from the query
     # thread to the async WebSocket send loop.
