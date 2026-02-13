@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 
-interface DownloadTask {
-  taskId: string
-  papers: { arxiv_id: string; status: string }[]
+interface PaperStatus {
+  arxiv_id: string
+  status: string
 }
 
 interface DownloadProgressProps {
@@ -12,50 +12,99 @@ interface DownloadProgressProps {
 }
 
 export default function DownloadProgress({ taskIds, onComplete }: DownloadProgressProps) {
-  const [tasks, setTasks] = useState<DownloadTask[]>([])
+  const [papers, setPapers] = useState<PaperStatus[]>([])
+  const [dismissed, setDismissed] = useState(false)
+  const completedRef = useRef(new Set<string>())
+
+  // Reset dismissed state when new tasks arrive
+  const prevTaskIdsRef = useRef<string[]>([])
+  useEffect(() => {
+    if (taskIds.length > prevTaskIdsRef.current.length) {
+      setDismissed(false)
+    }
+    prevTaskIdsRef.current = taskIds
+  }, [taskIds])
+
+  const poll = useCallback(async () => {
+    const allPapers: PaperStatus[] = []
+    for (const taskId of taskIds) {
+      if (completedRef.current.has(taskId)) continue
+      try {
+        const data = await api.papers.taskStatus(taskId)
+        allPapers.push(...data.papers)
+        const allDone = data.papers.every(
+          (p: PaperStatus) => p.status === 'complete' || p.status === 'error'
+        )
+        if (allDone) {
+          completedRef.current.add(taskId)
+          onComplete(taskId)
+        }
+      } catch {
+        // Task may have been cleaned up
+      }
+    }
+    setPapers(allPapers)
+  }, [taskIds, onComplete])
 
   useEffect(() => {
     if (taskIds.length === 0) return
 
-    const interval = setInterval(async () => {
-      const updated: DownloadTask[] = []
-      for (const taskId of taskIds) {
-        try {
-          const data = await api.papers.taskStatus(taskId)
-          updated.push({ taskId, papers: data.papers })
-          const allDone = data.papers.every(p => p.status === 'complete' || p.status === 'error')
-          if (allDone) {
-            onComplete(taskId)
-          }
-        } catch {
-          // Task may have been cleaned up
-        }
-      }
-      setTasks(updated)
-    }, 2000)
-
+    // Poll immediately, then every 2 seconds
+    poll()
+    const interval = setInterval(poll, 2000)
     return () => clearInterval(interval)
-  }, [taskIds, onComplete])
+  }, [taskIds, poll])
 
-  if (tasks.length === 0) return null
+  // Clean up completed refs when taskIds change
+  useEffect(() => {
+    const current = new Set(taskIds)
+    for (const id of completedRef.current) {
+      if (!current.has(id)) completedRef.current.delete(id)
+    }
+  }, [taskIds])
+
+  if (taskIds.length === 0 || papers.length === 0 || dismissed) return null
+
+  const completed = papers.filter(p => p.status === 'complete').length
+  const errored = papers.filter(p => p.status === 'error').length
+  const total = papers.length
+  const done = completed + errored
+  const inProgress = papers.find(p => p.status === 'downloading')
+  const phase = inProgress
+    ? `Downloading ${inProgress.arxiv_id}...`
+    : done === total
+      ? 'Complete'
+      : 'Waiting...'
 
   return (
-    <div className="fixed bottom-10 left-4 flex flex-col gap-2 z-50 max-w-xs">
-      {tasks.map(task => (
-        <div key={task.taskId} className="bg-surface-2 border border-border rounded px-3 py-2 text-xs shadow-lg">
-          {task.papers.map(p => (
-            <div key={p.arxiv_id} className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${
-                p.status === 'complete' ? 'bg-green'
-                : p.status === 'error' ? 'bg-red'
-                : 'bg-amber animate-pulse'
-              }`} />
-              <span className="font-mono text-text-secondary">{p.arxiv_id}</span>
-              <span className="text-text-dim">{p.status}</span>
-            </div>
-          ))}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-surface-1 border border-border rounded-lg shadow-2xl w-[700px] max-h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <h2 className="text-sm font-semibold text-text-primary">Downloading Papers</h2>
+          <button
+            onClick={() => setDismissed(true)}
+            className="text-text-dim hover:text-text-secondary text-lg leading-none"
+          >
+            &times;
+          </button>
         </div>
-      ))}
+
+        {/* Content */}
+        <div className="px-4 py-3">
+          <div className="text-center py-8">
+            <div className="text-sm text-text-secondary mb-2">
+              {done}/{total} &mdash; {phase}
+            </div>
+            <div className="w-full bg-surface-2 rounded-full h-2">
+              <div
+                className={`h-2 rounded-full transition-all ${done === total ? 'bg-green' : 'bg-accent'}`}
+                style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
