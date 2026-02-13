@@ -1,5 +1,6 @@
 """Tests for RLM engine cancellation."""
 
+import inspect
 import threading
 from unittest.mock import MagicMock, patch
 
@@ -10,19 +11,8 @@ from shesha.rlm.engine import RLMEngine
 
 def test_query_accepts_cancel_event():
     """RLMEngine.query() accepts a cancel_event parameter."""
-    engine = RLMEngine(model="test-model")
-    event = threading.Event()
-    # Should not raise TypeError for unexpected keyword.
-    # Will fail for other reasons (no pool/executor), but not TypeError.
-    with pytest.raises(Exception) as exc_info:
-        engine.query(
-            documents=["doc"],
-            question="q",
-            cancel_event=event,
-        )
-    assert not isinstance(exc_info.value, TypeError), (
-        f"cancel_event rejected as unexpected keyword: {exc_info.value}"
-    )
+    sig = inspect.signature(RLMEngine.query)
+    assert "cancel_event" in sig.parameters
 
 
 def test_query_exits_when_cancel_event_set():
