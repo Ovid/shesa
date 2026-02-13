@@ -23,6 +23,7 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [start, setStart] = useState(0)
+  const [hasSearched, setHasSearched] = useState(false)
   const [adding, setAdding] = useState(false)
   const [addProgress, setAddProgress] = useState({ current: 0, total: 0 })
   const [addComplete, setAddComplete] = useState<string | null>(null)
@@ -50,6 +51,7 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
     } catch {
       showToast('Search failed. arXiv may be unreachable.', 'error')
     }
+    setHasSearched(true)
     setLoading(false)
   }
 
@@ -62,6 +64,7 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
     } catch {
       showToast('Local search failed', 'error')
     }
+    setHasSearched(true)
     setLoading(false)
   }
 
@@ -122,13 +125,13 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <div className="flex gap-2">
           <button
-            onClick={() => { setTab('arxiv'); setResults([]) }}
+            onClick={() => { setTab('arxiv'); setResults([]); setHasSearched(false) }}
             className={`text-xs px-2 py-1 rounded ${tab === 'arxiv' ? 'bg-accent/10 text-accent' : 'text-text-dim hover:text-text-secondary'}`}
           >
             arXiv
           </button>
           <button
-            onClick={() => { setTab('local'); setResults([]) }}
+            onClick={() => { setTab('local'); setResults([]); setHasSearched(false) }}
             className={`text-xs px-2 py-1 rounded ${tab === 'local' ? 'bg-accent/10 text-accent' : 'text-text-dim hover:text-text-secondary'}`}
           >
             My Papers
@@ -202,6 +205,11 @@ export default function SearchPanel({ activeTopic, onClose, onPapersChanged, onD
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
+        {hasSearched && !loading && results.length === 0 && (
+          <div className="px-3 py-6 text-center text-sm text-text-dim">
+            No results found
+          </div>
+        )}
         {results.map(r => (
           <div
             key={r.arxiv_id}

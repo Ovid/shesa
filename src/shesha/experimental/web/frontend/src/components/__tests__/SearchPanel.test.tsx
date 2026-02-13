@@ -310,6 +310,21 @@ describe('SearchPanel', () => {
     })
   })
 
+  describe('empty results', () => {
+    it('shows "No results found" when search returns empty', async () => {
+      const user = userEvent.setup()
+
+      vi.mocked(api.search).mockResolvedValue([])
+
+      render(<SearchPanel {...defaultProps} />)
+      await searchAndWait(user, 'barsoom')
+
+      await waitFor(() => {
+        expect(screen.getByText(/no results found/i)).toBeInTheDocument()
+      })
+    })
+  })
+
   describe('add errors', () => {
     it('shows error toast when add fails and continues with remaining papers', async () => {
       const user = userEvent.setup()
