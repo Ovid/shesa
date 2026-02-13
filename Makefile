@@ -1,10 +1,13 @@
-.PHONY: install test lint typecheck format all
+.PHONY: install test test-frontend lint typecheck format all loc
 
 install:
 	pip install -e ".[dev]"
 
 test:
-	pytest -v
+	pytest
+
+test-frontend:
+	cd src/shesha/experimental/web/frontend && npx vitest run
 
 lint:
 	ruff check src tests
@@ -16,4 +19,9 @@ format:
 	ruff format src tests
 	ruff check --fix src tests
 
-all: format lint typecheck test
+all: format lint typecheck test test-frontend
+
+loc:
+	@cloc src tests arxiv-explorer examples pyproject.toml Makefile \
+		--exclude-dir=node_modules,dist \
+		--not-match-f='package-lock\.json'

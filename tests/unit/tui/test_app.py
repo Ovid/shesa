@@ -1,5 +1,6 @@
 """Tests for main SheshaTUI app."""
 
+import threading
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -503,6 +504,77 @@ class TestQueryCancellation:
             pilot.app._on_query_complete(stale_query_id, stale_result, "stale question")
             statics_after = len(output.query("Static"))
             assert statics_after == statics_before
+
+    async def test_cancel_sets_cancel_event(self) -> None:
+        """Double-escape sets the cancel_event on the running query."""
+        project = MagicMock()
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            # Set up a cancel_event as if a query were running
+            cancel_event = threading.Event()
+            pilot.app._cancel_event = cancel_event
+            pilot.app._query_in_progress = True
+            pilot.app.query_one(InputArea).query_in_progress = True
+            # First escape clears text (if any), second cancels
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            # The cancel_event should now be set
+            assert cancel_event.is_set()
+
+    async def test_query_runner_passes_cancel_event(self) -> None:
+        """_make_query_runner passes cancel_event to project.query."""
+        project = MagicMock()
+        project.query.return_value = QueryResult(
+            answer="ok",
+            trace=Trace(steps=[]),
+            token_usage=TokenUsage(prompt_tokens=10, completion_tokens=5),
+            execution_time=0.1,
+        )
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            # Create a cancel event and assign it
+            cancel_event = threading.Event()
+            pilot.app._cancel_event = cancel_event
+            # Capture query_id at runner creation, then bump it
+            # so the runner skips call_from_thread (stale check)
+            runner = pilot.app._make_query_runner("question", "question")
+            pilot.app._query_id += 1
+            runner()
+            # Verify cancel_event was passed to project.query
+            _, kwargs = project.query.call_args
+            assert kwargs.get("cancel_event") is cancel_event
+
+    async def test_query_runner_captures_cancel_event_at_creation(self) -> None:
+        """Runner uses the cancel_event from creation time, not call time.
+
+        If _cancel_event is replaced (by a new query starting), the old
+        runner must still reference the original event, not the new one.
+        """
+        project = MagicMock()
+        project.query.return_value = QueryResult(
+            answer="ok",
+            trace=Trace(steps=[]),
+            token_usage=TokenUsage(prompt_tokens=10, completion_tokens=5),
+            execution_time=0.1,
+        )
+        app = SheshaTUI(project=project, project_name="test")
+        async with app.run_test() as pilot:
+            original_event = threading.Event()
+            pilot.app._cancel_event = original_event
+            runner = pilot.app._make_query_runner("question", "question")
+
+            # Simulate a new query replacing the cancel event
+            new_event = threading.Event()
+            pilot.app._cancel_event = new_event
+            pilot.app._query_id += 1
+
+            runner()
+            _, kwargs = project.query.call_args
+            # Must use the ORIGINAL event, not the new one
+            assert kwargs.get("cancel_event") is original_event
+            assert kwargs.get("cancel_event") is not new_event
 
 
 class TestAnalysisShortcutTokenDisplay:

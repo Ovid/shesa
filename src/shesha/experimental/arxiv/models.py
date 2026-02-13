@@ -71,9 +71,11 @@ class VerificationStatus(Enum):
     """Status of a citation verification."""
 
     VERIFIED = "verified"
+    VERIFIED_EXTERNAL = "verified_external"
     MISMATCH = "mismatch"
     NOT_FOUND = "not_found"
     UNRESOLVED = "unresolved"  # Non-arXiv citation, cannot verify yet
+    TOPICALLY_UNRELATED = "topically_unrelated"
 
 
 @dataclass
@@ -98,6 +100,8 @@ class VerificationResult:
     message: str | None = None
     actual_title: str | None = None
     arxiv_url: str | None = None
+    severity: str | None = None  # "error" or "warning"; None for VERIFIED/UNRESOLVED
+    source: str | None = None  # "arxiv", "crossref", "openalex", "semantic_scholar"
 
 
 @dataclass
@@ -136,7 +140,11 @@ class CheckReport:
     @property
     def verified_count(self) -> int:
         """Count of verified citations."""
-        return sum(1 for r in self.verification_results if r.status == VerificationStatus.VERIFIED)
+        return sum(
+            1
+            for r in self.verification_results
+            if r.status in (VerificationStatus.VERIFIED, VerificationStatus.VERIFIED_EXTERNAL)
+        )
 
     @property
     def mismatch_count(self) -> int:

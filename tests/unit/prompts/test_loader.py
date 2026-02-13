@@ -248,3 +248,11 @@ def test_loader_render_iteration_continue(valid_prompts_dir: Path):
     loader = PromptLoader(prompts_dir=valid_prompts_dir)
     result = loader.render_iteration_continue(question="What is the answer?")
     assert "What is the answer?" in result
+
+
+def test_system_prompt_contains_document_only_constraint():
+    """System prompt must explicitly forbid using training data."""
+    loader = PromptLoader()
+    result = loader.render_system_prompt()
+    assert "ONLY using information found in the provided context documents" in result
+    assert "do not introduce facts from your training data" in result

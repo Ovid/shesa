@@ -41,6 +41,7 @@ TODO.md
 .worktrees/
 src/shesha/_version.py
 /rlm/
+node_modules/
 
 # Shesha runtime data
 shesha_data/
