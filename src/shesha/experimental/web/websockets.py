@@ -11,6 +11,7 @@ from collections.abc import Callable
 from fastapi import WebSocket, WebSocketDisconnect
 
 from shesha.exceptions import DocumentNotFoundError
+from shesha.experimental.arxiv.cache import PaperCache
 from shesha.experimental.arxiv.citations import (
     ArxivVerifier,
     detect_llm_phrases,
@@ -38,6 +39,29 @@ from shesha.models import ParsedDocument
 from shesha.rlm.trace import StepType, TokenUsage
 
 logger = logging.getLogger(__name__)
+
+
+def build_citation_instructions(paper_ids: list[str], cache: PaperCache) -> str:
+    """Build citation instruction text to append to user questions.
+
+    Tells the LLM to cite papers using [@arxiv:ID] format and lists
+    available papers with their titles.
+    """
+    if not paper_ids:
+        return ""
+
+    lines = [
+        "\n\nCITATION INSTRUCTIONS: When citing a source paper in your answer, "
+        "use the format [@arxiv:ID] inline (e.g. [@arxiv:2005.09008v1]). "
+        "Available papers:",
+    ]
+    for pid in paper_ids:
+        meta = cache.get_meta(pid)
+        title = meta.title if meta else pid
+        lines.append(f'- [@arxiv:{pid}] "{title}"')
+    lines.append("Always use [@arxiv:ID] when referencing a specific paper's claims or quotes.")
+
+    return "\n".join(lines)
 
 
 async def websocket_handler(ws: WebSocket, state: AppState) -> None:
