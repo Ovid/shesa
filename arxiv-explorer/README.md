@@ -18,6 +18,10 @@ Shesha lets you ask plain-English questions across dozens of arXiv papers at onc
 - An **LLM API key** — see [Getting an API Key](#getting-an-api-key) below
 - **Model selection** — set `SHESHA_MODEL` (see [Choosing a Model](#choosing-a-model) below)
 
+## Setup
+
+If you're comfortable with software development, you can run `./examples/arxiv-explorer.sh` to launch this quickly. It's not well tested (it still requires Docker because the Python code runs in a locked-down Docker container). Otherwise, you `cd arxiv-explorer; docker compose up`, after ensuring the prerequisites are satisfied.
+
 ### Installing Docker
 
 Docker runs the code sandbox that Shesha uses to safely execute LLM-generated code. If you already have Docker installed, skip to [Quick Start](#quick-start).
